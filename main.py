@@ -9,6 +9,7 @@ from data.candle import Candle
 from datetime import datetime
 from data.candle_repository import CandleRepository
 from data.fake_data import get_fake_candle
+from data.market_stream import MarketStream
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -34,5 +35,10 @@ def main():
     fake_candle = get_fake_candle()
 
     print(fake_candle)
+    stream = MarketStream()
+
+    next_candle = stream.get_next_candle()
+
+    print(next_candle)
 if __name__ == "__main__":
     main()
