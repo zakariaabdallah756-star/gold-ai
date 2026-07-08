@@ -1,0 +1,8 @@
+APP_NAME = "GoldAI"
+VERSION = "1.0.0"
+
+SYMBOL = "XAUUSD"
+
+TIMEFRAME = "M15"
+
+MAX_RISK = 0.5
