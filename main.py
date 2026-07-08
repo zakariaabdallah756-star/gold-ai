@@ -15,6 +15,7 @@ from data.validator import CandleValidator
 from indicators.sma import SMA
 from indicators.ema import EMA
 from indicators.rsi import RSI
+from indicators.indicator_engine import IndicatorEngine
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -70,5 +71,10 @@ def main():
     rsi_value = rsi.calculate(engine.repository.get_all(), 1)
 
     print("RSI:", rsi_value)
+    indicator_engine = IndicatorEngine()
+
+    values = indicator_engine.calculate(engine.repository.get_all())
+
+    print(values)
 if __name__ == "__main__":
     main()
