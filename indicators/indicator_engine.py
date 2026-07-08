@@ -1,7 +1,7 @@
 from indicators.sma import SMA
 from indicators.ema import EMA
 from indicators.rsi import RSI
-
+from indicators.indicator_values import IndicatorValues
 
 class IndicatorEngine:
     def __init__(self):
@@ -10,8 +10,8 @@ class IndicatorEngine:
         self.rsi = RSI()
 
     def calculate(self, candles):
-        return {
-            "SMA": self.sma.calculate(candles, 1),
-            "EMA": self.ema.calculate(candles, 1),
-            "RSI": self.rsi.calculate(candles, 14),
-        }
+       return IndicatorValues(
+            sma=self.sma.calculate(candles, 1),
+            ema=self.ema.calculate(candles, 1),
+            rsi=self.rsi.calculate(candles, 14)
+        )
