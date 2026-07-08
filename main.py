@@ -10,10 +10,11 @@ from datetime import datetime
 from data.candle_repository import CandleRepository
 from data.fake_data import get_fake_candle
 from data.market_stream import MarketStream
+from data.data_engine import DataEngine
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
-    print(engine)
+    # print(engine)
     print(generate_id())
     print(Event.NEW_CANDLE)
     provider = DataProvider()
@@ -40,5 +41,12 @@ def main():
     next_candle = stream.get_next_candle()
 
     print(next_candle)
+    engine = DataEngine()
+
+    latest = engine.update()
+
+    print(latest)
+
+    print(engine.repository.last())
 if __name__ == "__main__":
     main()
