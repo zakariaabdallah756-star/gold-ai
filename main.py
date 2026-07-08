@@ -11,6 +11,7 @@ from data.candle_repository import CandleRepository
 from data.fake_data import get_fake_candle
 from data.market_stream import MarketStream
 from data.data_engine import DataEngine
+from data.validator import CandleValidator
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -48,5 +49,8 @@ def main():
     print(latest)
 
     print(engine.repository.last())
+    validator = CandleValidator()
+
+    print(validator.validate(latest))
 if __name__ == "__main__":
     main()
