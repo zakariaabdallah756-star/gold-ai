@@ -16,6 +16,7 @@ from indicators.sma import SMA
 from indicators.ema import EMA
 from indicators.rsi import RSI
 from indicators.indicator_engine import IndicatorEngine
+from strategy.signal import Signal, SignalType
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -76,5 +77,11 @@ def main():
     values = indicator_engine.calculate(engine.repository.get_all())
 
     print(values)
+    signal = Signal(
+        signal=SignalType.BUY,
+        confidence=0.95
+)
+
+    print(signal)
 if __name__ == "__main__":
     main()
