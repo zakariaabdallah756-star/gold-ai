@@ -13,6 +13,7 @@ from data.market_stream import MarketStream
 from data.data_engine import DataEngine
 from data.validator import CandleValidator
 from indicators.sma import SMA
+from indicators.ema import EMA
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -58,5 +59,10 @@ def main():
     value = sma.calculate(engine.repository.get_all(), 1)
 
     print("SMA:", value)
+    ema = EMA()
+
+    ema_value = ema.calculate(engine.repository.get_all(), 1)
+
+    print("EMA:", ema_value)
 if __name__ == "__main__":
     main()
