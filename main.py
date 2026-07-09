@@ -20,6 +20,7 @@ from strategy.signal import Signal, SignalType
 from strategy.moving_average_strategy import MovingAverageStrategy
 from strategy.strategy_engine import StrategyEngine
 from risk.risk_model import RiskModel
+from risk.position_sizer import PositionSizer
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -103,5 +104,15 @@ def main():
     )
 
     print(risk)
+    position_sizer = PositionSizer()
+
+    lot = position_sizer.calculate(
+        balance=10000,
+        risk_percent=1,
+        stop_loss_pips=200,
+        pip_value=1,
+    )
+
+    print("LOT:", lot)
 if __name__ == "__main__":
     main()
