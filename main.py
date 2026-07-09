@@ -27,6 +27,7 @@ from execution.order import Order
 from execution.order_executor import OrderExecutor
 from execution.execution_engine import ExecutionEngine
 from execution.order_builder import OrderBuilder
+from paper.paper_account import PaperAccount
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -162,5 +163,8 @@ def main():
     new_order = builder.build("XAUUSD", trade_plan)
 
     print(new_order)
+    account = PaperAccount()
+
+    print(account)
 if __name__ == "__main__":
     main()
