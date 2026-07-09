@@ -19,6 +19,7 @@ from indicators.indicator_engine import IndicatorEngine
 from strategy.signal import Signal, SignalType
 from strategy.moving_average_strategy import MovingAverageStrategy
 from strategy.strategy_engine import StrategyEngine
+from risk.risk_model import RiskModel
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -95,5 +96,12 @@ def main():
     final_signal = strategy_engine.generate_signal(values)
 
     print(final_signal)
+    risk = RiskModel(
+        risk_percent=1.0,
+        stop_loss_pips=200,
+        take_profit_pips=400,
+    )
+
+    print(risk)
 if __name__ == "__main__":
     main()
