@@ -16,6 +16,7 @@ from indicators.sma import SMA
 from indicators.ema import EMA
 from indicators.rsi import RSI
 from indicators.indicator_engine import IndicatorEngine
+from risk import trade_plan
 from strategy.signal import Signal, SignalType
 from strategy.moving_average_strategy import MovingAverageStrategy
 from strategy.strategy_engine import StrategyEngine
@@ -28,6 +29,7 @@ from execution.order_executor import OrderExecutor
 from execution.execution_engine import ExecutionEngine
 from execution.order_builder import OrderBuilder
 from paper.paper_account import PaperAccount
+from paper.position import Position
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -159,12 +161,21 @@ def main():
 
     print("ENGINE EXECUTED:", execution_result)
     builder = OrderBuilder()
-
+    
     new_order = builder.build("XAUUSD", trade_plan)
 
     print(new_order)
     account = PaperAccount()
 
     print(account)
+    position = Position(
+        symbol="XAUUSD",
+        signal=trade_plan.signal,
+        lot_size=trade_plan.lot_size,
+        entry_price=3300.0,
+        stop_loss=3280.0,
+        take_profit=3340.0,
+    )
+    print(position)
 if __name__ == "__main__":
     main()
