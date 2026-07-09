@@ -21,6 +21,7 @@ from strategy.moving_average_strategy import MovingAverageStrategy
 from strategy.strategy_engine import StrategyEngine
 from risk.risk_model import RiskModel
 from risk.position_sizer import PositionSizer
+from risk.risk_engine import RiskEngine
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -114,5 +115,15 @@ def main():
     )
 
     print("LOT:", lot)
+    risk_engine = RiskEngine()
+
+    engine_lot = risk_engine.calculate_position_size(
+        balance=10000,
+        risk_percent=1,
+        stop_loss_pips=200,
+        pip_value=1,
+    )
+
+    print("ENGINE LOT:", engine_lot)
 if __name__ == "__main__":
     main()
