@@ -24,6 +24,7 @@ from risk.position_sizer import PositionSizer
 from risk.risk_engine import RiskEngine
 from risk.trade_plan import TradePlan
 from execution.order import Order
+from execution.order_executor import OrderExecutor
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -144,5 +145,10 @@ def main():
     )
 
     print(order)
+    executor = OrderExecutor()
+
+    result = executor.execute(order)
+
+    print("EXECUTED:", result)
 if __name__ == "__main__":
     main()
