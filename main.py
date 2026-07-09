@@ -23,6 +23,7 @@ from risk.risk_model import RiskModel
 from risk.position_sizer import PositionSizer
 from risk.risk_engine import RiskEngine
 from risk.trade_plan import TradePlan
+from execution.order import Order
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -134,5 +135,14 @@ def main():
     )
 
     print(trade_plan)
+    order = Order(
+        symbol="XAUUSD",
+        signal=trade_plan.signal,
+        lot_size=trade_plan.lot_size,
+        stop_loss_pips=trade_plan.stop_loss_pips,
+        take_profit_pips=trade_plan.take_profit_pips,
+    )
+
+    print(order)
 if __name__ == "__main__":
     main()
