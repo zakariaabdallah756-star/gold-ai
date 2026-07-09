@@ -18,6 +18,7 @@ from indicators.rsi import RSI
 from indicators.indicator_engine import IndicatorEngine
 from strategy.signal import Signal, SignalType
 from strategy.moving_average_strategy import MovingAverageStrategy
+from strategy.strategy_engine import StrategyEngine
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -89,6 +90,10 @@ def main():
     strategy_signal = strategy.generate(values)
 
     print(strategy_signal)
-    
+    strategy_engine = StrategyEngine()
+
+    final_signal = strategy_engine.generate_signal(values)
+
+    print(final_signal)
 if __name__ == "__main__":
     main()
