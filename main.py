@@ -30,6 +30,7 @@ from execution.execution_engine import ExecutionEngine
 from execution.order_builder import OrderBuilder
 from paper.paper_account import PaperAccount
 from paper.position import Position
+from paper.position_manager import PositionManager
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -177,5 +178,10 @@ def main():
         take_profit=3340.0,
     )
     print(position)
+    manager = PositionManager()
+
+    manager.open_position(position)
+
+    print(manager.get_open_positions())
 if __name__ == "__main__":
     main()
