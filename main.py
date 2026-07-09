@@ -26,6 +26,7 @@ from risk.trade_plan import TradePlan
 from execution.order import Order
 from execution.order_executor import OrderExecutor
 from execution.execution_engine import ExecutionEngine
+from execution.order_builder import OrderBuilder
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -156,5 +157,10 @@ def main():
     execution_result = execution_engine.execute_order(order)
 
     print("ENGINE EXECUTED:", execution_result)
+    builder = OrderBuilder()
+
+    new_order = builder.build("XAUUSD", trade_plan)
+
+    print(new_order)
 if __name__ == "__main__":
     main()
