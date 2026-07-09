@@ -22,6 +22,7 @@ from strategy.strategy_engine import StrategyEngine
 from risk.risk_model import RiskModel
 from risk.position_sizer import PositionSizer
 from risk.risk_engine import RiskEngine
+from risk.trade_plan import TradePlan
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -125,5 +126,13 @@ def main():
     )
 
     print("ENGINE LOT:", engine_lot)
+    trade_plan = TradePlan(
+        signal=final_signal.signal,
+        lot_size=engine_lot,
+        stop_loss_pips=200,
+        take_profit_pips=400,
+    )
+
+    print(trade_plan)
 if __name__ == "__main__":
     main()
