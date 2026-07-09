@@ -31,6 +31,7 @@ from execution.order_builder import OrderBuilder
 from paper.paper_account import PaperAccount
 from paper.position import Position
 from paper.position_manager import PositionManager
+from paper.paper_engine import PaperEngine
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -183,5 +184,12 @@ def main():
     manager.open_position(position)
 
     print(manager.get_open_positions())
+    paper_engine = PaperEngine()
+
+    paper_position = paper_engine.execute_trade(trade_plan)
+
+    print(paper_position)
+
+    print(paper_engine.manager.get_open_positions())
 if __name__ == "__main__":
     main()
