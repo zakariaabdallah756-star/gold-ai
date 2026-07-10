@@ -36,6 +36,9 @@ from paper.profit_loss import ProfitLossCalculator
 from paper.account_manager import AccountManager
 from paper.position_updater import PositionUpdater
 from paper.position_closer import PositionCloser
+from backtest.backtest_engine import BacktestEngine
+from market.candle import Candle
+from datetime import datetime
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -220,6 +223,21 @@ def main():
     )
 
     print(account)
+    candle = Candle(
+    time=datetime.now(),
+    open=3300.0,
+    high=3310.0,
+    low=3295.0,
+    close=3305.0,
+    volume=1200,
+)
+
+    print(candle)
+    backtest = BacktestEngine()
+
+    history = backtest.load_data()
+
+    print("Storico:", len(history))
     closer = PositionCloser()
 
     should_close = closer.should_close(
