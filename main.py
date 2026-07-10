@@ -35,6 +35,7 @@ from paper.paper_engine import PaperEngine
 from paper.profit_loss import ProfitLossCalculator
 from paper.account_manager import AccountManager
 from paper.position_updater import PositionUpdater
+from paper.position_closer import PositionCloser
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -219,5 +220,13 @@ def main():
     )
 
     print(account)
+    closer = PositionCloser()
+
+    should_close = closer.should_close(
+        position=paper_position,
+        current_price=3340.0,
+    )
+
+    print("CLOSE:", should_close)
 if __name__ == "__main__":
     main()
