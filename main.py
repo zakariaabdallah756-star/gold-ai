@@ -34,6 +34,7 @@ from paper.position_manager import PositionManager
 from paper.paper_engine import PaperEngine
 from paper.profit_loss import ProfitLossCalculator
 from paper.account_manager import AccountManager
+from paper.position_updater import PositionUpdater
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -209,5 +210,14 @@ def main():
     )
 
     print(updated_account)
+    updater = PositionUpdater()
+
+    account = updater.update(
+        manager=paper_engine.manager,
+        account=account,
+        current_price=3315.0,
+    )
+
+    print(account)
 if __name__ == "__main__":
     main()
