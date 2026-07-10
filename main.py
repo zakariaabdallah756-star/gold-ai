@@ -4,6 +4,7 @@ from core.database import engine
 from core.utils import generate_id
 from core.events import Event
 from data import candle
+from data import data_engine
 from data.data_provider import DataProvider
 from data.candle import Candle
 from datetime import datetime
@@ -37,6 +38,9 @@ from paper.account_manager import AccountManager
 from paper.position_updater import PositionUpdater
 from paper.position_closer import PositionCloser
 from backtest.backtest_engine import BacktestEngine
+from market.candle import Candle
+from datetime import datetime
+from market.data_engine import DataEngine
 from market.candle import Candle
 from datetime import datetime
 def main():
@@ -223,6 +227,20 @@ def main():
     )
 
     print(account)
+    data_engine = DataEngine()
+
+    data_engine.add_candle(
+        Candle(
+            time=datetime.now(),
+            open=3300.0,
+            high=3310.0,
+            low=3295.0,
+            close=3305.0,
+            volume=1200,
+        )
+    )
+
+    print("Candles:", len(data_engine.get_candles()))
     candle = Candle(
     time=datetime.now(),
     open=3300.0,
@@ -233,11 +251,12 @@ def main():
 )
 
     print(candle)
-    backtest = BacktestEngine()
+    backtest = BacktestEngine(engine)
 
     history = backtest.load_data()
 
     print("Storico:", len(history))
+    backtest.run()
     closer = PositionCloser()
 
     should_close = closer.should_close(

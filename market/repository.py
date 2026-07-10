@@ -15,3 +15,10 @@ class MarketRepository:
 
     def clear(self):
         self.database.clear()
+    def last(self):
+        candles = self.database.all()
+
+        if not candles:
+            return None
+
+        return candles[-1]
