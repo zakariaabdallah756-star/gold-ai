@@ -32,6 +32,7 @@ from paper.paper_account import PaperAccount
 from paper.position import Position
 from paper.position_manager import PositionManager
 from paper.paper_engine import PaperEngine
+from paper.profit_loss import ProfitLossCalculator
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -191,5 +192,13 @@ def main():
     print(paper_position)
 
     print(paper_engine.manager.get_open_positions())
+    pnl_calculator = ProfitLossCalculator()
+
+    pnl = pnl_calculator.calculate(
+        position=paper_position,
+        current_price=3310.0,
+    )
+
+    print("PNL:", pnl)
 if __name__ == "__main__":
     main()
