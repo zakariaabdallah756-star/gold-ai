@@ -261,6 +261,8 @@ def main():
     signals = backtest.execute()
     print("Trades:", len(backtest.get_trades()))
     print("Total Trades:", backtest.get_total_trades())
+    print("BUY Trades:", backtest.get_buy_trades())
+    print("SELL Trades:", backtest.get_sell_trades())
     print("Candles processed:", len(backtest.get_candles()))
     print("Indicators calculated:", len(backtest.get_indicators()))
 

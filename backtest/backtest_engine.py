@@ -14,6 +14,9 @@ class BacktestEngine:
         self.candles_history = []
         self.trades = []
         self.total_trades = 0
+        self.buy_trades = 0
+        self.sell_trades = 0
+
         self.risk_engine = RiskEngine()
     def load_data(self):
         return self.data_engine.get_candles()
@@ -36,10 +39,15 @@ class BacktestEngine:
             signal = self.strategy_engine.generate_signal(indicators)
 
             self.signals.append(signal)
-
             if signal.signal.value != "HOLD":
                 self.trades.append(signal)
                 self.total_trades += 1
+
+                if signal.signal.value == "BUY":
+                    self.buy_trades += 1
+
+                if signal.signal.value == "SELL":
+                    self.sell_trades += 1
 
             print(candle)
             print("Indicators:", indicators)
@@ -54,13 +62,22 @@ class BacktestEngine:
         return self.trades
     def get_total_trades(self):
         return self.total_trades
+    def get_buy_trades(self):
+        return self.buy_trades
+
+
+    def get_sell_trades(self):
+        return self.sell_trades
     
     def reset(self):
         self.signals.clear()
         self.indicators_history.clear()
         self.candles_history.clear()
         self.trades.clear()
+
         self.total_trades = 0
+        self.buy_trades = 0
+        self.sell_trades = 0
     def execute(self):
         self.reset()
         self.run()
