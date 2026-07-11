@@ -287,6 +287,7 @@ def main():
     print("Indicators calculated:", len(backtest.get_indicators()))
 
     print("Signals generated:", len(signals))
+    print(backtest.get_statistics())
     #closer = PositionCloser()
 
     #should_close = closer.should_close(

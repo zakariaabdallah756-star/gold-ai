@@ -3,6 +3,7 @@ from strategy.strategy_engine import StrategyEngine
 from indicators.indicator_engine import IndicatorEngine
 from strategy.strategy_engine import StrategyEngine
 from risk.risk_engine import RiskEngine
+from backtest.statistics import BacktestStatistics
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -72,7 +73,15 @@ class BacktestEngine:
         return self.sell_trades
     def get_last_signal(self):
         return self.last_signal
-       
+    def get_statistics(self):
+        return BacktestStatistics(
+            total_trades=self.total_trades,
+            buy_trades=self.buy_trades,
+            sell_trades=self.sell_trades,
+            winning_trades=0,
+            losing_trades=0,
+            total_profit=0.0,
+        )   
     def reset(self):
         self.signals.clear()
         self.indicators_history.clear()
