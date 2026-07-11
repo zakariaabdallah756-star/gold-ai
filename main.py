@@ -43,8 +43,7 @@ from backtest.backtest_engine import BacktestEngine
 from market.candle import Candle
 from datetime import datetime
 from market.data_engine import DataEngine
-from market.candle import Candle
-from datetime import datetime
+
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -108,7 +107,7 @@ def main():
     signal = Signal(
         signal=SignalType.BUY,
         confidence=0.95
-)
+    )
 
     print(signal)
     strategy = MovingAverageStrategy()
@@ -243,16 +242,37 @@ def main():
     )
 
     print("Candles:", len(data_engine.get_candles()))
-    candle = Candle(
-    time=datetime.now(),
-    open=3300.0,
-    high=3310.0,
-    low=3295.0,
-    close=3305.0,
-    volume=1200,
-)
 
-    print(candle)
+    candles = [
+        Candle(
+            time=datetime.now(),
+            open=3300.0,
+            high=3310.0,
+            low=3295.0,
+            close=3305.0,
+            volume=1200,
+        ),
+        Candle(
+            time=datetime.now(),
+            open=3305.0,
+            high=3320.0,
+            low=3300.0,
+            close=3318.0,
+            volume=1500,
+        ),
+        Candle(
+            time=datetime.now(),
+            open=3318.0,
+            high=3335.0,
+            low=3310.0,
+            close=3330.0,
+            volume=1700,
+        ),
+    ]
+
+    for candle in candles:
+        engine.add_candle(candle)
+        print(candle)
     backtest = BacktestEngine(engine)
 
     history = backtest.load_data()
@@ -268,13 +288,13 @@ def main():
     print("Indicators calculated:", len(backtest.get_indicators()))
 
     print("Signals generated:", len(signals))
-    closer = PositionCloser()
+    #closer = PositionCloser()
 
-    should_close = closer.should_close(
-        position=paper_position,
-        current_price=3340.0,
-    )
+    #should_close = closer.should_close(
+        #position=paper_position,
+        #current_price=3340.0,
+    #)
 
-    print("CLOSE:", should_close)
+    #print("CLOSE:", should_close)
 if __name__ == "__main__":
     main()
