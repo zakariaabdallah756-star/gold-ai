@@ -259,6 +259,7 @@ def main():
 
     print("Storico:", len(history))
     signals = backtest.execute()
+    print("Candles processed:", len(backtest.get_candles()))
     print("Indicators calculated:", len(backtest.get_indicators()))
 
     print("Signals generated:", len(signals))

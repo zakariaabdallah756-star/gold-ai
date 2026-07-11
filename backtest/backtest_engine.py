@@ -11,6 +11,7 @@ class BacktestEngine:
         self.strategy_engine = StrategyEngine()
         self.signals = []
         self.indicators_history = []
+        self.candles_history = []
         self.risk_engine = RiskEngine()
     def load_data(self):
         return self.data_engine.get_candles()
@@ -25,6 +26,7 @@ class BacktestEngine:
 
         for candle in candles:
             history.append(candle)
+            self.candles_history.append(candle)
 
             indicators = self.indicator_engine.calculate(history)
             self.indicators_history.append(indicators)
@@ -38,10 +40,13 @@ class BacktestEngine:
         return self.signals
     def get_indicators(self):
         return self.indicators_history
+    def get_candles(self):
+        return self.candles_history
     
     def reset(self):
         self.signals.clear()
         self.indicators_history.clear()
+        self.candles_history.clear()
     def execute(self):
         self.reset()
         self.run()
