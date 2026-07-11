@@ -260,6 +260,7 @@ def main():
     print("Storico:", len(history))
     signals = backtest.execute()
     print("Trades:", len(backtest.get_trades()))
+    print("Total Trades:", backtest.get_total_trades())
     print("Candles processed:", len(backtest.get_candles()))
     print("Indicators calculated:", len(backtest.get_indicators()))
 
