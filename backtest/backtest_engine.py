@@ -33,7 +33,12 @@ class BacktestEngine:
             self.indicators_history.append(indicators)
 
             signal = self.strategy_engine.generate_signal(indicators)
+
             self.signals.append(signal)
+
+            if signal.signal.value != "HOLD":
+                self.trades.append(signal)
+
             print(candle)
             print("Indicators:", indicators)
             print("Signal:", signal)
