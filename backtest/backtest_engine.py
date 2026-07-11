@@ -36,3 +36,7 @@ class BacktestEngine:
         return self.signals
     def reset(self):
         self.signals.clear()
+    def execute(self):
+        self.reset()
+        self.run()
+        return self.get_signals()    

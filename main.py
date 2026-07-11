@@ -1,3 +1,5 @@
+from unittest import signals
+
 from core.logger import logger
 from core.constants import APP_NAME, VERSION
 from core.database import engine
@@ -256,11 +258,9 @@ def main():
     history = backtest.load_data()
 
     print("Storico:", len(history))
-    backtest.run()
-    print("Signals generated:", len(backtest.get_signals()))
-    backtest.reset()
+    signals = backtest.execute()
 
-    print("Signals after reset:", len(backtest.get_signals()))
+    print("Signals generated:", len(signals))
     closer = PositionCloser()
 
     should_close = closer.should_close(
