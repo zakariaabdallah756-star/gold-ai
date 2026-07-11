@@ -34,3 +34,5 @@ class BacktestEngine:
             print("Signal:", signal)
     def get_signals(self):
         return self.signals
+    def reset(self):
+        self.signals.clear()
