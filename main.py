@@ -257,6 +257,7 @@ def main():
 
     print("Storico:", len(history))
     backtest.run()
+    print("Signals generated:", len(backtest.signals))
     closer = PositionCloser()
 
     should_close = closer.should_close(

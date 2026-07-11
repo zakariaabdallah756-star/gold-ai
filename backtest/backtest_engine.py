@@ -9,6 +9,7 @@ class BacktestEngine:
         self.data_engine = data_engine
         self.indicator_engine = IndicatorEngine()
         self.strategy_engine = StrategyEngine()
+        self.signals = []
         self.risk_engine = RiskEngine()
     def load_data(self):
         return self.data_engine.get_candles()
@@ -27,7 +28,7 @@ class BacktestEngine:
             indicators = self.indicator_engine.calculate(history)
 
             signal = self.strategy_engine.generate_signal(indicators)
-
+            self.signals.append(signal)
             print(candle)
             print("Indicators:", indicators)
             print("Signal:", signal)
