@@ -32,3 +32,5 @@ class BacktestEngine:
             print(candle)
             print("Indicators:", indicators)
             print("Signal:", signal)
+    def get_signals(self):
+        return self.signals
