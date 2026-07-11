@@ -16,6 +16,7 @@ class BacktestEngine:
         self.total_trades = 0
         self.buy_trades = 0
         self.sell_trades = 0
+        self.last_signal = None
 
         self.risk_engine = RiskEngine()
     def load_data(self):
@@ -39,6 +40,7 @@ class BacktestEngine:
             signal = self.strategy_engine.generate_signal(indicators)
 
             self.signals.append(signal)
+            self.last_signal = signal
             if signal.signal.value != "HOLD":
                 self.trades.append(signal)
                 self.total_trades += 1
@@ -68,7 +70,9 @@ class BacktestEngine:
 
     def get_sell_trades(self):
         return self.sell_trades
-    
+    def get_last_signal(self):
+        return self.last_signal
+       
     def reset(self):
         self.signals.clear()
         self.indicators_history.clear()
@@ -78,6 +82,7 @@ class BacktestEngine:
         self.total_trades = 0
         self.buy_trades = 0
         self.sell_trades = 0
+        self.last_signal = None
     def execute(self):
         self.reset()
         self.run()
