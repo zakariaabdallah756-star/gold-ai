@@ -259,6 +259,7 @@ def main():
 
     print("Storico:", len(history))
     signals = backtest.execute()
+    print("Indicators calculated:", len(backtest.get_indicators()))
 
     print("Signals generated:", len(signals))
     closer = PositionCloser()

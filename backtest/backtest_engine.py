@@ -10,6 +10,7 @@ class BacktestEngine:
         self.indicator_engine = IndicatorEngine()
         self.strategy_engine = StrategyEngine()
         self.signals = []
+        self.indicators_history = []
         self.risk_engine = RiskEngine()
     def load_data(self):
         return self.data_engine.get_candles()
@@ -26,6 +27,7 @@ class BacktestEngine:
             history.append(candle)
 
             indicators = self.indicator_engine.calculate(history)
+            self.indicators_history.append(indicators)
 
             signal = self.strategy_engine.generate_signal(indicators)
             self.signals.append(signal)
@@ -34,8 +36,12 @@ class BacktestEngine:
             print("Signal:", signal)
     def get_signals(self):
         return self.signals
+    def get_indicators(self):
+        return self.indicators_history
+    
     def reset(self):
         self.signals.clear()
+        self.indicators_history.clear()
     def execute(self):
         self.reset()
         self.run()
