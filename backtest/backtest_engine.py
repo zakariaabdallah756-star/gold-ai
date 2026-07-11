@@ -19,9 +19,15 @@ class BacktestEngine:
             print("Nessuna candela disponibile.")
             return
 
-        indicators = self.indicator_engine.calculate(candles)
+        history = []
 
-        signal = self.strategy_engine.generate_signal(indicators)
+        for candle in candles:
+            history.append(candle)
 
-        print("Indicators:", indicators)
-        print("Signal:", signal)
+            indicators = self.indicator_engine.calculate(history)
+
+            signal = self.strategy_engine.generate_signal(indicators)
+
+            print(candle)
+            print("Indicators:", indicators)
+            print("Signal:", signal)
