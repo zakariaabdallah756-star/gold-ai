@@ -74,23 +74,22 @@ class BacktestEngine:
     def get_last_signal(self):
         return self.last_signal
     def get_statistics(self):
-        winning = 0
-        losing = 0
+        total_profit = 0.0
 
         for trade in self.trades:
             if trade.signal.value == "BUY":
-                winning += 1
+                total_profit += 0.0
 
             if trade.signal.value == "SELL":
-                losing += 1
+                total_profit += 0.0
 
         return BacktestStatistics(
             total_trades=self.total_trades,
             buy_trades=self.buy_trades,
             sell_trades=self.sell_trades,
-            winning_trades=winning,
-            losing_trades=losing,
-            total_profit=0.0,
+            winning_trades=0,
+            losing_trades=0,
+            total_profit=total_profit,
         )
     def reset(self):
         self.signals.clear()
