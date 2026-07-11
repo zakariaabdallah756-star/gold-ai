@@ -228,9 +228,8 @@ def main():
     )
 
     print(account)
-    data_engine = DataEngine()
 
-    data_engine.add_candle(
+    engine.add_candle(
         Candle(
             time=datetime.now(),
             open=3300.0,
@@ -241,7 +240,7 @@ def main():
         )
     )
 
-    print("Candles:", len(data_engine.get_candles()))
+    print("Candles:", len(engine.get_candles()))
 
     candles = [
         Candle(

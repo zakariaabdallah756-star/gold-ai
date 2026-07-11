@@ -10,8 +10,8 @@ class IndicatorEngine:
         self.rsi = RSI()
 
     def calculate(self, candles):
-       return IndicatorValues(
-            sma=self.sma.calculate(candles, 1),
-            ema=self.ema.calculate(candles, 1),
+        return IndicatorValues(
+            sma=self.sma.calculate(candles, 3),
+            ema=self.ema.calculate(candles, 3),
             rsi=self.rsi.calculate(candles, 14)
         )
