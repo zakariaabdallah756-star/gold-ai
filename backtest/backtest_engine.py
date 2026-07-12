@@ -20,6 +20,10 @@ class BacktestEngine:
         self.sell_trades = 0
         self.last_signal = None
         self.total_profit = 0.0
+        self.default_balance = 10000.0
+        self.default_risk = 1.0
+        self.default_stop_loss = 200.0
+        self.default_pip_value = 1.0
         self.initial_balance = 10000.0
 
         self.risk_engine = RiskEngine()
@@ -50,12 +54,18 @@ class BacktestEngine:
             if signal.signal.value != "HOLD":
                 self.trades.append(signal)
                 self.total_trades += 1
+                lot_size = self.risk_engine.calculate_position_size(
+                    balance=self.default_balance,
+                    risk_percent=self.default_risk,
+                    stop_loss_pips=self.default_stop_loss,
+                    pip_value=self.default_pip_value,
+                )
 
                 profit = self.profit_calculator.calculate(
                     signal=signal,
                     entry_price=candle.open,
                     exit_price=candle.close,
-                    lot_size=1.0,
+                    lot_size=lot_size,
                 )
 
                 self.total_profit += profit
