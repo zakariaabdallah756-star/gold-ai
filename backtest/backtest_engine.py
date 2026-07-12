@@ -22,6 +22,8 @@ class BacktestEngine:
         self.sell_trades = 0
         self.last_signal = None
         self.total_profit = 0.0
+        self.winning_trades = 0
+        self.losing_trades = 0
         self.default_balance = 10000.0
         self.default_risk = 1.0
         self.default_stop_loss = 200.0
@@ -76,6 +78,10 @@ class BacktestEngine:
                 )
 
                 self.total_profit += profit
+                if profit > 0:
+                    self.winning_trades += 1
+                elif profit < 0:
+                    self.losing_trades += 1
 
                 self.position_manager.close_position(open_position)
 
@@ -118,15 +124,8 @@ class BacktestEngine:
     def get_statistics(self):
         total_profit = self.total_profit
 
-        winning = 0
-        losing = 0
-
-        for trade in self.trades:
-            if trade.signal.value == "BUY":
-                winning += 1
-
-            if trade.signal.value == "SELL":
-                losing += 1
+        winning = self.winning_trades
+        losing = self.losing_trades
 
         total = winning + losing
 
@@ -179,6 +178,8 @@ class BacktestEngine:
         self.sell_trades = 0
         self.last_signal = None
         self.total_profit = 0.0
+        self.winning_trades = 0
+        self.losing_trades = 0
     def execute(self):
         self.reset()
         self.run()
