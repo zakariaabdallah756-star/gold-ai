@@ -18,6 +18,7 @@ class BacktestEngine:
         self.buy_trades = 0
         self.sell_trades = 0
         self.last_signal = None
+        self.total_profit = 0.0
 
         self.risk_engine = RiskEngine()
     def load_data(self):
@@ -48,9 +49,11 @@ class BacktestEngine:
 
                 if signal.signal.value == "BUY":
                     self.buy_trades += 1
+                    self.total_profit += 10.0
 
                 if signal.signal.value == "SELL":
                     self.sell_trades += 1
+                    self.total_profit -= 10.0
 
             print(candle)
             print("Indicators:", indicators)
@@ -74,7 +77,7 @@ class BacktestEngine:
     def get_last_signal(self):
         return self.last_signal
     def get_statistics(self):
-        total_profit = 0.0
+        total_profit = self.total_profit
 
         winning = 0
         losing = 0
@@ -126,6 +129,7 @@ class BacktestEngine:
         self.buy_trades = 0
         self.sell_trades = 0
         self.last_signal = None
+        self.total_profit = 0.0
     def execute(self):
         self.reset()
         self.run()
