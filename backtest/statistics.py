@@ -8,3 +8,4 @@ class BacktestStatistics(BaseModel):
     winning_trades: int
     losing_trades: int
     total_profit: float
+    win_rate: float
