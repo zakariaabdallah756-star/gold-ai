@@ -5,6 +5,7 @@ from strategy.strategy_engine import StrategyEngine
 from risk.risk_engine import RiskEngine
 from backtest.statistics import BacktestStatistics
 from backtest.profit_calculator import BacktestProfitCalculator
+from backtest.position_manager import BacktestPositionManager
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -28,6 +29,7 @@ class BacktestEngine:
 
         self.risk_engine = RiskEngine()
         self.profit_calculator = BacktestProfitCalculator()
+        self.position_manager = BacktestPositionManager()
     def load_data(self):
         return self.data_engine.get_candles()
     def run(self):
@@ -148,6 +150,8 @@ class BacktestEngine:
             final_equity=final_equity,
             max_drawdown=max_drawdown,
         )
+    def get_open_positions(self):
+        return self.position_manager.get_open_positions()
     def reset(self):
         self.signals.clear()
         self.indicators_history.clear()
