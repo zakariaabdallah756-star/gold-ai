@@ -6,6 +6,7 @@ from risk.risk_engine import RiskEngine
 from backtest.statistics import BacktestStatistics
 from backtest.profit_calculator import BacktestProfitCalculator
 from backtest.position_manager import BacktestPositionManager
+from backtest.backtest_position import BacktestPosition
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -62,6 +63,14 @@ class BacktestEngine:
                     stop_loss_pips=self.default_stop_loss,
                     pip_value=self.default_pip_value,
                 )
+                position = BacktestPosition(
+                    symbol="XAUUSD",
+                    signal=signal.signal,
+                    entry_price=candle.close,
+                    lot_size=lot_size,
+                )
+
+                self.position_manager.open_position(position)
 
                 profit = self.profit_calculator.calculate(
                     signal=signal,
