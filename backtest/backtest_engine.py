@@ -65,9 +65,19 @@ class BacktestEngine:
                 )
                 open_positions = self.position_manager.get_open_positions()
 
-                for open_position in open_positions:
-                    if open_position.signal != signal.signal:
-                        self.position_manager.close_position(open_position)
+        for open_position in open_positions:
+            if open_position.signal != signal.signal:
+
+                profit = self.profit_calculator.calculate(
+                    signal=open_position.signal,
+                    entry_price=open_position.entry_price,
+                    exit_price=candle.close,
+                    lot_size=open_position.lot_size,
+                )
+
+                self.total_profit += profit
+
+                self.position_manager.close_position(open_position)
 
                 position = BacktestPosition(
                     symbol="XAUUSD",
@@ -77,15 +87,6 @@ class BacktestEngine:
                 )
 
                 self.position_manager.open_position(position)
-
-                profit = self.profit_calculator.calculate(
-                    signal=signal,
-                    entry_price=candle.open,
-                    exit_price=candle.close,
-                    lot_size=lot_size,
-                )
-
-                self.total_profit += profit
 
                 if signal.signal.value == "BUY":
                     self.buy_trades += 1
