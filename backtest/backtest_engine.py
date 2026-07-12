@@ -108,6 +108,11 @@ class BacktestEngine:
         profit_factor = 0.0
 
         final_equity = self.initial_balance + total_profit
+        if total_profit < 0:
+            max_drawdown = abs(total_profit)
+        else:
+            max_drawdown = 0.0
+
         return BacktestStatistics(
             total_trades=self.total_trades,
             buy_trades=self.buy_trades,
@@ -121,6 +126,7 @@ class BacktestEngine:
             average_profit=average_profit,
             profit_factor=profit_factor,
             final_equity=final_equity,
+            max_drawdown=max_drawdown,
         )
     def reset(self):
         self.signals.clear()

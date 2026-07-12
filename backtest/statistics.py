@@ -14,3 +14,4 @@ class BacktestStatistics(BaseModel):
     average_profit: float
     profit_factor: float
     final_equity: float
+    max_drawdown: float
