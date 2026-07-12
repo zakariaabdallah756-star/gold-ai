@@ -63,6 +63,12 @@ class BacktestEngine:
                     stop_loss_pips=self.default_stop_loss,
                     pip_value=self.default_pip_value,
                 )
+                open_positions = self.position_manager.get_open_positions()
+
+                for open_position in open_positions:
+                    if open_position.signal != signal.signal:
+                        self.position_manager.close_position(open_position)
+
                 position = BacktestPosition(
                     symbol="XAUUSD",
                     signal=signal.signal,
