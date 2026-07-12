@@ -46,18 +46,25 @@ class BacktestEngine:
 
             self.signals.append(signal)
             self.last_signal = signal
+
             if signal.signal.value != "HOLD":
                 self.trades.append(signal)
                 self.total_trades += 1
 
-            profit = self.profit_calculator.calculate(signal)
-            self.total_profit += profit
+                profit = self.profit_calculator.calculate(
+                    signal=signal,
+                    entry_price=candle.open,
+                    exit_price=candle.close,
+                    lot_size=1.0,
+                )
 
-            if signal.signal.value == "BUY":
-                self.buy_trades += 1
+                self.total_profit += profit
 
-            if signal.signal.value == "SELL":
-                self.sell_trades += 1
+                if signal.signal.value == "BUY":
+                    self.buy_trades += 1
+
+                if signal.signal.value == "SELL":
+                    self.sell_trades += 1
 
             print(candle)
             print("Indicators:", indicators)

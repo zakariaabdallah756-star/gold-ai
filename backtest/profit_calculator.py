@@ -1,10 +1,15 @@
 class BacktestProfitCalculator:
-
-    def calculate(self, signal):
+    def calculate(
+        self,
+        signal,
+        entry_price: float,
+        exit_price: float,
+        lot_size: float,
+    ):
         if signal.signal.value == "BUY":
-            return 10.0
+            return (exit_price - entry_price) * lot_size
 
         if signal.signal.value == "SELL":
-            return -10.0
+            return (entry_price - exit_price) * lot_size
 
         return 0.0
