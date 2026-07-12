@@ -4,6 +4,7 @@ from indicators.indicator_engine import IndicatorEngine
 from strategy.strategy_engine import StrategyEngine
 from risk.risk_engine import RiskEngine
 from backtest.statistics import BacktestStatistics
+from backtest.profit_calculator import BacktestProfitCalculator
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -22,6 +23,7 @@ class BacktestEngine:
         self.initial_balance = 10000.0
 
         self.risk_engine = RiskEngine()
+        self.profit_calculator = BacktestProfitCalculator()
     def load_data(self):
         return self.data_engine.get_candles()
     def run(self):
@@ -48,13 +50,14 @@ class BacktestEngine:
                 self.trades.append(signal)
                 self.total_trades += 1
 
-                if signal.signal.value == "BUY":
-                    self.buy_trades += 1
-                    self.total_profit += 10.0
+            profit = self.profit_calculator.calculate(signal)
+            self.total_profit += profit
 
-                if signal.signal.value == "SELL":
-                    self.sell_trades += 1
-                    self.total_profit -= 10.0
+            if signal.signal.value == "BUY":
+                self.buy_trades += 1
+
+            if signal.signal.value == "SELL":
+                self.sell_trades += 1
 
             print(candle)
             print("Indicators:", indicators)
