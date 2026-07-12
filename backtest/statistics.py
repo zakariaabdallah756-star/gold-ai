@@ -13,3 +13,4 @@ class BacktestStatistics(BaseModel):
     closed_trades: int
     average_profit: float
     profit_factor: float
+    final_equity: float

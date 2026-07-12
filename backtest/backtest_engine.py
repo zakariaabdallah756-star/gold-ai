@@ -19,6 +19,7 @@ class BacktestEngine:
         self.sell_trades = 0
         self.last_signal = None
         self.total_profit = 0.0
+        self.initial_balance = 10000.0
 
         self.risk_engine = RiskEngine()
     def load_data(self):
@@ -106,6 +107,7 @@ class BacktestEngine:
         
         profit_factor = 0.0
 
+        final_equity = self.initial_balance + total_profit
         return BacktestStatistics(
             total_trades=self.total_trades,
             buy_trades=self.buy_trades,
@@ -118,6 +120,7 @@ class BacktestEngine:
             closed_trades=closed_trades,
             average_profit=average_profit,
             profit_factor=profit_factor,
+            final_equity=final_equity,
         )
     def reset(self):
         self.signals.clear()
