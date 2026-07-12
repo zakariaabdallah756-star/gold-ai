@@ -187,4 +187,6 @@ class BacktestEngine:
     def execute(self):
         self.reset()
         self.run()
-        return self.get_signals()    
+        return self.get_signals() 
+    def get_closed_positions(self):
+        return self.position_manager.get_closed_positions()   
