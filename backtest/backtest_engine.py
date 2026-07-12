@@ -93,6 +93,9 @@ class BacktestEngine:
         else:
             win_rate = 0.0
 
+        open_trades = 0
+        closed_trades = len(self.trades)
+
         return BacktestStatistics(
             total_trades=self.total_trades,
             buy_trades=self.buy_trades,
@@ -101,6 +104,8 @@ class BacktestEngine:
             losing_trades=losing,
             total_profit=total_profit,
             win_rate=win_rate,
+            open_trades=open_trades,
+            closed_trades=closed_trades,
         )
     def reset(self):
         self.signals.clear()
