@@ -11,3 +11,4 @@ class BacktestStatistics(BaseModel):
     win_rate: float
     open_trades: int
     closed_trades: int
+    average_profit: float

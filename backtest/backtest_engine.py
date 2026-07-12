@@ -95,6 +95,10 @@ class BacktestEngine:
 
         open_trades = 0
         closed_trades = len(self.trades)
+        if self.total_trades > 0:
+            average_profit = total_profit / self.total_trades
+        else:
+            average_profit = 0.0
 
         return BacktestStatistics(
             total_trades=self.total_trades,
@@ -106,6 +110,7 @@ class BacktestEngine:
             win_rate=win_rate,
             open_trades=open_trades,
             closed_trades=closed_trades,
+            average_profit=average_profit,
         )
     def reset(self):
         self.signals.clear()
