@@ -77,7 +77,11 @@ class BacktestEngine:
                     lot_size=open_position.lot_size,
                 )
 
+                open_position.exit_price = candle.close
+                open_position.profit = profit
+
                 self.total_profit += profit
+
                 if profit > 0:
                     self.winning_trades += 1
                 elif profit < 0:

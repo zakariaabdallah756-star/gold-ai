@@ -10,3 +10,5 @@ class BacktestPosition:
     entry_price: float
     lot_size: float
     is_open: bool = True
+    exit_price: float | None = None
+    profit: float = 0.0
