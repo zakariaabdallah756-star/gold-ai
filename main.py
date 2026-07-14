@@ -21,7 +21,7 @@ from indicators.rsi import RSI
 from indicators.indicator_engine import IndicatorEngine
 from risk import trade_plan
 from strategy.signal import Signal, SignalType
-from strategy.moving_average_strategy import MovingAverageStrategy
+
 from strategy.strategy_engine import StrategyEngine
 from risk.risk_model import RiskModel
 from risk.position_sizer import PositionSizer
@@ -110,11 +110,6 @@ def main():
     )
 
     print(signal)
-    strategy = MovingAverageStrategy()
-
-    strategy_signal = strategy.generate(values)
-
-    print(strategy_signal)
     strategy_engine = StrategyEngine()
 
     final_signal = strategy_engine.generate_signal(values)
