@@ -11,7 +11,7 @@ class IndicatorEngine:
 
     def calculate(self, candles):
         return IndicatorValues(
-            sma=self.sma.calculate(candles, 3),
-            ema=self.ema.calculate(candles, 3),
-            rsi=self.rsi.calculate(candles, 14)
+            ema50=self.ema.calculate(candles, 50),
+            ema200=self.ema.calculate(candles, 200),
+            rsi=self.rsi.calculate(candles, 14),
         )
