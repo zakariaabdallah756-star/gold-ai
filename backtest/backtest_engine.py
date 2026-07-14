@@ -1,3 +1,5 @@
+import signal
+
 from market.data_engine import DataEngine
 from strategy.strategy_engine import StrategyEngine
 from indicators.indicator_engine import IndicatorEngine
@@ -45,6 +47,7 @@ class BacktestEngine:
         history = []
 
         for candle in candles:
+
             history.append(candle)
             self.candles_history.append(candle)
 
@@ -56,39 +59,58 @@ class BacktestEngine:
             self.signals.append(signal)
             self.last_signal = signal
 
-            if signal.signal.value != "HOLD":
-                self.trades.append(signal)
-                self.total_trades += 1
-                lot_size = self.risk_engine.calculate_position_size(
-                    balance=self.default_balance,
-                    risk_percent=self.default_risk,
-                    stop_loss_pips=self.default_stop_loss,
-                    pip_value=self.default_pip_value,
-                )
-                open_positions = self.position_manager.get_open_positions()
+            print(candle)
+            print("Indicators:", indicators)
+            print("Signal:", signal)
 
-        for open_position in open_positions:
-            if open_position.signal != signal.signal:
+            if signal.signal.value == "HOLD":
+                continue
 
-                profit = self.profit_calculator.calculate(
-                    signal=open_position.signal,
-                    entry_price=open_position.entry_price,
-                    exit_price=candle.close,
-                    lot_size=open_position.lot_size,
-                )
+            self.trades.append(signal)
+            self.total_trades += 1
 
-                open_position.exit_price = candle.close
-                open_position.profit = profit
+            lot_size = self.risk_engine.calculate_position_size(
+                balance=self.default_balance,
+                risk_percent=self.default_risk,
+                stop_loss_pips=self.default_stop_loss,
+                pip_value=self.default_pip_value,
+            )
 
-                self.total_profit += profit
+            open_positions = self.position_manager.get_open_positions()
 
-                if profit > 0:
-                    self.winning_trades += 1
-                elif profit < 0:
-                    self.losing_trades += 1
+            for open_position in open_positions:
 
-                self.position_manager.close_position(open_position)
+                if open_position.signal != signal.signal:
 
+                    profit = self.profit_calculator.calculate(
+                        signal=open_position.signal,
+                        entry_price=open_position.entry_price,
+                        exit_price=candle.close,
+                        lot_size=open_position.lot_size,
+                    )
+
+                    open_position.exit_price = candle.close
+                    open_position.profit = profit
+
+                    self.total_profit += profit
+
+                    print("Profit:", profit)
+                    print("Position closed")
+
+                    if profit > 0:
+                        self.winning_trades += 1
+                    elif profit < 0:
+                        self.losing_trades += 1
+
+                    self.position_manager.close_position(open_position)
+            already_open = False
+
+            for open_position in self.position_manager.get_open_positions():
+                if open_position.signal == signal.signal:
+                    already_open = True
+                    break
+
+            if not already_open:
                 position = BacktestPosition(
                     symbol="XAUUSD",
                     signal=signal.signal,
@@ -98,11 +120,11 @@ class BacktestEngine:
 
                 self.position_manager.open_position(position)
 
-                if signal.signal.value == "BUY":
-                    self.buy_trades += 1
+            if signal.signal.value == "BUY":
+                self.buy_trades += 1
 
-                if signal.signal.value == "SELL":
-                    self.sell_trades += 1
+            elif signal.signal.value == "SELL":
+                self.sell_trades += 1
 
             print(candle)
             print("Indicators:", indicators)
