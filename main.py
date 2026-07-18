@@ -43,6 +43,7 @@ from backtest.backtest_engine import BacktestEngine
 from market.candle import Candle
 from datetime import datetime
 from market.data_engine import DataEngine
+from market.mt5_connector import MT5Connector
 
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
@@ -50,7 +51,20 @@ def main():
     # print(engine)
     print(generate_id())
     print(Event.NEW_CANDLE)
-    provider = DataProvider()
+    connector = MT5Connector()
+    if not connector.connect():
+        print("Impossibile connettersi a MetaTrader 5.")
+        return
+
+    print("MT5 Connected!")
+    rates = connector.get_rates()
+
+    print("Candles downloaded:", len(rates))
+
+    if len(rates) > 0:
+        print(rates[0])
+        print(rates[-1])
+        provider = DataProvider()
     print(provider.get_server_time())
     candle = Candle(
         time=datetime.now(),
@@ -294,5 +308,6 @@ def main():
     #)
 
     #print("CLOSE:", should_close)
+    connector.disconnect()
 if __name__ == "__main__":
     main()
