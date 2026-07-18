@@ -57,7 +57,14 @@ def main():
         return
 
     print("MT5 Connected!")
+    provider = DataProvider()
     rates = connector.get_rates()
+    real_candles = provider.get_mt5_candles(connector)
+
+    print("Real candles:", len(real_candles))
+
+    print(real_candles[0])
+    print(real_candles[-1])
 
     print("Candles downloaded:", len(rates))
 
