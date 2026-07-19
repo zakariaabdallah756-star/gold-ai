@@ -71,7 +71,6 @@ def main():
     if len(rates) > 0:
         print(rates[0])
         print(rates[-1])
-        provider = DataProvider()
     print(provider.get_server_time())
     candle = Candle(
         time=datetime.now(),
@@ -244,50 +243,11 @@ def main():
     )
 
     print(account)
-
-    engine.add_candle(
-        Candle(
-            time=datetime.now(),
-            open=3300.0,
-            high=3310.0,
-            low=3295.0,
-            close=3305.0,
-            volume=1200,
-        )
-    )
+    
+    for candle in real_candles:
+        engine.add_candle(candle)
 
     print("Candles:", len(engine.get_candles()))
-
-    candles = [
-        Candle(
-            time=datetime.now(),
-            open=3300.0,
-            high=3310.0,
-            low=3295.0,
-            close=3305.0,
-            volume=1200,
-        ),
-        Candle(
-            time=datetime.now(),
-            open=3305.0,
-            high=3320.0,
-            low=3300.0,
-            close=3318.0,
-            volume=1500,
-        ),
-        Candle(
-            time=datetime.now(),
-            open=3318.0,
-            high=3335.0,
-            low=3310.0,
-            close=3330.0,
-            volume=1700,
-        ),
-    ]
-
-    for candle in candles:
-        engine.add_candle(candle)
-        print(candle)
     backtest = BacktestEngine(engine)
 
     history = backtest.load_data()
