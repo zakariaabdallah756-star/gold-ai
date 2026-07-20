@@ -148,40 +148,54 @@ class BacktestEngine:
     def get_last_signal(self):
         return self.last_signal
     def get_statistics(self):
-        total_profit = self.total_profit
+        closed_positions = self.position_manager.get_closed_positions()
+        open_positions = self.position_manager.get_open_positions()
 
-        winning = self.winning_trades
-        losing = self.losing_trades
+        profits = [float(position.profit) for position in closed_positions]
 
-        total = winning + losing
+        winning_trades = sum(1 for profit in profits if profit > 0)
+        losing_trades = sum(1 for profit in profits if profit < 0)
 
-        if total > 0:
-            win_rate = (winning / total) * 100
+        total_profit = sum(profits)
+
+        closed_trades = len(closed_positions)
+        open_trades = len(open_positions)
+
+        if closed_trades > 0:
+            win_rate = (winning_trades / closed_trades) * 100
+            average_profit = total_profit / closed_trades
         else:
             win_rate = 0.0
-
-        open_trades = 0
-        closed_trades = len(self.trades)
-        if self.total_trades > 0:
-            average_profit = total_profit / self.total_trades
-        else:
             average_profit = 0.0
-            
-        
-        profit_factor = 0.0
+
+        gross_profit = sum(profit for profit in profits if profit > 0)
+        gross_loss = abs(sum(profit for profit in profits if profit < 0))
+
+        if gross_loss > 0:
+            profit_factor = gross_profit / gross_loss
+        elif gross_profit > 0:
+            profit_factor = float("inf")
+        else:
+            profit_factor = 0.0
+
+        equity = self.initial_balance
+        equity_peak = self.initial_balance
+        max_drawdown = 0.0
+
+        for profit in profits:
+            equity += profit
+            equity_peak = max(equity_peak, equity)
+            drawdown = equity_peak - equity
+            max_drawdown = max(max_drawdown, drawdown)
 
         final_equity = self.initial_balance + total_profit
-        if total_profit < 0:
-            max_drawdown = abs(total_profit)
-        else:
-            max_drawdown = 0.0
 
         return BacktestStatistics(
             total_trades=self.total_trades,
             buy_trades=self.buy_trades,
             sell_trades=self.sell_trades,
-            winning_trades=winning,
-            losing_trades=losing,
+            winning_trades=winning_trades,
+            losing_trades=losing_trades,
             total_profit=total_profit,
             win_rate=win_rate,
             open_trades=open_trades,
