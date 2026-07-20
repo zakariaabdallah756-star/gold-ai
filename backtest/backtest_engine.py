@@ -9,6 +9,7 @@ from backtest.statistics import BacktestStatistics
 from backtest.profit_calculator import BacktestProfitCalculator
 from backtest.position_manager import BacktestPositionManager
 from backtest.backtest_position import BacktestPosition
+from strategy.signal import SignalType
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -47,7 +48,6 @@ class BacktestEngine:
         history = []
 
         for candle in candles:
-
             history.append(candle)
             self.candles_history.append(candle)
 
@@ -63,11 +63,8 @@ class BacktestEngine:
             print("Indicators:", indicators)
             print("Signal:", signal)
 
-            if signal.signal.value == "HOLD":
+            if signal.signal == SignalType.HOLD:
                 continue
-
-            self.trades.append(signal)
-            self.total_trades += 1
 
             lot_size = self.risk_engine.calculate_position_size(
                 balance=self.default_balance,
@@ -76,12 +73,13 @@ class BacktestEngine:
                 pip_value=self.default_pip_value,
             )
 
-            open_positions = self.position_manager.get_open_positions()
+            open_positions = list(
+                self.position_manager.get_open_positions()
+            )
 
+            # Chiude le posizioni con segnale opposto
             for open_position in open_positions:
-
                 if open_position.signal != signal.signal:
-
                     profit = self.profit_calculator.calculate(
                         signal=open_position.signal,
                         entry_price=open_position.entry_price,
@@ -94,22 +92,23 @@ class BacktestEngine:
 
                     self.total_profit += profit
 
-                    print("Profit:", profit)
-                    print("Position closed")
-
                     if profit > 0:
                         self.winning_trades += 1
                     elif profit < 0:
                         self.losing_trades += 1
 
                     self.position_manager.close_position(open_position)
-            already_open = False
 
-            for open_position in self.position_manager.get_open_positions():
-                if open_position.signal == signal.signal:
-                    already_open = True
-                    break
+                    print("Profit:", profit)
+                    print("Position closed")
 
+            # Controlla se esiste già una posizione dello stesso tipo
+            already_open = any(
+                position.signal == signal.signal
+                for position in self.position_manager.get_open_positions()
+            )
+
+            # Apre una nuova posizione soltanto se necessaria
             if not already_open:
                 position = BacktestPosition(
                     symbol="XAUUSD",
@@ -119,16 +118,14 @@ class BacktestEngine:
                 )
 
                 self.position_manager.open_position(position)
+                self.trades.append(position)
 
-            if signal.signal.value == "BUY":
-                self.buy_trades += 1
+                self.total_trades += 1
 
-            elif signal.signal.value == "SELL":
-                self.sell_trades += 1
-
-            print(candle)
-            print("Indicators:", indicators)
-            print("Signal:", signal)
+                if signal.signal == SignalType.BUY:
+                    self.buy_trades += 1
+                elif signal.signal == SignalType.SELL:
+                    self.sell_trades += 1
     def get_signals(self):
         return self.signals
     def get_indicators(self):
