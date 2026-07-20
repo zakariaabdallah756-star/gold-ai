@@ -14,10 +14,39 @@ class IndicatorEngine:
         self.adx = ADX()
 
     def calculate(self, candles):
+        if not candles:
+            return IndicatorValues()
+
+        current_candle = candles[-1]
+
+        recent_high = None
+        recent_low = None
+        average_volume = None
+
+        if len(candles) >= 21:
+            previous_candles = candles[-21:-1]
+
+            recent_high = max(
+                float(candle.high) for candle in previous_candles
+            )
+
+            recent_low = min(
+                float(candle.low) for candle in previous_candles
+            )
+
+            average_volume = sum(
+                float(candle.volume) for candle in previous_candles
+            ) / len(previous_candles)
+
         return IndicatorValues(
             ema50=self.ema.calculate(candles, 50),
             ema200=self.ema.calculate(candles, 200),
             rsi=self.rsi.calculate(candles, 14),
             atr=self.atr.calculate(candles, 14),
             adx=self.adx.calculate(candles, 14),
+            current_close=float(current_candle.close),
+            recent_high=recent_high,
+            recent_low=recent_low,
+            current_volume=float(current_candle.volume),
+            average_volume=average_volume,
         )
