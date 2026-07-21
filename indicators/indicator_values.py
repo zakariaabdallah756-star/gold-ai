@@ -12,3 +12,6 @@ class IndicatorValues(BaseModel):
     recent_low: float | None = None
     current_volume: float | None = None
     average_volume: float | None = None
+    bollinger_upper: float | None = None
+    bollinger_middle: float | None = None
+    bollinger_lower: float | None = None
