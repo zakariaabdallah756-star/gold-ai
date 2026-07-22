@@ -34,7 +34,7 @@ class BacktestEngine:
         self.default_stop_loss = 200.0
         self.default_pip_value = 1.0
         self.initial_balance = 10000.0
-
+        self.current_balance = self.initial_balance
         self.risk_engine = RiskEngine()
         self.profit_calculator = BacktestProfitCalculator()
         self.position_manager = BacktestPositionManager()
@@ -79,6 +79,7 @@ class BacktestEngine:
                     open_position.exit_price = exit_price
                     open_position.profit = profit
                     self.total_profit += profit
+                    self.current_balance += profit
 
                     if profit > 0:
                         self.winning_trades += 1
@@ -140,7 +141,7 @@ class BacktestEngine:
 
             lot_size = (
                 self.risk_engine.calculate_position_size_from_distance(
-                    balance=self.default_balance,
+                    balance=self.current_balance,
                     risk_percent=allocated_risk,
                     stop_distance=stop_distance,
                     value_per_price_unit=self.default_pip_value,
@@ -176,6 +177,7 @@ class BacktestEngine:
                     open_position.profit = profit
 
                     self.total_profit += profit
+                    self.current_balance += profit
 
                     if profit > 0:
                         self.winning_trades += 1
@@ -237,6 +239,7 @@ class BacktestEngine:
             open_position.profit = profit
 
             self.total_profit += profit
+            self.current_balance += profit
 
             if profit > 0:
                 self.winning_trades += 1
@@ -339,9 +342,12 @@ class BacktestEngine:
         self.total_profit = 0.0
         self.winning_trades = 0
         self.losing_trades = 0
+        self.current_balance = self.initial_balance
     def execute(self):
         self.reset()
         self.run()
         return self.get_signals() 
     def get_closed_positions(self):
         return self.position_manager.get_closed_positions()   
+    def get_current_balance(self):
+        return self.current_balance

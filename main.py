@@ -267,6 +267,7 @@ def main():
     print("Open Positions:", backtest.get_open_positions())
     print("Closed Positions:", backtest.get_closed_positions())
     print("Statistics:", backtest.get_statistics())
+    print("Current Balance:", backtest.get_current_balance())
     #closer = PositionCloser()
 
     #should_close = closer.should_close(
