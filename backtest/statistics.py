@@ -7,7 +7,14 @@ class BacktestStatistics(BaseModel):
     sell_trades: int
     winning_trades: int
     losing_trades: int
+
     total_profit: float
+    gross_profit: float
+    total_commission: float
+    net_profit: float
+    total_costs: float
+    average_commission: float
+
     win_rate: float
     open_trades: int
     closed_trades: int

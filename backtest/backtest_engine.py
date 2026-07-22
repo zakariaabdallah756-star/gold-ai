@@ -421,32 +421,85 @@ class BacktestEngine:
     def get_last_signal(self):
         return self.last_signal
     def get_statistics(self):
-        closed_positions = self.position_manager.get_closed_positions()
-        open_positions = self.position_manager.get_open_positions()
+        closed_positions = (
+            self.position_manager.get_closed_positions()
+        )
 
-        profits = [float(position.profit) for position in closed_positions]
+        open_positions = (
+            self.position_manager.get_open_positions()
+        )
 
-        winning_trades = sum(1 for profit in profits if profit > 0)
-        losing_trades = sum(1 for profit in profits if profit < 0)
+        profits = [
+            float(position.profit)
+            for position in closed_positions
+        ]
 
-        total_profit = sum(profits)
+        gross_profits = [
+            float(getattr(position, "gross_profit", 0.0))
+            for position in closed_positions
+        ]
+
+        commissions = [
+            float(getattr(position, "commission", 0.0))
+            for position in closed_positions
+        ]
+
+        winning_trades = sum(
+            1 for profit in profits
+            if profit > 0
+        )
+
+        losing_trades = sum(
+            1 for profit in profits
+            if profit < 0
+        )
+
+        net_profit = sum(profits)
+        gross_profit_total = sum(gross_profits)
+        total_commission = sum(commissions)
+
+        # Spread e slippage sono già inclusi nei prezzi eseguiti.
+        # Al momento il costo separatamente misurabile
+        # è quindi la commissione.
+        total_costs = total_commission
 
         closed_trades = len(closed_positions)
         open_trades = len(open_positions)
 
         if closed_trades > 0:
-            win_rate = (winning_trades / closed_trades) * 100
-            average_profit = total_profit / closed_trades
+            win_rate = (
+                winning_trades / closed_trades
+            ) * 100
+
+            average_profit = (
+                net_profit / closed_trades
+            )
+
+            average_commission = (
+                total_commission / closed_trades
+            )
         else:
             win_rate = 0.0
             average_profit = 0.0
+            average_commission = 0.0
 
-        gross_profit = sum(profit for profit in profits if profit > 0)
-        gross_loss = abs(sum(profit for profit in profits if profit < 0))
+        winning_profit = sum(
+            profit for profit in profits
+            if profit > 0
+        )
 
-        if gross_loss > 0:
-            profit_factor = gross_profit / gross_loss
-        elif gross_profit > 0:
+        losing_profit = abs(
+            sum(
+                profit for profit in profits
+                if profit < 0
+            )
+        )
+
+        if losing_profit > 0:
+            profit_factor = (
+                winning_profit / losing_profit
+            )
+        elif winning_profit > 0:
             profit_factor = float("inf")
         else:
             profit_factor = 0.0
@@ -457,11 +510,21 @@ class BacktestEngine:
 
         for profit in profits:
             equity += profit
-            equity_peak = max(equity_peak, equity)
-            drawdown = equity_peak - equity
-            max_drawdown = max(max_drawdown, drawdown)
+            equity_peak = max(
+                equity_peak,
+                equity,
+            )
 
-        final_equity = self.initial_balance + total_profit
+            drawdown = equity_peak - equity
+
+            max_drawdown = max(
+                max_drawdown,
+                drawdown,
+            )
+
+        final_equity = (
+            self.initial_balance + net_profit
+        )
 
         return BacktestStatistics(
             total_trades=self.total_trades,
@@ -469,7 +532,14 @@ class BacktestEngine:
             sell_trades=self.sell_trades,
             winning_trades=winning_trades,
             losing_trades=losing_trades,
-            total_profit=total_profit,
+
+            total_profit=net_profit,
+            gross_profit=gross_profit_total,
+            total_commission=total_commission,
+            net_profit=net_profit,
+            total_costs=total_costs,
+            average_commission=average_commission,
+
             win_rate=win_rate,
             open_trades=open_trades,
             closed_trades=closed_trades,
