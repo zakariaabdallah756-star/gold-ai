@@ -15,9 +15,12 @@ class StrategyEngine:
         self.breakout_strategy = BreakoutStrategy()
         self.mean_reversion_strategy = MeanReversionStrategy()
         self.scalping_strategy = ScalpingStrategy()
+        self.last_market_regime = MarketRegime.UNKNOWN
 
     def generate_signal(self, indicators):
         market_regime = self.market_regime_detector.detect(indicators)
+
+        self.last_market_regime = market_regime
 
         print("Market Regime:", market_regime.value)
 
@@ -34,3 +37,6 @@ class StrategyEngine:
             return self.scalping_strategy.generate(indicators)
 
         return self.strategy.generate(indicators)
+
+    def get_last_market_regime(self):
+        return self.last_market_regime

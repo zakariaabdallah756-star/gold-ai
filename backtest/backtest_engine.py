@@ -10,6 +10,7 @@ from backtest.profit_calculator import BacktestProfitCalculator
 from backtest.position_manager import BacktestPositionManager
 from backtest.backtest_position import BacktestPosition
 from strategy.signal import SignalType
+from strategy.strategy_allocation import StrategyAllocation
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -36,6 +37,7 @@ class BacktestEngine:
         self.risk_engine = RiskEngine()
         self.profit_calculator = BacktestProfitCalculator()
         self.position_manager = BacktestPositionManager()
+        self.strategy_allocation = StrategyAllocation()
     def load_data(self):
         return self.data_engine.get_candles()
     def run(self):
@@ -66,12 +68,23 @@ class BacktestEngine:
             if signal.signal == SignalType.HOLD:
                 continue
 
+            market_regime = self.strategy_engine.get_last_market_regime()
+
+            strategy_weight = self.strategy_allocation.get_weight(
+                market_regime
+            )
+
+            allocated_risk = self.default_risk * strategy_weight
+
             lot_size = self.risk_engine.calculate_position_size(
                 balance=self.default_balance,
-                risk_percent=self.default_risk,
+                risk_percent=allocated_risk,
                 stop_loss_pips=self.default_stop_loss,
                 pip_value=self.default_pip_value,
             )
+            print("Strategy Weight:", strategy_weight)
+            print("Allocated Risk:", allocated_risk)
+            print("Lot Size:", lot_size)
 
             open_positions = list(
                 self.position_manager.get_open_positions()
