@@ -12,6 +12,7 @@ from backtest.backtest_position import BacktestPosition
 from strategy.signal import SignalType
 from strategy.strategy_allocation import StrategyAllocation
 from risk.atr_risk_manager import ATRRiskManager
+from risk.mt5_position_sizer import MT5PositionSizer
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -40,6 +41,7 @@ class BacktestEngine:
         self.position_manager = BacktestPositionManager()
         self.strategy_allocation = StrategyAllocation()
         self.atr_risk_manager = ATRRiskManager()
+        self.mt5_position_sizer = MT5PositionSizer()
     def load_data(self):
         return self.data_engine.get_candles()
     def run(self):
@@ -139,13 +141,13 @@ class BacktestEngine:
 
             stop_distance = abs(entry_price - stop_loss)
 
-            lot_size = (
-                self.risk_engine.calculate_position_size_from_distance(
-                    balance=self.current_balance,
-                    risk_percent=allocated_risk,
-                    stop_distance=stop_distance,
-                    value_per_price_unit=self.default_pip_value,
-                )
+            lot_size = self.mt5_position_sizer.calculate(
+                symbol="XAUUSD",
+                signal=signal.signal,
+                balance=self.current_balance,
+                risk_percent=allocated_risk,
+                entry_price=entry_price,
+                stop_loss=stop_loss,
             )
 
             if lot_size <= 0:
@@ -154,10 +156,7 @@ class BacktestEngine:
             print("Strategy Weight:", strategy_weight)
             print("Allocated Risk:", allocated_risk)
             print("Stop Distance:", stop_distance)
-            print("Lot Size:", lot_size)
-            print("Strategy Weight:", strategy_weight)
-            print("Allocated Risk:", allocated_risk)
-            print("Lot Size:", lot_size)
+            print("Broker Lot Size:", lot_size)
 
             open_positions = list(
                 self.position_manager.get_open_positions()
@@ -206,7 +205,7 @@ class BacktestEngine:
             position = BacktestPosition(
                 symbol="XAUUSD",
                 signal=signal.signal,
-                entry_price=float(candle.close),
+                entry_price=entry_price,
                 lot_size=lot_size,
                 stop_loss=stop_loss,
                 take_profit=take_profit,

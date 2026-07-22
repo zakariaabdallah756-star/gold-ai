@@ -1,3 +1,5 @@
+import MetaTrader5 as mt5
+
 from strategy.signal import SignalType
 
 
@@ -9,12 +11,42 @@ class BacktestProfitCalculator:
         entry_price: float,
         exit_price: float,
         lot_size: float,
+        symbol: str = "XAUUSD",
     ) -> float:
+        if (
+            entry_price <= 0
+            or exit_price <= 0
+            or lot_size <= 0
+        ):
+            return 0.0
+
+        if not mt5.symbol_select(symbol, True):
+            raise RuntimeError(
+                f"Impossibile selezionare {symbol}: "
+                f"{mt5.last_error()}"
+            )
 
         if signal == SignalType.BUY:
-            return (exit_price - entry_price) * lot_size
+            order_type = mt5.ORDER_TYPE_BUY
 
-        if signal == SignalType.SELL:
-            return (entry_price - exit_price) * lot_size
+        elif signal == SignalType.SELL:
+            order_type = mt5.ORDER_TYPE_SELL
 
-        return 0.0
+        else:
+            return 0.0
+
+        profit = mt5.order_calc_profit(
+            order_type,
+            symbol,
+            float(lot_size),
+            float(entry_price),
+            float(exit_price),
+        )
+
+        if profit is None:
+            raise RuntimeError(
+                f"Calcolo profitto MT5 fallito: "
+                f"{mt5.last_error()}"
+            )
+
+        return float(profit)
