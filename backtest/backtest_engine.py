@@ -120,13 +120,40 @@ class BacktestEngine:
             if allocated_risk <= 0:
                 continue
 
-            lot_size = self.risk_engine.calculate_position_size(
-                balance=self.default_balance,
-                risk_percent=allocated_risk,
-                stop_loss_pips=self.default_stop_loss,
-                pip_value=self.default_pip_value,
+            if indicators.atr is None:
+                continue
+
+            entry_price = float(candle.close)
+
+            stop_loss, take_profit = (
+                self.atr_risk_manager.calculate_levels(
+                    entry_price=entry_price,
+                    atr=float(indicators.atr),
+                    signal=signal.signal,
+                )
             )
 
+            if stop_loss is None or take_profit is None:
+                continue
+
+            stop_distance = abs(entry_price - stop_loss)
+
+            lot_size = (
+                self.risk_engine.calculate_position_size_from_distance(
+                    balance=self.default_balance,
+                    risk_percent=allocated_risk,
+                    stop_distance=stop_distance,
+                    value_per_price_unit=self.default_pip_value,
+                )
+            )
+
+            if lot_size <= 0:
+                continue
+
+            print("Strategy Weight:", strategy_weight)
+            print("Allocated Risk:", allocated_risk)
+            print("Stop Distance:", stop_distance)
+            print("Lot Size:", lot_size)
             print("Strategy Weight:", strategy_weight)
             print("Allocated Risk:", allocated_risk)
             print("Lot Size:", lot_size)
@@ -171,17 +198,7 @@ class BacktestEngine:
                 continue
 
             # Non apre una posizione senza ATR disponibile
-            if indicators.atr is None:
-                continue
-
-            stop_loss, take_profit = (
-                self.atr_risk_manager.calculate_levels(
-                    entry_price=float(candle.close),
-                    atr=float(indicators.atr),
-                    signal=signal.signal,
-                )
-            )
-
+            
             position = BacktestPosition(
                 symbol="XAUUSD",
                 signal=signal.signal,

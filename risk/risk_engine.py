@@ -2,6 +2,7 @@ from risk.position_sizer import PositionSizer
 
 
 class RiskEngine:
+
     def __init__(self):
         self.position_sizer = PositionSizer()
 
@@ -11,10 +12,24 @@ class RiskEngine:
         risk_percent: float,
         stop_loss_pips: float,
         pip_value: float,
-    ):
+    ) -> float:
         return self.position_sizer.calculate(
             balance=balance,
             risk_percent=risk_percent,
             stop_loss_pips=stop_loss_pips,
             pip_value=pip_value,
+        )
+
+    def calculate_position_size_from_distance(
+        self,
+        balance: float,
+        risk_percent: float,
+        stop_distance: float,
+        value_per_price_unit: float,
+    ) -> float:
+        return self.position_sizer.calculate_from_distance(
+            balance=balance,
+            risk_percent=risk_percent,
+            stop_distance=stop_distance,
+            value_per_price_unit=value_per_price_unit,
         )
