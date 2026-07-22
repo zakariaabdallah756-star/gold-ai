@@ -51,7 +51,7 @@ class BacktestEngine:
 
         history = []
 
-        for candle in candles:
+        for index, candle in enumerate(candles):
             # --- PIANO 21: Controllo Chiusura Reale SL / TP ---
             open_positions = list(
                 self.position_manager.get_open_positions()
@@ -198,7 +198,9 @@ class BacktestEngine:
                 continue
 
             # Non apre una posizione senza ATR disponibile
-            
+            # Non apre una nuova posizione sull'ultima candela
+            if index == len(candles) - 1:
+                continue
             position = BacktestPosition(
                 symbol="XAUUSD",
                 signal=signal.signal,
@@ -217,6 +219,35 @@ class BacktestEngine:
                 self.buy_trades += 1
             elif signal.signal == SignalType.SELL:
                 self.sell_trades += 1
+        final_price = float(candles[-1].close)
+
+        remaining_positions = list(
+            self.position_manager.get_open_positions()
+        )
+
+        for open_position in remaining_positions:
+            profit = self.profit_calculator.calculate(
+                signal=open_position.signal,
+                entry_price=open_position.entry_price,
+                exit_price=final_price,
+                lot_size=open_position.lot_size,
+            )
+
+            open_position.exit_price = final_price
+            open_position.profit = profit
+
+            self.total_profit += profit
+
+            if profit > 0:
+                self.winning_trades += 1
+            elif profit < 0:
+                self.losing_trades += 1
+
+            self.position_manager.close_position(open_position)
+
+            print("End-of-backtest position closed")
+            print("Exit Price:", final_price)
+            print("Profit:", profit)    
     def get_signals(self):
         return self.signals
     def get_indicators(self):
