@@ -15,12 +15,13 @@ class DataProvider:
         for rate in rates:
             candles.append(
                 Candle(
-                    time=datetime.fromtimestamp(rate["time"]),
-                    open=rate["open"],
-                    high=rate["high"],
-                    low=rate["low"],
-                    close=rate["close"],
-                    volume=rate["tick_volume"],
+                    time=datetime.fromtimestamp(int(rate["time"])),
+                    open=float(rate["open"]),
+                    high=float(rate["high"]),
+                    low=float(rate["low"]),
+                    close=float(rate["close"]),
+                    volume=float(rate["tick_volume"]),
+                    spread_points=float(rate["spread"]),
                 )
             )
 

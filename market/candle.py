@@ -10,3 +10,4 @@ class Candle:
     low: float
     close: float
     volume: float
+    spread_points: float = 0.0
