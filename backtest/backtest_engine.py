@@ -13,6 +13,7 @@ from strategy.signal import SignalType
 from strategy.strategy_allocation import StrategyAllocation
 from risk.atr_risk_manager import ATRRiskManager
 from risk.mt5_position_sizer import MT5PositionSizer
+from backtest.spread_calculator import BacktestSpreadCalculator
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -42,6 +43,9 @@ class BacktestEngine:
         self.strategy_allocation = StrategyAllocation()
         self.atr_risk_manager = ATRRiskManager()
         self.mt5_position_sizer = MT5PositionSizer()
+        self.spread_calculator = BacktestSpreadCalculator(
+            symbol="XAUUSD"
+        )
     def load_data(self):
         return self.data_engine.get_candles()
     def run(self):
@@ -54,21 +58,32 @@ class BacktestEngine:
         history = []
 
         for index, candle in enumerate(candles):
-            # --- PIANO 21: Controllo Chiusura Reale SL / TP ---
+
+            # 1. Controllo Stop Loss e Take Profit
             open_positions = list(
                 self.position_manager.get_open_positions()
             )
+
             for open_position in open_positions:
+                executable_low, executable_high = (
+                    self.spread_calculator.get_exit_range(
+                        candle=candle,
+                        signal=open_position.signal,
+                    )
+                )
+
                 exit_price = None
+
                 if open_position.signal == SignalType.BUY:
-                    if float(candle.low) <= open_position.stop_loss:
+                    if executable_low <= open_position.stop_loss:
                         exit_price = open_position.stop_loss
-                    elif float(candle.high) >= open_position.take_profit:
+                    elif executable_high >= open_position.take_profit:
                         exit_price = open_position.take_profit
+
                 elif open_position.signal == SignalType.SELL:
-                    if float(candle.high) >= open_position.stop_loss:
+                    if executable_high >= open_position.stop_loss:
                         exit_price = open_position.stop_loss
-                    elif float(candle.low) <= open_position.take_profit:
+                    elif executable_low <= open_position.take_profit:
                         exit_price = open_position.take_profit
 
                 if exit_price is not None:
@@ -77,9 +92,12 @@ class BacktestEngine:
                         entry_price=open_position.entry_price,
                         exit_price=exit_price,
                         lot_size=open_position.lot_size,
+                        symbol=open_position.symbol,
                     )
+
                     open_position.exit_price = exit_price
                     open_position.profit = profit
+
                     self.total_profit += profit
                     self.current_balance += profit
 
@@ -89,11 +107,12 @@ class BacktestEngine:
                         self.losing_trades += 1
 
                     self.position_manager.close_position(open_position)
+
                     print("SL/TP position closed")
                     print("Exit Price:", exit_price)
                     print("Profit:", profit)
-            # -------------------------------------------------
 
+            # 2. Aggiornamento storico e indicatori
             history.append(candle)
             self.candles_history.append(candle)
 
@@ -112,7 +131,10 @@ class BacktestEngine:
             if signal.signal == SignalType.HOLD:
                 continue
 
-            market_regime = self.strategy_engine.get_last_market_regime()
+            # 3. Regime e allocazione del rischio
+            market_regime = (
+                self.strategy_engine.get_last_market_regime()
+            )
 
             strategy_weight = self.strategy_allocation.get_weight(
                 market_regime
@@ -123,10 +145,67 @@ class BacktestEngine:
             if allocated_risk <= 0:
                 continue
 
+            # 4. Chiusura della posizione opposta
+            open_positions = list(
+                self.position_manager.get_open_positions()
+            )
+
+            for open_position in open_positions:
+                if open_position.signal != signal.signal:
+                    market_exit_price = (
+                        self.spread_calculator.get_market_exit_price(
+                            candle=candle,
+                            signal=open_position.signal,
+                        )
+                    )
+
+                    profit = self.profit_calculator.calculate(
+                        signal=open_position.signal,
+                        entry_price=open_position.entry_price,
+                        exit_price=market_exit_price,
+                        lot_size=open_position.lot_size,
+                        symbol=open_position.symbol,
+                    )
+
+                    open_position.exit_price = market_exit_price
+                    open_position.profit = profit
+
+                    self.total_profit += profit
+                    self.current_balance += profit
+
+                    if profit > 0:
+                        self.winning_trades += 1
+                    elif profit < 0:
+                        self.losing_trades += 1
+
+                    self.position_manager.close_position(open_position)
+
+                    print("Opposite-signal position closed")
+                    print("Exit Price:", market_exit_price)
+                    print("Profit:", profit)
+
+            # 5. Evita posizioni duplicate nella stessa direzione
+            already_open = any(
+                open_position.signal == signal.signal
+                for open_position
+                in self.position_manager.get_open_positions()
+            )
+
+            if already_open:
+                continue
+
+            # Non apre una posizione sull’ultima candela
+            if index == len(candles) - 1:
+                continue
+
             if indicators.atr is None:
                 continue
 
-            entry_price = float(candle.close)
+            # 6. Prezzo di entrata comprensivo di spread
+            entry_price = self.spread_calculator.get_entry_price(
+                candle=candle,
+                signal=signal.signal,
+            )
 
             stop_loss, take_profit = (
                 self.atr_risk_manager.calculate_levels(
@@ -141,6 +220,7 @@ class BacktestEngine:
 
             stop_distance = abs(entry_price - stop_loss)
 
+            # Il saldo ora include l’eventuale trade appena chiuso
             lot_size = self.mt5_position_sizer.calculate(
                 symbol="XAUUSD",
                 signal=signal.signal,
@@ -158,50 +238,7 @@ class BacktestEngine:
             print("Stop Distance:", stop_distance)
             print("Broker Lot Size:", lot_size)
 
-            open_positions = list(
-                self.position_manager.get_open_positions()
-            )
-
-            # Chiude una posizione quando arriva un segnale opposto
-            for open_position in open_positions:
-                if open_position.signal != signal.signal:
-                    profit = self.profit_calculator.calculate(
-                        signal=open_position.signal,
-                        entry_price=open_position.entry_price,
-                        exit_price=float(candle.close),
-                        lot_size=open_position.lot_size,
-                    )
-
-                    open_position.exit_price = float(candle.close)
-                    open_position.profit = profit
-
-                    self.total_profit += profit
-                    self.current_balance += profit
-
-                    if profit > 0:
-                        self.winning_trades += 1
-                    elif profit < 0:
-                        self.losing_trades += 1
-
-                    self.position_manager.close_position(open_position)
-
-                    print("Profit:", profit)
-                    print("Position closed")
-
-            # Controlla se esiste già una posizione dello stesso tipo
-            already_open = any(
-                open_position.signal == signal.signal
-                for open_position
-                in self.position_manager.get_open_positions()
-            )
-
-            if already_open:
-                continue
-
-            # Non apre una posizione senza ATR disponibile
-            # Non apre una nuova posizione sull'ultima candela
-            if index == len(candles) - 1:
-                continue
+            # 7. Apertura della nuova posizione
             position = BacktestPosition(
                 symbol="XAUUSD",
                 signal=signal.signal,
@@ -220,21 +257,31 @@ class BacktestEngine:
                 self.buy_trades += 1
             elif signal.signal == SignalType.SELL:
                 self.sell_trades += 1
-        final_price = float(candles[-1].close)
+
+        # 8. Chiusura delle posizioni rimaste a fine Backtest
+        final_candle = candles[-1]
 
         remaining_positions = list(
             self.position_manager.get_open_positions()
         )
 
         for open_position in remaining_positions:
+            final_exit_price = (
+                self.spread_calculator.get_market_exit_price(
+                    candle=final_candle,
+                    signal=open_position.signal,
+                )
+            )
+
             profit = self.profit_calculator.calculate(
                 signal=open_position.signal,
                 entry_price=open_position.entry_price,
-                exit_price=final_price,
+                exit_price=final_exit_price,
                 lot_size=open_position.lot_size,
+                symbol=open_position.symbol,
             )
 
-            open_position.exit_price = final_price
+            open_position.exit_price = final_exit_price
             open_position.profit = profit
 
             self.total_profit += profit
@@ -248,7 +295,7 @@ class BacktestEngine:
             self.position_manager.close_position(open_position)
 
             print("End-of-backtest position closed")
-            print("Exit Price:", final_price)
+            print("Exit Price:", final_exit_price)
             print("Profit:", profit)    
     def get_signals(self):
         return self.signals
