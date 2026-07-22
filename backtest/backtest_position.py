@@ -14,3 +14,5 @@ class BacktestPosition:
     is_open: bool = True
     exit_price: float | None = None
     profit: float = 0.0
+    gross_profit: float = 0.0
+    commission: float = 0.0

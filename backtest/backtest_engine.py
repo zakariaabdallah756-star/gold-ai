@@ -14,6 +14,7 @@ from strategy.strategy_allocation import StrategyAllocation
 from risk.atr_risk_manager import ATRRiskManager
 from risk.mt5_position_sizer import MT5PositionSizer
 from backtest.spread_calculator import BacktestSpreadCalculator
+from backtest.execution_costs import BacktestExecutionCosts
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -45,6 +46,11 @@ class BacktestEngine:
         self.mt5_position_sizer = MT5PositionSizer()
         self.spread_calculator = BacktestSpreadCalculator(
             symbol="XAUUSD"
+        )
+        self.execution_costs = BacktestExecutionCosts(
+            symbol="XAUUSD",
+            commission_per_lot_round_turn=0.0,
+            slippage_points=1.0,
         )
     def load_data(self):
         return self.data_engine.get_candles()
@@ -87,15 +93,32 @@ class BacktestEngine:
                         exit_price = open_position.take_profit
 
                 if exit_price is not None:
-                    profit = self.profit_calculator.calculate(
+                    executed_exit_price = (
+                        self.execution_costs.apply_exit_slippage(
+                            price=exit_price,
+                            signal=open_position.signal,
+                        )
+                    )
+
+                    gross_profit = self.profit_calculator.calculate(
                         signal=open_position.signal,
                         entry_price=open_position.entry_price,
-                        exit_price=exit_price,
+                        exit_price=executed_exit_price,
                         lot_size=open_position.lot_size,
                         symbol=open_position.symbol,
                     )
 
-                    open_position.exit_price = exit_price
+                    commission = (
+                        self.execution_costs.calculate_commission(
+                            open_position.lot_size
+                        )
+                    )
+
+                    profit = gross_profit - commission
+
+                    open_position.exit_price = executed_exit_price
+                    open_position.gross_profit = gross_profit
+                    open_position.commission = commission
                     open_position.profit = profit
 
                     self.total_profit += profit
@@ -106,11 +129,15 @@ class BacktestEngine:
                     elif profit < 0:
                         self.losing_trades += 1
 
-                    self.position_manager.close_position(open_position)
+                    self.position_manager.close_position(
+                        open_position
+                    )
 
                     print("SL/TP position closed")
-                    print("Exit Price:", exit_price)
-                    print("Profit:", profit)
+                    print("Exit Price:", executed_exit_price)
+                    print("Gross Profit:", gross_profit)
+                    print("Commission:", commission)
+                    print("Net Profit:", profit)
 
             # 2. Aggiornamento storico e indicatori
             history.append(candle)
@@ -119,7 +146,9 @@ class BacktestEngine:
             indicators = self.indicator_engine.calculate(history)
             self.indicators_history.append(indicators)
 
-            signal = self.strategy_engine.generate_signal(indicators)
+            signal = self.strategy_engine.generate_signal(
+                indicators
+            )
 
             self.signals.append(signal)
             self.last_signal = signal
@@ -131,21 +160,25 @@ class BacktestEngine:
             if signal.signal == SignalType.HOLD:
                 continue
 
-            # 3. Regime e allocazione del rischio
+            # 3. Regime di mercato e allocazione del rischio
             market_regime = (
                 self.strategy_engine.get_last_market_regime()
             )
 
-            strategy_weight = self.strategy_allocation.get_weight(
-                market_regime
+            strategy_weight = (
+                self.strategy_allocation.get_weight(
+                    market_regime
+                )
             )
 
-            allocated_risk = self.default_risk * strategy_weight
+            allocated_risk = (
+                self.default_risk * strategy_weight
+            )
 
             if allocated_risk <= 0:
                 continue
 
-            # 4. Chiusura della posizione opposta
+            # 4. Chiusura delle posizioni con segnale opposto
             open_positions = list(
                 self.position_manager.get_open_positions()
             )
@@ -153,21 +186,47 @@ class BacktestEngine:
             for open_position in open_positions:
                 if open_position.signal != signal.signal:
                     market_exit_price = (
-                        self.spread_calculator.get_market_exit_price(
+                        self.spread_calculator
+                        .get_market_exit_price(
                             candle=candle,
                             signal=open_position.signal,
                         )
                     )
 
-                    profit = self.profit_calculator.calculate(
-                        signal=open_position.signal,
-                        entry_price=open_position.entry_price,
-                        exit_price=market_exit_price,
-                        lot_size=open_position.lot_size,
-                        symbol=open_position.symbol,
+                    executed_exit_price = (
+                        self.execution_costs
+                        .apply_exit_slippage(
+                            price=market_exit_price,
+                            signal=open_position.signal,
+                        )
                     )
 
-                    open_position.exit_price = market_exit_price
+                    gross_profit = (
+                        self.profit_calculator.calculate(
+                            signal=open_position.signal,
+                            entry_price=(
+                                open_position.entry_price
+                            ),
+                            exit_price=executed_exit_price,
+                            lot_size=open_position.lot_size,
+                            symbol=open_position.symbol,
+                        )
+                    )
+
+                    commission = (
+                        self.execution_costs
+                        .calculate_commission(
+                            open_position.lot_size
+                        )
+                    )
+
+                    profit = gross_profit - commission
+
+                    open_position.exit_price = (
+                        executed_exit_price
+                    )
+                    open_position.gross_profit = gross_profit
+                    open_position.commission = commission
                     open_position.profit = profit
 
                     self.total_profit += profit
@@ -178,13 +237,22 @@ class BacktestEngine:
                     elif profit < 0:
                         self.losing_trades += 1
 
-                    self.position_manager.close_position(open_position)
+                    self.position_manager.close_position(
+                        open_position
+                    )
 
-                    print("Opposite-signal position closed")
-                    print("Exit Price:", market_exit_price)
-                    print("Profit:", profit)
+                    print(
+                        "Opposite-signal position closed"
+                    )
+                    print(
+                        "Exit Price:",
+                        executed_exit_price,
+                    )
+                    print("Gross Profit:", gross_profit)
+                    print("Commission:", commission)
+                    print("Net Profit:", profit)
 
-            # 5. Evita posizioni duplicate nella stessa direzione
+            # 5. Evita posizioni duplicate
             already_open = any(
                 open_position.signal == signal.signal
                 for open_position
@@ -194,17 +262,27 @@ class BacktestEngine:
             if already_open:
                 continue
 
-            # Non apre una posizione sull’ultima candela
+            # Non apre una posizione sull'ultima candela
             if index == len(candles) - 1:
                 continue
 
             if indicators.atr is None:
                 continue
 
-            # 6. Prezzo di entrata comprensivo di spread
-            entry_price = self.spread_calculator.get_entry_price(
-                candle=candle,
-                signal=signal.signal,
+            # 6. Prezzo di entrata con spread
+            entry_price = (
+                self.spread_calculator.get_entry_price(
+                    candle=candle,
+                    signal=signal.signal,
+                )
+            )
+
+            # Applicazione dello slippage di entrata
+            entry_price = (
+                self.execution_costs.apply_entry_slippage(
+                    price=entry_price,
+                    signal=signal.signal,
+                )
             )
 
             stop_loss, take_profit = (
@@ -218,9 +296,11 @@ class BacktestEngine:
             if stop_loss is None or take_profit is None:
                 continue
 
-            stop_distance = abs(entry_price - stop_loss)
+            stop_distance = abs(
+                entry_price - stop_loss
+            )
 
-            # Il saldo ora include l’eventuale trade appena chiuso
+            # Il saldo include i trade appena chiusi
             lot_size = self.mt5_position_sizer.calculate(
                 symbol="XAUUSD",
                 signal=signal.signal,
@@ -258,7 +338,8 @@ class BacktestEngine:
             elif signal.signal == SignalType.SELL:
                 self.sell_trades += 1
 
-        # 8. Chiusura delle posizioni rimaste a fine Backtest
+        # 8. Chiusura delle posizioni rimaste
+        # alla fine del backtest
         final_candle = candles[-1]
 
         remaining_positions = list(
@@ -266,22 +347,42 @@ class BacktestEngine:
         )
 
         for open_position in remaining_positions:
-            final_exit_price = (
-                self.spread_calculator.get_market_exit_price(
+            final_market_price = (
+                self.spread_calculator
+                .get_market_exit_price(
                     candle=final_candle,
                     signal=open_position.signal,
                 )
             )
 
-            profit = self.profit_calculator.calculate(
-                signal=open_position.signal,
-                entry_price=open_position.entry_price,
-                exit_price=final_exit_price,
-                lot_size=open_position.lot_size,
-                symbol=open_position.symbol,
+            final_exit_price = (
+                self.execution_costs.apply_exit_slippage(
+                    price=final_market_price,
+                    signal=open_position.signal,
+                )
             )
 
+            gross_profit = (
+                self.profit_calculator.calculate(
+                    signal=open_position.signal,
+                    entry_price=open_position.entry_price,
+                    exit_price=final_exit_price,
+                    lot_size=open_position.lot_size,
+                    symbol=open_position.symbol,
+                )
+            )
+
+            commission = (
+                self.execution_costs.calculate_commission(
+                    open_position.lot_size
+                )
+            )
+
+            profit = gross_profit - commission
+
             open_position.exit_price = final_exit_price
+            open_position.gross_profit = gross_profit
+            open_position.commission = commission
             open_position.profit = profit
 
             self.total_profit += profit
@@ -292,11 +393,15 @@ class BacktestEngine:
             elif profit < 0:
                 self.losing_trades += 1
 
-            self.position_manager.close_position(open_position)
+            self.position_manager.close_position(
+                open_position
+            )
 
             print("End-of-backtest position closed")
             print("Exit Price:", final_exit_price)
-            print("Profit:", profit)    
+            print("Gross Profit:", gross_profit)
+            print("Commission:", commission)
+            print("Net Profit:", profit)    
     def get_signals(self):
         return self.signals
     def get_indicators(self):
