@@ -44,6 +44,9 @@ from market.candle import Candle
 from datetime import datetime
 from market.data_engine import DataEngine
 from market.mt5_connector import MT5Connector
+from backtest.mt5_commission_detector import (
+    MT5CommissionDetector,
+)
 
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
@@ -57,6 +60,19 @@ def main():
         return
 
     print("MT5 Connected!")
+    commission_detector = MT5CommissionDetector(
+        symbol="XAUUSD",
+        lookback_days=365,
+    )
+
+    detected_commission = (
+        commission_detector.calculate_round_turn_per_lot()
+    )
+
+    print(
+        "Detected Commission per Lot Round Turn:",
+        detected_commission,
+    )
     provider = DataProvider()
     rates = connector.get_rates()
     real_candles = provider.get_mt5_candles(connector)
