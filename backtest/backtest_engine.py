@@ -52,6 +52,45 @@ class BacktestEngine:
         history = []
 
         for candle in candles:
+            # --- PIANO 21: Controllo Chiusura Reale SL / TP ---
+            open_positions = list(
+                self.position_manager.get_open_positions()
+            )
+            for open_position in open_positions:
+                exit_price = None
+                if open_position.signal == SignalType.BUY:
+                    if float(candle.low) <= open_position.stop_loss:
+                        exit_price = open_position.stop_loss
+                    elif float(candle.high) >= open_position.take_profit:
+                        exit_price = open_position.take_profit
+                elif open_position.signal == SignalType.SELL:
+                    if float(candle.high) >= open_position.stop_loss:
+                        exit_price = open_position.stop_loss
+                    elif float(candle.low) <= open_position.take_profit:
+                        exit_price = open_position.take_profit
+
+                if exit_price is not None:
+                    profit = self.profit_calculator.calculate(
+                        signal=open_position.signal,
+                        entry_price=open_position.entry_price,
+                        exit_price=exit_price,
+                        lot_size=open_position.lot_size,
+                    )
+                    open_position.exit_price = exit_price
+                    open_position.profit = profit
+                    self.total_profit += profit
+
+                    if profit > 0:
+                        self.winning_trades += 1
+                    elif profit < 0:
+                        self.losing_trades += 1
+
+                    self.position_manager.close_position(open_position)
+                    print("SL/TP position closed")
+                    print("Exit Price:", exit_price)
+                    print("Profit:", profit)
+            # -------------------------------------------------
+
             history.append(candle)
             self.candles_history.append(candle)
 
