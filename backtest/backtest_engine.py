@@ -11,6 +11,7 @@ from backtest.position_manager import BacktestPositionManager
 from backtest.backtest_position import BacktestPosition
 from strategy.signal import SignalType
 from strategy.strategy_allocation import StrategyAllocation
+from risk.atr_risk_manager import ATRRiskManager
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
@@ -38,6 +39,7 @@ class BacktestEngine:
         self.profit_calculator = BacktestProfitCalculator()
         self.position_manager = BacktestPositionManager()
         self.strategy_allocation = StrategyAllocation()
+        self.atr_risk_manager = ATRRiskManager()
     def load_data(self):
         return self.data_engine.get_candles()
     def run(self):
@@ -76,12 +78,16 @@ class BacktestEngine:
 
             allocated_risk = self.default_risk * strategy_weight
 
+            if allocated_risk <= 0:
+                continue
+
             lot_size = self.risk_engine.calculate_position_size(
                 balance=self.default_balance,
                 risk_percent=allocated_risk,
                 stop_loss_pips=self.default_stop_loss,
                 pip_value=self.default_pip_value,
             )
+
             print("Strategy Weight:", strategy_weight)
             print("Allocated Risk:", allocated_risk)
             print("Lot Size:", lot_size)
@@ -90,17 +96,17 @@ class BacktestEngine:
                 self.position_manager.get_open_positions()
             )
 
-            # Chiude le posizioni con segnale opposto
+            # Chiude una posizione quando arriva un segnale opposto
             for open_position in open_positions:
                 if open_position.signal != signal.signal:
                     profit = self.profit_calculator.calculate(
                         signal=open_position.signal,
                         entry_price=open_position.entry_price,
-                        exit_price=candle.close,
+                        exit_price=float(candle.close),
                         lot_size=open_position.lot_size,
                     )
 
-                    open_position.exit_price = candle.close
+                    open_position.exit_price = float(candle.close)
                     open_position.profit = profit
 
                     self.total_profit += profit
@@ -117,28 +123,44 @@ class BacktestEngine:
 
             # Controlla se esiste già una posizione dello stesso tipo
             already_open = any(
-                position.signal == signal.signal
-                for position in self.position_manager.get_open_positions()
+                open_position.signal == signal.signal
+                for open_position
+                in self.position_manager.get_open_positions()
             )
 
-            # Apre una nuova posizione soltanto se necessaria
-            if not already_open:
-                position = BacktestPosition(
-                    symbol="XAUUSD",
+            if already_open:
+                continue
+
+            # Non apre una posizione senza ATR disponibile
+            if indicators.atr is None:
+                continue
+
+            stop_loss, take_profit = (
+                self.atr_risk_manager.calculate_levels(
+                    entry_price=float(candle.close),
+                    atr=float(indicators.atr),
                     signal=signal.signal,
-                    entry_price=candle.close,
-                    lot_size=lot_size,
                 )
+            )
 
-                self.position_manager.open_position(position)
-                self.trades.append(position)
+            position = BacktestPosition(
+                symbol="XAUUSD",
+                signal=signal.signal,
+                entry_price=float(candle.close),
+                lot_size=lot_size,
+                stop_loss=stop_loss,
+                take_profit=take_profit,
+            )
 
-                self.total_trades += 1
+            self.position_manager.open_position(position)
+            self.trades.append(position)
 
-                if signal.signal == SignalType.BUY:
-                    self.buy_trades += 1
-                elif signal.signal == SignalType.SELL:
-                    self.sell_trades += 1
+            self.total_trades += 1
+
+            if signal.signal == SignalType.BUY:
+                self.buy_trades += 1
+            elif signal.signal == SignalType.SELL:
+                self.sell_trades += 1
     def get_signals(self):
         return self.signals
     def get_indicators(self):
