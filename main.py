@@ -55,24 +55,46 @@ def main():
     print(generate_id())
     print(Event.NEW_CANDLE)
     connector = MT5Connector()
-    if not connector.connect():
-        print("Impossibile connettersi a MetaTrader 5.")
-        return
+    connector.connect()
 
-    print("MT5 Connected!")
     commission_detector = MT5CommissionDetector(
         symbol="XAUUSD",
         lookback_days=365,
     )
 
-    detected_commission = (
-        commission_detector.calculate_round_turn_per_lot()
-    )
+    try:
+        detected_commission = (
+            commission_detector
+            .calculate_round_turn_per_lot()
+        )
 
-    print(
-        "Detected Commission per Lot Round Turn:",
-        detected_commission,
-    )
+        print()
+        print("=" * 60)
+        print("COMMISSION DETECTOR MT5")
+        print(
+            "Commissione per lotto round turn:",
+            detected_commission,
+        )
+        print("=" * 60)
+        print()
+
+    except RuntimeError as error:
+        detected_commission = None
+
+        print()
+        print("=" * 60)
+        print("COMMISSION DETECTOR MT5")
+        print("Errore:", error)
+        print("=" * 60)
+        print()
+
+    provider = DataProvider()
+    if not connector.connect():
+        print("Impossibile connettersi a MetaTrader 5.")
+        return
+
+    print("MT5 Connected!")
+    
     provider = DataProvider()
     rates = connector.get_rates()
     real_candles = provider.get_mt5_candles(connector)
