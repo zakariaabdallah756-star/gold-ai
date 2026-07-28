@@ -286,12 +286,20 @@ def main():
         engine.add_candle(candle)
 
     print("Candles:", len(engine.get_candles()))
-    backtest = BacktestEngine(engine)
+    initial_balance = 100.0
+
+    backtest = BacktestEngine(
+        engine,
+        initial_balance=initial_balance,
+    )
 
     history = backtest.load_data()
 
+    print("Initial Balance:", backtest.get_initial_balance())
     print("Storico:", len(history))
+
     signals = backtest.execute()
+
     print("Trades:", len(backtest.get_trades()))
     print("Total Trades:", backtest.get_total_trades())
     print("BUY Trades:", backtest.get_buy_trades())
@@ -299,12 +307,11 @@ def main():
     print("Last Signal:", backtest.get_last_signal())
     print("Candles processed:", len(backtest.get_candles()))
     print("Indicators calculated:", len(backtest.get_indicators()))
-
     print("Signals generated:", len(signals))
-    print(backtest.get_statistics())
     print("Open Positions:", backtest.get_open_positions())
     print("Closed Positions:", backtest.get_closed_positions())
     print("Statistics:", backtest.get_statistics())
+    print("Rejected for Margin:", backtest.get_rejected_for_margin())
     print("Current Balance:", backtest.get_current_balance())
     #closer = PositionCloser()
 

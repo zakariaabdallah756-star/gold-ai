@@ -1,9 +1,6 @@
-import signal
-
 from market.data_engine import DataEngine
 from strategy.strategy_engine import StrategyEngine
 from indicators.indicator_engine import IndicatorEngine
-from strategy.strategy_engine import StrategyEngine
 from risk.risk_engine import RiskEngine
 from backtest.statistics import BacktestStatistics
 from backtest.profit_calculator import BacktestProfitCalculator
@@ -16,9 +13,18 @@ from risk.mt5_position_sizer import MT5PositionSizer
 from backtest.spread_calculator import BacktestSpreadCalculator
 from backtest.execution_costs import BacktestExecutionCosts
 from risk.mt5_margin_checker import MT5MarginChecker
+
+
 class BacktestEngine:
 
-    def __init__(self, data_engine: DataEngine):
+    def __init__(
+        self,
+        data_engine: DataEngine,
+        initial_balance: float = 10000.0,
+    ):
+        if initial_balance <= 0:
+            raise ValueError("Il capitale iniziale deve essere maggiore di zero.")
+
         self.margin_checker = MT5MarginChecker()
         self.rejected_for_margin = 0
         self.data_engine = data_engine
@@ -35,12 +41,12 @@ class BacktestEngine:
         self.total_profit = 0.0
         self.winning_trades = 0
         self.losing_trades = 0
-        self.default_balance = 10000.0
+        self.initial_balance = float(initial_balance)
+        self.current_balance = self.initial_balance
+        self.default_balance = self.initial_balance
         self.default_risk = 1.0
         self.default_stop_loss = 200.0
         self.default_pip_value = 1.0
-        self.initial_balance = 10000.0
-        self.current_balance = self.initial_balance
         self.risk_engine = RiskEngine()
         self.profit_calculator = BacktestProfitCalculator()
         self.position_manager = BacktestPositionManager()
@@ -352,10 +358,6 @@ class BacktestEngine:
                 self.buy_trades += 1
             elif signal.signal == SignalType.SELL:
                 self.sell_trades += 1
-                print(
-            "Rejected for Margin:",
-            self.rejected_for_margin,
-        )
 
         # 8. Chiusura delle posizioni rimaste
         # alla fine del backtest
@@ -420,7 +422,10 @@ class BacktestEngine:
             print("Exit Price:", final_exit_price)
             print("Gross Profit:", gross_profit)
             print("Commission:", commission)
-            print("Net Profit:", profit)    
+            print("Net Profit:", profit)
+
+        print("Rejected for Margin:", self.rejected_for_margin)
+
     def get_signals(self):
         return self.signals
     def get_indicators(self):
@@ -569,6 +574,13 @@ class BacktestEngine:
         )
     def get_open_positions(self):
         return self.position_manager.get_open_positions()
+
+    def get_initial_balance(self):
+        return self.initial_balance
+
+    def get_rejected_for_margin(self):
+        return self.rejected_for_margin
+
     def reset(self):
         self.signals.clear()
         self.indicators_history.clear()
@@ -582,12 +594,16 @@ class BacktestEngine:
         self.total_profit = 0.0
         self.winning_trades = 0
         self.losing_trades = 0
+        self.rejected_for_margin = 0
         self.current_balance = self.initial_balance
+
     def execute(self):
         self.reset()
         self.run()
-        return self.get_signals() 
+        return self.get_signals()
+
     def get_closed_positions(self):
-        return self.position_manager.get_closed_positions()   
+        return self.position_manager.get_closed_positions()
+
     def get_current_balance(self):
         return self.current_balance
