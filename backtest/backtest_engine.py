@@ -15,9 +15,12 @@ from risk.atr_risk_manager import ATRRiskManager
 from risk.mt5_position_sizer import MT5PositionSizer
 from backtest.spread_calculator import BacktestSpreadCalculator
 from backtest.execution_costs import BacktestExecutionCosts
+from risk.mt5_margin_checker import MT5MarginChecker
 class BacktestEngine:
 
     def __init__(self, data_engine: DataEngine):
+        self.margin_checker = MT5MarginChecker()
+        self.rejected_for_margin = 0
         self.data_engine = data_engine
         self.indicator_engine = IndicatorEngine()
         self.strategy_engine = StrategyEngine()
@@ -317,6 +320,18 @@ class BacktestEngine:
             print("Allocated Risk:", allocated_risk)
             print("Stop Distance:", stop_distance)
             print("Broker Lot Size:", lot_size)
+            if not self.margin_checker.has_sufficient_margin(
+                symbol="XAUUSD",
+                signal=signal.signal,
+                lot_size=lot_size,
+                entry_price=entry_price,
+                available_balance=self.current_balance,
+            ):
+                self.rejected_for_margin += 1
+
+                print("Trade rejected: insufficient margin")
+
+                continue
 
             # 7. Apertura della nuova posizione
             position = BacktestPosition(
@@ -337,6 +352,10 @@ class BacktestEngine:
                 self.buy_trades += 1
             elif signal.signal == SignalType.SELL:
                 self.sell_trades += 1
+                print(
+            "Rejected for Margin:",
+            self.rejected_for_margin,
+        )
 
         # 8. Chiusura delle posizioni rimaste
         # alla fine del backtest
