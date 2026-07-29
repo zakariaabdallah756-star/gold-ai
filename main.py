@@ -313,14 +313,36 @@ def main():
     print("Statistics:", backtest.get_statistics())
     print("Rejected for Margin:", backtest.get_rejected_for_margin())
     print("Current Balance:", backtest.get_current_balance())
-    #closer = PositionCloser()
 
-    #should_close = closer.should_close(
-        #position=paper_position,
-        #current_price=3340.0,
-    #)
+    print()
+    print("STRATEGY PERFORMANCE")
+    print("=" * 80)
 
-    #print("CLOSE:", should_close)
+    for performance in backtest.get_strategy_performance():
+        print(
+            f"{performance.strategy_name} | "
+            f"Regime: {performance.market_regime} | "
+            f"Trades: {performance.total_trades} | "
+            f"Winning: {performance.winning_trades} | "
+            f"Losing: {performance.losing_trades} | "
+            f"Net Profit: {performance.net_profit:.2f} | "
+            f"Win Rate: {performance.win_rate:.2f}% | "
+            f"Profit Factor: {performance.profit_factor:.2f}"
+        )
+
+    print("=" * 80)
+
+    # closer = PositionCloser()
+
+    # should_close = closer.should_close(
+    #     position=paper_position,
+    #     current_price=3340.0,
+    # )
+
+    # print("CLOSE:", should_close)
+
     connector.disconnect()
+
+
 if __name__ == "__main__":
     main()

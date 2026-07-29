@@ -13,6 +13,7 @@ from risk.mt5_position_sizer import MT5PositionSizer
 from backtest.spread_calculator import BacktestSpreadCalculator
 from backtest.execution_costs import BacktestExecutionCosts
 from risk.mt5_margin_checker import MT5MarginChecker
+from backtest.strategy_performance_calculator import StrategyPerformanceCalculator
 
 
 class BacktestEngine:
@@ -50,6 +51,7 @@ class BacktestEngine:
         self.risk_engine = RiskEngine()
         self.profit_calculator = BacktestProfitCalculator()
         self.position_manager = BacktestPositionManager()
+        self.strategy_performance_calculator = StrategyPerformanceCalculator()
         self.strategy_allocation = StrategyAllocation()
         self.atr_risk_manager = ATRRiskManager()
         self.mt5_position_sizer = MT5PositionSizer()
@@ -609,6 +611,15 @@ class BacktestEngine:
 
     def get_closed_positions(self):
         return self.position_manager.get_closed_positions()
+
+    def get_strategy_performance(self):
+        closed_positions = (
+            self.position_manager.get_closed_positions()
+        )
+
+        return self.strategy_performance_calculator.calculate(
+            closed_positions
+        )
 
     def get_current_balance(self):
         return self.current_balance
