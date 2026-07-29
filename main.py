@@ -286,7 +286,7 @@ def main():
         engine.add_candle(candle)
 
     print("Candles:", len(engine.get_candles()))
-    initial_balance = 100.0
+    initial_balance = 10000.0
 
     backtest = BacktestEngine(
         engine,

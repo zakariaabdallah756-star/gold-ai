@@ -347,6 +347,11 @@ class BacktestEngine:
                 lot_size=lot_size,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
+                strategy_name=(
+                    self.strategy_engine
+                    .get_last_strategy_name()
+                ),
+                market_regime=market_regime.value,
             )
 
             self.position_manager.open_position(position)

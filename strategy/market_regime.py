@@ -1,10 +1,22 @@
 from enum import Enum
+
 from indicators.indicator_values import IndicatorValues
+
+
+class MarketRegime(Enum):
+    TREND = "TREND"
+    BREAKOUT = "BREAKOUT"
+    RANGE = "RANGE"
+    SCALPING = "SCALPING"
+    UNKNOWN = "UNKNOWN"
 
 
 class MarketRegimeDetector:
 
-    def detect(self, indicators: IndicatorValues) -> MarketRegime:
+    def detect(
+        self,
+        indicators: IndicatorValues,
+    ) -> MarketRegime:
         if (
             indicators.adx is None
             or indicators.atr is None
@@ -14,19 +26,22 @@ class MarketRegimeDetector:
         breakout_up = (
             indicators.current_close is not None
             and indicators.recent_high is not None
-            and indicators.current_close > indicators.recent_high
+            and indicators.current_close
+            > indicators.recent_high
         )
 
         breakout_down = (
             indicators.current_close is not None
             and indicators.recent_low is not None
-            and indicators.current_close < indicators.recent_low
+            and indicators.current_close
+            < indicators.recent_low
         )
 
         volume_confirmed = (
             indicators.current_volume is not None
             and indicators.average_volume is not None
-            and indicators.current_volume > indicators.average_volume
+            and indicators.current_volume
+            > indicators.average_volume
         )
 
         if (
@@ -43,11 +58,3 @@ class MarketRegimeDetector:
             return MarketRegime.RANGE
 
         return MarketRegime.SCALPING
-
-
-class MarketRegime(Enum):
-    TREND = "TREND"
-    BREAKOUT = "BREAKOUT"
-    RANGE = "RANGE"
-    SCALPING = "SCALPING"
-    UNKNOWN = "UNKNOWN"
