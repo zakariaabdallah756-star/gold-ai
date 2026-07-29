@@ -11,6 +11,9 @@ from strategy.mean_reversion_strategy import (
     MeanReversionStrategy,
 )
 from strategy.scalping_strategy import ScalpingStrategy
+from strategy.strategy_portfolio_manager import (
+    StrategyPortfolioManager,
+)
 
 
 class StrategyEngine:
@@ -24,7 +27,7 @@ class StrategyEngine:
         self.breakout_strategy = BreakoutStrategy()
         self.mean_reversion_strategy = MeanReversionStrategy()
         self.scalping_strategy = ScalpingStrategy()
-
+        self.portfolio_manager = StrategyPortfolioManager()
         self.last_market_regime = MarketRegime.UNKNOWN
         self.last_strategy_name = "GoldStrategy"
 
@@ -34,6 +37,27 @@ class StrategyEngine:
         )
 
         self.last_market_regime = market_regime
+        strategy_name = None
+
+        if market_regime == MarketRegime.TREND:
+            strategy_name = "TrendFollowingStrategy"
+
+        elif market_regime == MarketRegime.BREAKOUT:
+            strategy_name = "BreakoutStrategy"
+
+        elif market_regime == MarketRegime.RANGE:
+            strategy_name = "MeanReversionStrategy"
+
+        elif market_regime == MarketRegime.SCALPING:
+            strategy_name = "ScalpingStrategy"
+
+        else:
+            strategy_name = "GoldStrategy"
+
+        if not self.portfolio_manager.is_enabled(
+            strategy_name
+        ):
+            return self.strategy.generate(indicators)
 
         print("Market Regime:", market_regime.value)
 
