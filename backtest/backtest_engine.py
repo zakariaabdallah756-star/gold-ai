@@ -619,6 +619,7 @@ class BacktestEngine:
         self.winning_trades = 0
         self.losing_trades = 0
         self.rejected_for_margin = 0
+        self.performance_tracker.reset()
         self.current_balance = self.initial_balance
 
     def execute(self):

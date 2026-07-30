@@ -331,6 +331,24 @@ def main():
         )
 
     print("=" * 80)
+    print()
+    print("ROLLING STRATEGY SCORES")
+    print("=" * 80)
+
+    strategy_scores = backtest.get_strategy_scores()
+
+    for strategy_name, score_data in strategy_scores.items():
+        print(
+            f"{strategy_name} | "
+            f"Trades: {score_data['trades']} | "
+            f"Net Profit: {score_data['net_profit']:.2f} | "
+            f"Win Rate: {score_data['win_rate']:.2f}% | "
+            f"Profit Factor: "
+            f"{score_data['profit_factor']:.2f} | "
+            f"Score: {score_data['score']:.4f}"
+        )
+
+    print("=" * 80)
 
     # closer = PositionCloser()
 
