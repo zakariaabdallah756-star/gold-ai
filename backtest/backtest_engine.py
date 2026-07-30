@@ -17,6 +17,9 @@ from backtest.strategy_performance_calculator import StrategyPerformanceCalculat
 from strategy.strategy_performance_tracker import (
     StrategyPerformanceTracker,
 )
+from strategy.adaptive_strategy_allocator import (
+    AdaptiveStrategyAllocator,
+)
 
 
 class BacktestEngine:
@@ -24,10 +27,13 @@ class BacktestEngine:
     def __init__(
         self,
         data_engine: DataEngine,
-            initial_balance: float = 10000.0,
-        ):
+        initial_balance: float = 10000.0,
+    ):
         self.performance_tracker = (
             StrategyPerformanceTracker()
+        )
+        self.adaptive_allocator = (
+            AdaptiveStrategyAllocator()
         )
         if initial_balance <= 0:
             raise ValueError("Il capitale iniziale deve essere maggiore di zero.")
@@ -185,17 +191,18 @@ class BacktestEngine:
                 self.strategy_engine.get_last_market_regime()
             )
 
-            strategy_weight = (
+            strategy_name = (
+                self.strategy_engine
+                .get_last_strategy_name()
+            )
+
+            base_strategy_weight = (
                 self.strategy_allocation.get_weight(
                     market_regime
                 )
             )
 
-            allocated_risk = (
-                self.default_risk * strategy_weight
-            )
-
-            if allocated_risk <= 0:
+            if base_strategy_weight <= 0:
                 continue
 
             # 4. Chiusura delle posizioni con segnale opposto
@@ -294,6 +301,33 @@ class BacktestEngine:
             if indicators.atr is None:
                 continue
 
+            strategy_trade_count = (
+                self.performance_tracker.get_trade_count(
+                    strategy_name
+                )
+            )
+
+            strategy_score = (
+                self.performance_tracker.get_score(
+                    strategy_name
+                )
+            )
+
+            strategy_weight = (
+                self.adaptive_allocator.calculate_weight(
+                    base_weight=base_strategy_weight,
+                    score=strategy_score,
+                    trade_count=strategy_trade_count,
+                )
+            )
+
+            allocated_risk = (
+                self.default_risk * strategy_weight
+            )
+
+            if allocated_risk <= 0:
+                continue
+
             # 6. Prezzo di entrata con spread
             entry_price = (
                 self.spread_calculator.get_entry_price(
@@ -338,7 +372,20 @@ class BacktestEngine:
             if lot_size <= 0:
                 continue
 
-            print("Strategy Weight:", strategy_weight)
+            print("Strategy Name:", strategy_name)
+            print(
+                "Base Strategy Weight:",
+                base_strategy_weight,
+            )
+            print(
+                "Strategy Trade Count:",
+                strategy_trade_count,
+            )
+            print("Strategy Score:", strategy_score)
+            print(
+                "Adaptive Strategy Weight:",
+                strategy_weight,
+            )
             print("Allocated Risk:", allocated_risk)
             print("Stop Distance:", stop_distance)
             print("Broker Lot Size:", lot_size)
@@ -363,10 +410,7 @@ class BacktestEngine:
                 lot_size=lot_size,
                 stop_loss=stop_loss,
                 take_profit=take_profit,
-                strategy_name=(
-                    self.strategy_engine
-                    .get_last_strategy_name()
-                ),
+                strategy_name=strategy_name,
                 market_regime=market_regime.value,
             )
 
