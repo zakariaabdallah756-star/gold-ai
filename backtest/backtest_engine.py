@@ -14,6 +14,9 @@ from backtest.spread_calculator import BacktestSpreadCalculator
 from backtest.execution_costs import BacktestExecutionCosts
 from risk.mt5_margin_checker import MT5MarginChecker
 from backtest.strategy_performance_calculator import StrategyPerformanceCalculator
+from strategy.strategy_performance_tracker import (
+    StrategyPerformanceTracker,
+)
 
 
 class BacktestEngine:
@@ -21,8 +24,11 @@ class BacktestEngine:
     def __init__(
         self,
         data_engine: DataEngine,
-        initial_balance: float = 10000.0,
-    ):
+            initial_balance: float = 10000.0,
+        ):
+        self.performance_tracker = (
+            StrategyPerformanceTracker()
+        )
         if initial_balance <= 0:
             raise ValueError("Il capitale iniziale deve essere maggiore di zero.")
 
@@ -139,7 +145,10 @@ class BacktestEngine:
                         self.winning_trades += 1
                     elif profit < 0:
                         self.losing_trades += 1
-
+                    self.performance_tracker.record_trade(
+                        strategy_name=open_position.strategy_name,
+                        profit=profit,
+                    )
                     self.position_manager.close_position(
                         open_position
                     )
@@ -247,6 +256,11 @@ class BacktestEngine:
                         self.winning_trades += 1
                     elif profit < 0:
                         self.losing_trades += 1
+                    self.performance_tracker.record_trade(
+                        strategy_name=open_position.strategy_name,
+                        profit=profit,
+                    )
+                    
 
                     self.position_manager.close_position(
                         open_position
@@ -420,7 +434,10 @@ class BacktestEngine:
                 self.winning_trades += 1
             elif profit < 0:
                 self.losing_trades += 1
-
+            self.performance_tracker.record_trade(
+                strategy_name=open_position.strategy_name,
+                profit=profit,
+            )
             self.position_manager.close_position(
                 open_position
             )
@@ -623,3 +640,5 @@ class BacktestEngine:
 
     def get_current_balance(self):
         return self.current_balance
+    def get_strategy_scores(self):
+        return self.performance_tracker.get_summary()
