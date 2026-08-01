@@ -47,7 +47,9 @@ from market.mt5_connector import MT5Connector
 from backtest.mt5_commission_detector import (
     MT5CommissionDetector,
 )
-
+from backtest.allocation_comparison import (
+    AllocationComparison,
+)
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -368,7 +370,39 @@ def main():
     # )
 
     # print("CLOSE:", should_close)
+    comparison = AllocationComparison()
 
+    comparison_results = comparison.compare(
+        data_engine=engine,
+        initial_balance=initial_balance,
+    )
+
+    print()
+    print("ALLOCATION COMPARISON")
+    print("=" * 80)
+
+    for result in comparison_results:
+        print(
+            f"{result.mode} | "
+            f"Trades: {result.total_trades} | "
+            f"Net Profit: {result.net_profit:.2f} | "
+            f"Win Rate: {result.win_rate:.2f}% | "
+            f"Profit Factor: {result.profit_factor:.4f} | "
+            f"Final Equity: {result.final_equity:.2f} | "
+            f"Max Drawdown: {result.max_drawdown:.2f}"
+        )
+
+    best_result = max(
+        comparison_results,
+        key=lambda result: result.net_profit,
+    )
+
+    print("-" * 80)
+    print(
+        "Best Mode by Net Profit:",
+        best_result.mode,
+    )
+    print("=" * 80)
     connector.disconnect()
 
 
