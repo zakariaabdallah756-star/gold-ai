@@ -1,3 +1,6 @@
+from contextlib import redirect_stdout
+from io import StringIO
+
 from market.data_engine import DataEngine
 from strategy.strategy_engine import StrategyEngine
 from indicators.indicator_engine import IndicatorEngine
@@ -29,6 +32,7 @@ class BacktestEngine:
         data_engine: DataEngine,
         initial_balance: float = 10000.0,
         adaptive_allocation_enabled: bool = True,
+        verbose: bool = True,
     ):
         self.performance_tracker = (
             StrategyPerformanceTracker()
@@ -39,6 +43,7 @@ class BacktestEngine:
         self.adaptive_allocation_enabled = bool(
             adaptive_allocation_enabled
         )
+        self.verbose = bool(verbose)
         if initial_balance <= 0:
             raise ValueError("Il capitale iniziale deve essere maggiore di zero.")
 
@@ -678,7 +683,13 @@ class BacktestEngine:
 
     def execute(self):
         self.reset()
-        self.run()
+
+        if self.verbose:
+            self.run()
+        else:
+            with redirect_stdout(StringIO()):
+                self.run()
+
         return self.get_signals()
 
     def get_closed_positions(self):
@@ -701,3 +712,6 @@ class BacktestEngine:
 
     def is_adaptive_allocation_enabled(self):
         return self.adaptive_allocation_enabled
+
+    def is_verbose(self):
+        return self.verbose

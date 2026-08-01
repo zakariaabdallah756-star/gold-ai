@@ -294,13 +294,15 @@ def main():
     backtest = BacktestEngine(
         engine,
         initial_balance=initial_balance,
-        adaptive_allocation_enabled=False,
+        adaptive_allocation_enabled=True,
+        verbose=False,
     )
 
     print(
         "Adaptive Allocation Enabled:",
         backtest.is_adaptive_allocation_enabled(),
     )
+    print("Verbose Backtest:", backtest.is_verbose())
 
     history = backtest.load_data()
 
