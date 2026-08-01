@@ -51,6 +51,12 @@ from backtest.mt5_commission_detector import (
 from backtest.allocation_comparison import (
     AllocationComparison,
 )
+from backtest.historical_data_splitter import (
+    HistoricalDataSplitter,
+)
+from backtest.historical_split_backtest_runner import (
+    HistoricalSplitBacktestRunner,
+)
 def main():
     logger.info(f"{APP_NAME} v{VERSION} avviato.")
     print(f"{APP_NAME} v{VERSION} avviato correttamente.")
@@ -430,6 +436,72 @@ def main():
         best_result.mode,
     )
     print("=" * 80)
+
+    historical_splitter = HistoricalDataSplitter()
+
+    training_candles, validation_candles = (
+        historical_splitter.split(
+            candles=historical_candles,
+            training_ratio=0.70,
+        )
+    )
+
+    split_runner = HistoricalSplitBacktestRunner(
+        initial_balance=initial_balance,
+        adaptive_allocation_enabled=False,
+    )
+
+    training_result, validation_result = (
+        split_runner.run(
+            training_candles=training_candles,
+            validation_candles=validation_candles,
+        )
+    )
+
+    print()
+    print("TRAINING / VALIDATION COMPARISON")
+    print("=" * 80)
+
+    for period_result in (
+        training_result,
+        validation_result,
+    ):
+        print(
+            f"{period_result.period_name} | "
+            f"Candles: {period_result.candles} | "
+            f"Trades: {period_result.total_trades} | "
+            f"Net Profit: {period_result.net_profit:.2f} | "
+            f"Win Rate: {period_result.win_rate:.2f}% | "
+            f"Profit Factor: "
+            f"{period_result.profit_factor:.4f} | "
+            f"Final Equity: "
+            f"{period_result.final_equity:.2f} | "
+            f"Max Drawdown: "
+            f"{period_result.max_drawdown:.2f}"
+        )
+
+    print("-" * 80)
+
+    if (
+        training_result.net_profit > 0
+        and validation_result.net_profit > 0
+    ):
+        validation_status = (
+            "PASSED: profitable in both periods"
+        )
+    elif validation_result.net_profit > 0:
+        validation_status = (
+            "PARTIAL: validation profitable, "
+            "training not profitable"
+        )
+    else:
+        validation_status = (
+            "FAILED: validation period not profitable"
+        )
+
+    print("Validation Status:", validation_status)
+    print("=" * 80)
+
     connector.disconnect()
 
 
