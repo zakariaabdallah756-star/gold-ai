@@ -44,6 +44,7 @@ from market.candle import Candle
 from datetime import datetime
 from market.data_engine import DataEngine
 from market.mt5_connector import MT5Connector
+from market.mt5_historical_loader import MT5HistoricalLoader
 from backtest.mt5_commission_detector import (
     MT5CommissionDetector,
 )
@@ -57,7 +58,14 @@ def main():
     print(generate_id())
     print(Event.NEW_CANDLE)
     connector = MT5Connector()
-    connector.connect()
+
+    if not connector.connect():
+        print("Impossibile connettersi a MetaTrader 5.")
+        return
+
+    print("MT5 Connected!")
+
+    provider = DataProvider()
 
     commission_detector = MT5CommissionDetector(
         symbol="XAUUSD",
@@ -90,28 +98,32 @@ def main():
         print("=" * 60)
         print()
 
-    provider = DataProvider()
-    if not connector.connect():
-        print("Impossibile connettersi a MetaTrader 5.")
-        return
+    historical_loader = MT5HistoricalLoader(
+        symbol="XAUUSD",
+        timeframe="M15",
+    )
 
-    print("MT5 Connected!")
-    
-    provider = DataProvider()
-    rates = connector.get_rates()
-    real_candles = provider.get_mt5_candles(connector)
+    historical_candles = historical_loader.load(
+        count=5000,
+        start_pos=1,
+    )
 
-    print("Real candles:", len(real_candles))
+    print()
+    print("=" * 60)
+    print("EXTENDED MT5 HISTORY")
+    print(
+        "Timeframe:",
+        historical_loader.get_timeframe_name(),
+    )
+    print("Candles downloaded:", len(historical_candles))
 
-    print(real_candles[0])
-    print(real_candles[-1])
+    if historical_candles:
+        print("First candle:", historical_candles[0])
+        print("Last candle:", historical_candles[-1])
 
-    print("Candles downloaded:", len(rates))
-
-    if len(rates) > 0:
-        print(rates[0])
-        print(rates[-1])
-    print(provider.get_server_time())
+    print("=" * 60)
+    print()
+    print("Server Time:", provider.get_server_time())
     candle = Candle(
         time=datetime.now(),
         open=3300.0,
@@ -284,15 +296,22 @@ def main():
 
     print(account)
     
-    for candle in real_candles:
-        engine.add_candle(candle)
+    backtest_data_engine = DataEngine()
 
-    print("Candles:", len(engine.get_candles()))
+    for historical_candle in historical_candles:
+        backtest_data_engine.add_candle(
+            historical_candle
+        )
+
+    print(
+        "Backtest Candles:",
+        len(backtest_data_engine.get_candles()),
+    )
 
     initial_balance = 10000.0
 
     backtest = BacktestEngine(
-        engine,
+        backtest_data_engine,
         initial_balance=initial_balance,
         adaptive_allocation_enabled=True,
         verbose=False,
@@ -322,8 +341,14 @@ def main():
     print("Candles processed:", len(backtest.get_candles()))
     print("Indicators calculated:", len(backtest.get_indicators()))
     print("Signals generated:", len(signals))
-    print("Open Positions:", backtest.get_open_positions())
-    print("Closed Positions:", backtest.get_closed_positions())
+    print(
+        "Open Positions:",
+        len(backtest.get_open_positions()),
+    )
+    print(
+        "Closed Positions:",
+        len(backtest.get_closed_positions()),
+    )
     print("Statistics:", backtest.get_statistics())
     print("Rejected for Margin:", backtest.get_rejected_for_margin())
     print("Current Balance:", backtest.get_current_balance())
@@ -375,7 +400,7 @@ def main():
     comparison = AllocationComparison()
 
     comparison_results = comparison.compare(
-        data_engine=engine,
+        data_engine=backtest_data_engine,
         initial_balance=initial_balance,
     )
 
