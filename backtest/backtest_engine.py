@@ -28,12 +28,16 @@ class BacktestEngine:
         self,
         data_engine: DataEngine,
         initial_balance: float = 10000.0,
+        adaptive_allocation_enabled: bool = True,
     ):
         self.performance_tracker = (
             StrategyPerformanceTracker()
         )
         self.adaptive_allocator = (
             AdaptiveStrategyAllocator()
+        )
+        self.adaptive_allocation_enabled = bool(
+            adaptive_allocation_enabled
         )
         if initial_balance <= 0:
             raise ValueError("Il capitale iniziale deve essere maggiore di zero.")
@@ -313,13 +317,18 @@ class BacktestEngine:
                 )
             )
 
-            strategy_weight = (
-                self.adaptive_allocator.calculate_weight(
-                    base_weight=base_strategy_weight,
-                    score=strategy_score,
-                    trade_count=strategy_trade_count,
+            if self.adaptive_allocation_enabled:
+                strategy_weight = (
+                    self.adaptive_allocator.calculate_weight(
+                        base_weight=base_strategy_weight,
+                        score=strategy_score,
+                        trade_count=strategy_trade_count,
+                    )
                 )
-            )
+                allocation_mode = "ADAPTIVE"
+            else:
+                strategy_weight = base_strategy_weight
+                allocation_mode = "STATIC"
 
             allocated_risk = (
                 self.default_risk * strategy_weight
@@ -372,6 +381,7 @@ class BacktestEngine:
             if lot_size <= 0:
                 continue
 
+            print("Allocation Mode:", allocation_mode)
             print("Strategy Name:", strategy_name)
             print(
                 "Base Strategy Weight:",
@@ -685,5 +695,9 @@ class BacktestEngine:
 
     def get_current_balance(self):
         return self.current_balance
+
     def get_strategy_scores(self):
         return self.performance_tracker.get_summary()
+
+    def is_adaptive_allocation_enabled(self):
+        return self.adaptive_allocation_enabled

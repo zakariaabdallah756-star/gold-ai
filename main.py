@@ -286,16 +286,26 @@ def main():
         engine.add_candle(candle)
 
     print("Candles:", len(engine.get_candles()))
+
     initial_balance = 10000.0
 
     backtest = BacktestEngine(
         engine,
         initial_balance=initial_balance,
+        adaptive_allocation_enabled=False,
+    )
+
+    print(
+        "Adaptive Allocation Enabled:",
+        backtest.is_adaptive_allocation_enabled(),
     )
 
     history = backtest.load_data()
 
-    print("Initial Balance:", backtest.get_initial_balance())
+    print(
+        "Initial Balance:",
+        backtest.get_initial_balance(),
+    )
     print("Storico:", len(history))
 
     signals = backtest.execute()
