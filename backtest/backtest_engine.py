@@ -33,6 +33,7 @@ class BacktestEngine:
         initial_balance: float = 10000.0,
         adaptive_allocation_enabled: bool = True,
         verbose: bool = True,
+        enabled_strategies: list[str] | None = None,
     ):
         self.performance_tracker = (
             StrategyPerformanceTracker()
@@ -51,7 +52,9 @@ class BacktestEngine:
         self.rejected_for_margin = 0
         self.data_engine = data_engine
         self.indicator_engine = IndicatorEngine()
-        self.strategy_engine = StrategyEngine()
+        self.strategy_engine = StrategyEngine(
+            enabled_strategies=enabled_strategies,
+        )
         self.signals = []
         self.indicators_history = []
         self.candles_history = []
@@ -715,3 +718,6 @@ class BacktestEngine:
 
     def is_verbose(self):
         return self.verbose
+
+    def get_enabled_strategies(self):
+        return self.strategy_engine.get_enabled_strategies()

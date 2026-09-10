@@ -1,108 +1,117 @@
-from strategy.gold_strategy import GoldStrategy
 from strategy.market_regime import (
     MarketRegimeDetector,
     MarketRegime,
 )
-from strategy.trend_following_strategy import (
-    TrendFollowingStrategy,
-)
-from strategy.breakout_strategy import BreakoutStrategy
-from strategy.mean_reversion_strategy import (
-    MeanReversionStrategy,
-)
-from strategy.scalping_strategy import ScalpingStrategy
+from strategy.strategy_registry import StrategyRegistry
 from strategy.strategy_portfolio_manager import (
     StrategyPortfolioManager,
 )
+from strategy.signal import Signal, SignalType
 
 
 class StrategyEngine:
 
-    def __init__(self):
-        self.strategy = GoldStrategy()
+    def __init__(
+        self,
+        enabled_strategies: list[str] | None = None,
+    ):
+        self.registry = StrategyRegistry()
 
         self.market_regime_detector = MarketRegimeDetector()
 
-        self.trend_strategy = TrendFollowingStrategy()
-        self.breakout_strategy = BreakoutStrategy()
-        self.mean_reversion_strategy = MeanReversionStrategy()
-        self.scalping_strategy = ScalpingStrategy()
-        self.portfolio_manager = StrategyPortfolioManager()
+        self.portfolio_manager = StrategyPortfolioManager(
+            strategy_names=self.registry.get_names(),
+            enabled_strategies=enabled_strategies,
+        )
+
         self.last_market_regime = MarketRegime.UNKNOWN
         self.last_strategy_name = "GoldStrategy"
 
-    def generate_signal(self, indicators):
+    def _get_strategy_name(
+        self,
+        market_regime: MarketRegime,
+    ) -> str:
+
+        if market_regime == MarketRegime.TREND:
+            return "TrendFollowingStrategy"
+
+        if market_regime == MarketRegime.BREAKOUT:
+            return "BreakoutStrategy"
+
+        if market_regime == MarketRegime.RANGE:
+            return "MeanReversionStrategy"
+
+        if market_regime == MarketRegime.SCALPING:
+            return "ScalpingStrategy"
+
+        return "GoldStrategy"
+
+    def generate_signal(
+        self,
+        indicators,
+    ) -> Signal:
+
         market_regime = (
             self.market_regime_detector.detect(indicators)
         )
 
         self.last_market_regime = market_regime
-        strategy_name = None
 
-        if market_regime == MarketRegime.TREND:
-            strategy_name = "TrendFollowingStrategy"
+        strategy_name = self._get_strategy_name(
+            market_regime
+        )
 
-        elif market_regime == MarketRegime.BREAKOUT:
-            strategy_name = "BreakoutStrategy"
+        self.last_strategy_name = strategy_name
 
-        elif market_regime == MarketRegime.RANGE:
-            strategy_name = "MeanReversionStrategy"
-
-        elif market_regime == MarketRegime.SCALPING:
-            strategy_name = "ScalpingStrategy"
-
-        else:
-            strategy_name = "GoldStrategy"
+        print(
+            "Market Regime:",
+            market_regime.value,
+        )
 
         if not self.portfolio_manager.is_enabled(
             strategy_name
         ):
-            return self.strategy.generate(indicators)
-
-        print("Market Regime:", market_regime.value)
-
-        if market_regime == MarketRegime.TREND:
-            self.last_strategy_name = (
-                "TrendFollowingStrategy"
+            return Signal(
+                signal=SignalType.HOLD,
+                confidence=0.0,
             )
 
-            return self.trend_strategy.generate(
-                indicators
-            )
+        strategy = self.registry.get(
+            strategy_name
+        )
 
-        if market_regime == MarketRegime.BREAKOUT:
-            self.last_strategy_name = (
-                "BreakoutStrategy"
-            )
-
-            return self.breakout_strategy.generate(
-                indicators
-            )
-
-        if market_regime == MarketRegime.RANGE:
-            self.last_strategy_name = (
-                "MeanReversionStrategy"
-            )
-
-            return self.mean_reversion_strategy.generate(
-                indicators
-            )
-
-        if market_regime == MarketRegime.SCALPING:
-            self.last_strategy_name = (
-                "ScalpingStrategy"
-            )
-
-            return self.scalping_strategy.generate(
-                indicators
-            )
-
-        self.last_strategy_name = "GoldStrategy"
-
-        return self.strategy.generate(indicators)
+        return strategy.generate(indicators)
 
     def get_last_market_regime(self):
         return self.last_market_regime
 
     def get_last_strategy_name(self):
         return self.last_strategy_name
+
+    def get_available_strategies(self) -> list[str]:
+        return (
+            self.portfolio_manager
+            .get_available_strategies()
+        )
+
+    def get_enabled_strategies(self) -> list[str]:
+        return (
+            self.portfolio_manager
+            .get_enabled_strategies()
+        )
+
+    def enable_strategy(
+        self,
+        strategy_name: str,
+    ) -> None:
+        self.portfolio_manager.enable(
+            strategy_name
+        )
+
+    def disable_strategy(
+        self,
+        strategy_name: str,
+    ) -> None:
+        self.portfolio_manager.disable(
+            strategy_name
+        )
