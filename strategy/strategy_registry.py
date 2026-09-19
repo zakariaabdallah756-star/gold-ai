@@ -3,6 +3,7 @@ from strategy.trend_following_strategy import TrendFollowingStrategy
 from strategy.breakout_strategy import BreakoutStrategy
 from strategy.mean_reversion_strategy import MeanReversionStrategy
 from strategy.scalping_strategy import ScalpingStrategy
+from strategy.breakout_strategy_v2 import BreakoutStrategyV2
 
 
 class StrategyRegistry:
@@ -12,6 +13,7 @@ class StrategyRegistry:
             "GoldStrategy": GoldStrategy(),
             "TrendFollowingStrategy": TrendFollowingStrategy(),
             "BreakoutStrategy": BreakoutStrategy(),
+            "BreakoutStrategyV2": BreakoutStrategyV2(),
             "MeanReversionStrategy": MeanReversionStrategy(),
             "ScalpingStrategy": ScalpingStrategy(),
         }

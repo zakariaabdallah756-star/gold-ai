@@ -36,6 +36,16 @@ class StrategyEngine:
             return "TrendFollowingStrategy"
 
         if market_regime == MarketRegime.BREAKOUT:
+            if (
+                self.portfolio_manager.is_enabled(
+                    "BreakoutStrategyV2"
+                )
+                and not self.portfolio_manager.is_enabled(
+                    "BreakoutStrategy"
+                )
+            ):
+                return "BreakoutStrategyV2"
+
             return "BreakoutStrategy"
 
         if market_regime == MarketRegime.RANGE:
