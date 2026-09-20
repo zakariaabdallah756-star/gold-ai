@@ -7,6 +7,7 @@ from strategy.strategy_portfolio_manager import (
     StrategyPortfolioManager,
 )
 from strategy.signal import Signal, SignalType
+from strategy.breakout_strategy_selector import BreakoutStrategySelector
 
 
 class StrategyEngine:
@@ -23,6 +24,9 @@ class StrategyEngine:
             strategy_names=self.registry.get_names(),
             enabled_strategies=enabled_strategies,
         )
+        self.breakout_strategy_selector = (
+            BreakoutStrategySelector()
+        )
 
         self.last_market_regime = MarketRegime.UNKNOWN
         self.last_strategy_name = "GoldStrategy"
@@ -30,21 +34,56 @@ class StrategyEngine:
     def _get_strategy_name(
         self,
         market_regime: MarketRegime,
+        indicators,
     ) -> str:
 
         if market_regime == MarketRegime.TREND:
             return "TrendFollowingStrategy"
 
         if market_regime == MarketRegime.BREAKOUT:
+
+            breakout_strategies = (
+                "BreakoutStrategy",
+                "BreakoutStrategyV2Base",
+                "BreakoutStrategyV2",
+            )
+
+            enabled_breakout_strategies = [
+                strategy_name
+                for strategy_name in breakout_strategies
+                if self.portfolio_manager.is_enabled(
+                    strategy_name
+                )
+            ]
+
+            # Benchmark isolato:
+            # se una sola breakout è abilitata,
+            # usa esattamente quella.
+            if len(enabled_breakout_strategies) == 1:
+                return enabled_breakout_strategies[0]
+
+            # Funzionamento normale:
+            # il selector sceglie in base al mercato.
+            selected_strategy = (
+                self.breakout_strategy_selector.select(
+                    indicators
+                )
+            )
+
             if (
-                self.portfolio_manager.is_enabled(
-                    "BreakoutStrategyV2"
-                )
-                and not self.portfolio_manager.is_enabled(
-                    "BreakoutStrategy"
-                )
+                selected_strategy
+                in enabled_breakout_strategies
             ):
-                return "BreakoutStrategyV2"
+                return selected_strategy
+
+            if (
+                "BreakoutStrategy"
+                in enabled_breakout_strategies
+            ):
+                return "BreakoutStrategy"
+
+            if enabled_breakout_strategies:
+                return enabled_breakout_strategies[0]
 
             return "BreakoutStrategy"
 
@@ -55,7 +94,7 @@ class StrategyEngine:
             return "ScalpingStrategy"
 
         return "GoldStrategy"
-
+        
     def generate_signal(
         self,
         indicators,
@@ -68,9 +107,9 @@ class StrategyEngine:
         self.last_market_regime = market_regime
 
         strategy_name = self._get_strategy_name(
-            market_regime
+            market_regime,
+            indicators,
         )
-
         self.last_strategy_name = strategy_name
 
         print(

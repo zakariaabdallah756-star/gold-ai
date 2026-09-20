@@ -13,7 +13,12 @@ class StrategyRegistry:
             "GoldStrategy": GoldStrategy(),
             "TrendFollowingStrategy": TrendFollowingStrategy(),
             "BreakoutStrategy": BreakoutStrategy(),
-            "BreakoutStrategyV2": BreakoutStrategyV2(),
+            "BreakoutStrategyV2Base": BreakoutStrategyV2(
+                use_candle_confirmation=False
+            ),
+            "BreakoutStrategyV2": BreakoutStrategyV2(
+                use_candle_confirmation=True
+            ),
             "MeanReversionStrategy": MeanReversionStrategy(),
             "ScalpingStrategy": ScalpingStrategy(),
         }

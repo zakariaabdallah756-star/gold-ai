@@ -9,6 +9,7 @@ STRATEGY_NAMES = [
     "GoldStrategy",
     "TrendFollowingStrategy",
     "BreakoutStrategy",
+    "BreakoutStrategyV2Base",
     "BreakoutStrategyV2",
     "MeanReversionStrategy",
     "ScalpingStrategy",

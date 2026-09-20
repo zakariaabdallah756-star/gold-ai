@@ -8,6 +8,9 @@ class IndicatorValues(BaseModel):
     atr: float | None = None
     adx: float | None = None
     current_close: float | None = None
+    current_open: float | None = None
+    current_high: float | None = None
+    current_low: float | None = None
     recent_high: float | None = None
     recent_low: float | None = None
     current_volume: float | None = None
