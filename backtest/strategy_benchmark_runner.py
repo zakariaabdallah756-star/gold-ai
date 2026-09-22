@@ -36,6 +36,7 @@ class StrategyBenchmarkRunner:
         self.adaptive_allocation_enabled = bool(
             adaptive_allocation_enabled
         )
+        self._last_strategy_performance = []
 
     def _build_data_engine(
         self,
@@ -48,6 +49,62 @@ class StrategyBenchmarkRunner:
             data_engine.add_candle(candle)
 
         return data_engine
+
+    def run_strategy_group(
+        self,
+        strategy_name: str,
+        enabled_strategies: list[str],
+        candles: list[Candle],
+    ) -> StrategyBenchmarkResult:
+
+        if not candles:
+            raise ValueError(
+                "La lista delle candele è vuota."
+            )
+
+        if not enabled_strategies:
+            raise ValueError(
+                "La lista delle strategie è vuota."
+            )
+
+        data_engine = self._build_data_engine(
+            candles
+        )
+
+        backtest = BacktestEngine(
+            data_engine=data_engine,
+            initial_balance=self.initial_balance,
+            adaptive_allocation_enabled=(
+                self.adaptive_allocation_enabled
+            ),
+            verbose=False,
+            enabled_strategies=enabled_strategies,
+        )
+
+        backtest.execute()
+
+        statistics = backtest.get_statistics()
+
+        self._last_strategy_performance = (
+        backtest.get_strategy_performance()
+    )
+
+        return StrategyBenchmarkResult(
+            strategy_name=strategy_name,
+            candles=len(candles),
+            total_trades=statistics.total_trades,
+            winning_trades=statistics.winning_trades,
+            losing_trades=statistics.losing_trades,
+            net_profit=statistics.net_profit,
+            win_rate=statistics.win_rate,
+            profit_factor=statistics.profit_factor,
+            final_equity=statistics.final_equity,
+            max_drawdown=statistics.max_drawdown,
+        )
+    def get_last_strategy_performance(self):
+        return list(
+            self._last_strategy_performance
+        )
 
     def run_strategy(
         self,

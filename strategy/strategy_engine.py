@@ -69,6 +69,8 @@ class StrategyEngine:
                     indicators
                 )
             )
+            if selected_strategy == "HOLD":
+                return "HOLD"
 
             if (
                 selected_strategy
@@ -116,6 +118,11 @@ class StrategyEngine:
             "Market Regime:",
             market_regime.value,
         )
+        if strategy_name == "HOLD":
+            return Signal(
+                signal=SignalType.HOLD,
+                confidence=0.0,
+            )
 
         if not self.portfolio_manager.is_enabled(
             strategy_name

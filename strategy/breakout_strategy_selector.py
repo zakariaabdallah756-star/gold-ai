@@ -6,6 +6,26 @@ class BreakoutStrategySelector:
     CONSOLIDATION_MAX_WIDTH = 0.01
     STRONG_CANDLE_MIN_BODY_RATIO = 0.50
 
+    _selection_counts = {
+        "BreakoutStrategy": 0,
+        "BreakoutStrategyV2Base": 0,
+        "BreakoutStrategyV2": 0,
+        "HOLD": 0,
+    }
+
+    @classmethod
+    def reset_selection_counts(cls) -> None:
+        for strategy_name in cls._selection_counts:
+            cls._selection_counts[strategy_name] = 0
+
+    @classmethod
+    def get_selection_counts(cls) -> dict[str, int]:
+        return cls._selection_counts.copy()
+
+    def _record(self, strategy_name: str) -> str:
+        self.__class__._selection_counts[strategy_name] += 1
+        return strategy_name
+
     def select(
         self,
         indicators: IndicatorValues,
@@ -24,10 +44,14 @@ class BreakoutStrategySelector:
             value is None
             for value in required_values
         ):
-            return "BreakoutStrategy"
+            return self._record(
+                "BreakoutStrategy"
+            )
 
         if indicators.current_close <= 0:
-            return "BreakoutStrategy"
+            return self._record(
+                "BreakoutStrategy"
+            )
 
         bollinger_width = (
             indicators.bollinger_upper
@@ -45,7 +69,9 @@ class BreakoutStrategySelector:
         )
 
         if not consolidation:
-            return "BreakoutStrategy"
+            return self._record(
+                "HOLD"
+            )
 
         candle_range = (
             indicators.current_high
@@ -53,7 +79,9 @@ class BreakoutStrategySelector:
         )
 
         if candle_range <= 0:
-            return "BreakoutStrategyV2Base"
+            return self._record(
+                "BreakoutStrategyV2Base"
+            )
 
         candle_body = abs(
             indicators.current_close
@@ -71,6 +99,10 @@ class BreakoutStrategySelector:
         )
 
         if strong_candle:
-            return "BreakoutStrategyV2"
+            return self._record(
+                "BreakoutStrategyV2"
+            )
 
-        return "BreakoutStrategyV2Base"
+        return self._record(
+            "BreakoutStrategyV2Base"
+        )
