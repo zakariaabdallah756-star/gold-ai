@@ -24,6 +24,7 @@ class StrategyValidationRunner:
         self,
         initial_balance: float = 10000.0,
         adaptive_allocation_enabled: bool = False,
+        enabled_strategies: list[str] | None = None,
     ):
         if initial_balance <= 0:
             raise ValueError(
@@ -31,14 +32,22 @@ class StrategyValidationRunner:
             )
 
         self.initial_balance = float(initial_balance)
+
         self.adaptive_allocation_enabled = bool(
             adaptive_allocation_enabled
+        )
+
+        self.enabled_strategies = (
+            list(enabled_strategies)
+            if enabled_strategies is not None
+            else None
         )
 
     def _build_data_engine(
         self,
         candles: list[Candle],
     ) -> DataEngine:
+
         data_engine = DataEngine()
 
         for candle in candles:
@@ -51,6 +60,7 @@ class StrategyValidationRunner:
         period_name: str,
         candles: list[Candle],
     ) -> list[StrategyPeriodPerformance]:
+
         if not candles:
             raise ValueError(
                 f"Il periodo {period_name} "
@@ -68,6 +78,9 @@ class StrategyValidationRunner:
                 self.adaptive_allocation_enabled
             ),
             verbose=False,
+            enabled_strategies=(
+                self.enabled_strategies
+            ),
         )
 
         backtest.execute()
@@ -99,6 +112,7 @@ class StrategyValidationRunner:
         list[StrategyPeriodPerformance],
         list[StrategyPeriodPerformance],
     ]:
+
         training_results = self.run_period(
             period_name="TRAINING",
             candles=training_candles,
