@@ -94,6 +94,81 @@ class MT5HistoricalLoader:
         )
 
         return candles
+    def load_range(
+        self,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> list[Candle]:
+
+        if start_time.tzinfo is None:
+            raise ValueError(
+                "start_time deve avere timezone."
+            )
+
+        if end_time.tzinfo is None:
+            raise ValueError(
+                "end_time deve avere timezone."
+            )
+
+        start_time = start_time.astimezone(
+            timezone.utc
+        )
+
+        end_time = end_time.astimezone(
+            timezone.utc
+        )
+
+        if start_time >= end_time:
+            raise ValueError(
+                "start_time deve essere precedente "
+                "a end_time."
+            )
+
+        if not mt5.symbol_select(
+            self.symbol,
+            True,
+        ):
+            raise RuntimeError(
+                f"Impossibile selezionare "
+                f"{self.symbol}: {mt5.last_error()}"
+            )
+
+        rates = mt5.copy_rates_range(
+            self.symbol,
+            self.timeframe,
+            start_time,
+            end_time,
+        )
+
+        if rates is None:
+            raise RuntimeError(
+                "Download storico MT5 fallito: "
+                f"{mt5.last_error()}"
+            )
+
+        candles = []
+
+        for rate in rates:
+            candles.append(
+                Candle(
+                    time=datetime.fromtimestamp(
+                        int(rate["time"]),
+                        tz=timezone.utc,
+                    ),
+                    open=float(rate["open"]),
+                    high=float(rate["high"]),
+                    low=float(rate["low"]),
+                    close=float(rate["close"]),
+                    volume=float(rate["tick_volume"]),
+                    spread_points=float(rate["spread"]),
+                )
+            )
+
+        candles.sort(
+            key=lambda candle: candle.time
+        )
+
+        return candles
 
     def get_timeframe_name(self) -> str:
         return self.timeframe_name
