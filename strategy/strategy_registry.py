@@ -4,7 +4,12 @@ from strategy.breakout_strategy import BreakoutStrategy
 from strategy.mean_reversion_strategy import MeanReversionStrategy
 from strategy.scalping_strategy import ScalpingStrategy
 from strategy.breakout_strategy_v2 import BreakoutStrategyV2
-
+from strategy.trend_following_strategy_v2 import (
+    TrendFollowingStrategyV2,
+)
+from strategy.trend_following_strategy_v3 import (
+    TrendFollowingStrategyV3,
+)
 
 class StrategyRegistry:
 
@@ -12,6 +17,8 @@ class StrategyRegistry:
         self._strategies = {
             "GoldStrategy": GoldStrategy(),
             "TrendFollowingStrategy": TrendFollowingStrategy(),
+            "TrendFollowingStrategyV2": TrendFollowingStrategyV2(),
+            "TrendFollowingStrategyV3": TrendFollowingStrategyV3(),
             "BreakoutStrategy": BreakoutStrategy(),
             "BreakoutStrategyV2Base": BreakoutStrategyV2(
                 use_candle_confirmation=False

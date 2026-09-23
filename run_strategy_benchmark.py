@@ -11,13 +11,14 @@ from strategy.breakout_strategy_selector import (
 STRATEGY_NAMES = [
     "GoldStrategy",
     "TrendFollowingStrategy",
+    "TrendFollowingStrategyV2",
+    "TrendFollowingStrategyV3",
     "BreakoutStrategy",
     "BreakoutStrategyV2Base",
     "BreakoutStrategyV2",
     "MeanReversionStrategy",
     "ScalpingStrategy",
 ]
-
 
 def main():
 

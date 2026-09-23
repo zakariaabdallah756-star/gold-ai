@@ -38,6 +38,23 @@ class StrategyEngine:
     ) -> str:
 
         if market_regime == MarketRegime.TREND:
+            trend_strategies = (
+                "TrendFollowingStrategy",
+                "TrendFollowingStrategyV2",
+                "TrendFollowingStrategyV3",
+            )
+
+            enabled_trend_strategies = [
+                strategy_name
+                for strategy_name in trend_strategies
+                if self.portfolio_manager.is_enabled(
+                    strategy_name
+                )
+            ]
+
+            if len(enabled_trend_strategies) == 1:
+                return enabled_trend_strategies[0]
+
             return "TrendFollowingStrategy"
 
         if market_regime == MarketRegime.BREAKOUT:
