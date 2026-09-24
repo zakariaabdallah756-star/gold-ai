@@ -20,6 +20,7 @@ TREND_STRATEGIES = [
     "TrendFollowingStrategy",
     "TrendFollowingStrategyV2",
     "TrendFollowingStrategyV3",
+    "TrendFollowingStrategyV4",
 ]
 
 
