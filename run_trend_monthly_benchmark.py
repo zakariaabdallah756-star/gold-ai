@@ -13,12 +13,22 @@ from market.mt5_historical_loader import (
 MONTHLY_PLAN = {
     "M15": [
         "TrendFollowingStrategyV3",
+        "TrendFollowingStrategyV5",
+    ],
+    "M30": [
+        "TrendFollowingStrategyV3",
+        "TrendFollowingStrategyV5",
     ],
     "H1": [
         "TrendFollowingStrategy",
         "TrendFollowingStrategyV2",
         "TrendFollowingStrategyV3",
         "TrendFollowingStrategyV4",
+        "TrendFollowingStrategyV5",
+    ],
+    "H4": [
+        "TrendFollowingStrategyV3",
+        "TrendFollowingStrategyV5",
     ],
 }
 
