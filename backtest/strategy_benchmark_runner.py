@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from backtest.backtest_engine import BacktestEngine
 from market.candle import Candle
 from market.data_engine import DataEngine
+from datetime import datetime
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class StrategyBenchmarkRunner:
         strategy_name: str,
         enabled_strategies: list[str],
         candles: list[Candle],
+        trading_start_time: datetime | None = None,
     ) -> StrategyBenchmarkResult:
 
         if not candles:
@@ -80,6 +82,10 @@ class StrategyBenchmarkRunner:
             verbose=False,
             enabled_strategies=enabled_strategies,
         )
+        if trading_start_time is not None:
+            backtest.set_trading_start_time(
+                trading_start_time
+            )
 
         backtest.execute()
 
@@ -110,6 +116,7 @@ class StrategyBenchmarkRunner:
         self,
         strategy_name: str,
         candles: list[Candle],
+        trading_start_time: datetime | None = None,
     ) -> StrategyBenchmarkResult:
 
         if not candles:
@@ -132,6 +139,10 @@ class StrategyBenchmarkRunner:
                 strategy_name,
             ],
         )
+        if trading_start_time is not None:
+            backtest.set_trading_start_time(
+                trading_start_time
+            )
 
         backtest.execute()
 

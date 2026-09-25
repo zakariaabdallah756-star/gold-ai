@@ -58,6 +58,7 @@ class BacktestEngine:
         self.signals = []
         self.indicators_history = []
         self.candles_history = []
+        self.trading_start_time = None
         self.trades = []
         self.total_trades = 0
         self.buy_trades = 0
@@ -190,6 +191,12 @@ class BacktestEngine:
 
             self.signals.append(signal)
             self.last_signal = signal
+
+            if (
+                self.trading_start_time is not None
+                and candle.time < self.trading_start_time
+            ):
+                continue
 
             print(candle)
             print("Indicators:", indicators)
@@ -683,6 +690,14 @@ class BacktestEngine:
         self.rejected_for_margin = 0
         self.performance_tracker.reset()
         self.current_balance = self.initial_balance
+
+    def set_trading_start_time(
+        self,
+        trading_start_time,
+    ) -> None:
+        self.trading_start_time = (
+            trading_start_time
+        )
 
     def execute(self):
         self.reset()
