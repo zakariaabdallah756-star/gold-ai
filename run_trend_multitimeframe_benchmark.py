@@ -21,8 +21,8 @@ TREND_STRATEGIES = [
     "TrendFollowingStrategyV2",
     "TrendFollowingStrategyV3",
     "TrendFollowingStrategyV4",
+    "TrendFollowingStrategyV5",
 ]
-
 
 def main():
 

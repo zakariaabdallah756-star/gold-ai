@@ -13,6 +13,9 @@ from strategy.trend_following_strategy_v3 import (
 from strategy.trend_following_strategy_v4 import (
     TrendFollowingStrategyV4,
 )
+from strategy.trend_following_strategy_v5 import (
+    TrendFollowingStrategyV5,
+)
 
 class StrategyRegistry:
 
@@ -23,6 +26,7 @@ class StrategyRegistry:
             "TrendFollowingStrategyV2": TrendFollowingStrategyV2(),
             "TrendFollowingStrategyV3": TrendFollowingStrategyV3(),
             "TrendFollowingStrategyV4": TrendFollowingStrategyV4(),
+            "TrendFollowingStrategyV5": TrendFollowingStrategyV5(),
             "BreakoutStrategy": BreakoutStrategy(),
             "BreakoutStrategyV2Base": BreakoutStrategyV2(
                 use_candle_confirmation=False
