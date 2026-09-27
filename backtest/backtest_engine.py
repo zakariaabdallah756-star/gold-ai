@@ -34,6 +34,7 @@ class BacktestEngine:
         adaptive_allocation_enabled: bool = True,
         verbose: bool = True,
         enabled_strategies: list[str] | None = None,
+        commission_per_lot_round_turn: float = 0.0,
     ):
         self.performance_tracker = (
             StrategyPerformanceTracker()
@@ -48,6 +49,14 @@ class BacktestEngine:
         if initial_balance <= 0:
             raise ValueError("Il capitale iniziale deve essere maggiore di zero.")
 
+        if commission_per_lot_round_turn < 0:
+            raise ValueError(
+                "La commissione non può essere negativa."
+            )
+
+        self.commission_per_lot_round_turn = float(
+            commission_per_lot_round_turn
+        )
         self.margin_checker = MT5MarginChecker()
         self.rejected_for_margin = 0
         self.data_engine = data_engine
@@ -85,7 +94,9 @@ class BacktestEngine:
         )
         self.execution_costs = BacktestExecutionCosts(
             symbol="XAUUSD",
-            commission_per_lot_round_turn=0.0,
+            commission_per_lot_round_turn=(
+                self.commission_per_lot_round_turn
+            ),
             slippage_points=1.0,
         )
     def load_data(self):
@@ -679,6 +690,8 @@ class BacktestEngine:
         self.indicators_history.clear()
         self.candles_history.clear()
         self.trades.clear()
+
+        self.position_manager.reset()
 
         self.total_trades = 0
         self.buy_trades = 0

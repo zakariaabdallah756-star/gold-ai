@@ -8,6 +8,9 @@ from market.mt5_connector import MT5Connector
 from market.mt5_historical_loader import (
     MT5HistoricalLoader,
 )
+from backtest.mt5_commission_detector import (
+    MT5CommissionDetector,
+)
 
 
 TIMEFRAME = "M15"
@@ -59,6 +62,26 @@ def main():
             "a MetaTrader 5."
         )
         return
+    commission_detector = MT5CommissionDetector(
+        symbol="XAUUSD",
+        lookback_days=365,
+    )
+
+    detected_commission = (
+        commission_detector
+        .calculate_round_turn_per_lot()
+    )
+
+    commission_per_lot_round_turn = (
+        0.0
+        if detected_commission is None
+        else float(detected_commission)
+    )
+
+    print(
+        "Commission MT5 round turn per lot:",
+        commission_per_lot_round_turn,
+    )
 
     try:
         loader = MT5HistoricalLoader(
@@ -131,6 +154,9 @@ def main():
         runner = StrategyBenchmarkRunner(
             initial_balance=10000.0,
             adaptive_allocation_enabled=False,
+            commission_per_lot_round_turn=(
+                commission_per_lot_round_turn
+            ),
         )
 
         print()

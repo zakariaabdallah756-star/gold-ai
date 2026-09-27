@@ -26,6 +26,7 @@ class StrategyValidationRunner:
         initial_balance: float = 10000.0,
         adaptive_allocation_enabled: bool = False,
         enabled_strategies: list[str] | None = None,
+        commission_per_lot_round_turn: float = 0.0,
     ):
         if initial_balance <= 0:
             raise ValueError(
@@ -36,6 +37,16 @@ class StrategyValidationRunner:
 
         self.adaptive_allocation_enabled = bool(
             adaptive_allocation_enabled
+        )
+
+        if commission_per_lot_round_turn < 0:
+            raise ValueError(
+                "commission_per_lot_round_turn "
+                "non può essere negativa."
+            )
+
+        self.commission_per_lot_round_turn = float(
+            commission_per_lot_round_turn
         )
 
         self.enabled_strategies = (
@@ -82,6 +93,9 @@ class StrategyValidationRunner:
             verbose=False,
             enabled_strategies=(
                 self.enabled_strategies
+            ),
+            commission_per_lot_round_turn=(
+                self.commission_per_lot_round_turn
             ),
         )
         if trading_start_time is not None:

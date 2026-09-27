@@ -22,3 +22,6 @@ class BacktestPositionManager:
             position.is_open = False
     def get_closed_positions(self):
         return self.closed_positions
+    def reset(self) -> None:
+        self.positions.clear()
+        self.closed_positions.clear()

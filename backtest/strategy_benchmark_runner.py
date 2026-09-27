@@ -26,6 +26,7 @@ class StrategyBenchmarkRunner:
         self,
         initial_balance: float = 10000.0,
         adaptive_allocation_enabled: bool = False,
+        commission_per_lot_round_turn: float = 0.0,
     ):
         if initial_balance <= 0:
             raise ValueError(
@@ -37,6 +38,15 @@ class StrategyBenchmarkRunner:
         self.adaptive_allocation_enabled = bool(
             adaptive_allocation_enabled
         )
+        if commission_per_lot_round_turn < 0:
+            raise ValueError(
+                "commission_per_lot_round_turn "
+                "non può essere negativa."
+            )
+
+        self.commission_per_lot_round_turn = float(
+            commission_per_lot_round_turn
+)
         self._last_strategy_performance = []
 
     def _build_data_engine(
@@ -81,6 +91,9 @@ class StrategyBenchmarkRunner:
             ),
             verbose=False,
             enabled_strategies=enabled_strategies,
+            commission_per_lot_round_turn=(
+                self.commission_per_lot_round_turn
+            ),
         )
         if trading_start_time is not None:
             backtest.set_trading_start_time(
@@ -138,6 +151,9 @@ class StrategyBenchmarkRunner:
             enabled_strategies=[
                 strategy_name,
             ],
+            commission_per_lot_round_turn=(
+                self.commission_per_lot_round_turn
+            ),
         )
         if trading_start_time is not None:
             backtest.set_trading_start_time(
