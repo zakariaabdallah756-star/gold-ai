@@ -65,6 +65,7 @@ class StrategyEngine:
                 "BreakoutStrategy",
                 "BreakoutStrategyV2Base",
                 "BreakoutStrategyV2",
+                "BreakoutStrategyV3",
             )
 
             enabled_breakout_strategies = [
