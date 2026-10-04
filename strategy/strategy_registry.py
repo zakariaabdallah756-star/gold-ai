@@ -19,6 +19,12 @@ from strategy.trend_following_strategy_v5 import (
 from strategy.breakout_strategy_v3 import (
     BreakoutStrategyV3,
 )
+from strategy.mean_reversion_strategy_v2 import (
+    MeanReversionStrategyV2,
+)
+from strategy.mean_reversion_strategy_v3 import (
+    MeanReversionStrategyV3,
+)
 
 class StrategyRegistry:
 
@@ -39,6 +45,8 @@ class StrategyRegistry:
             ),
             "BreakoutStrategyV3": BreakoutStrategyV3(),
             "MeanReversionStrategy": MeanReversionStrategy(),
+            "MeanReversionStrategyV2": MeanReversionStrategyV2(),
+            "MeanReversionStrategyV3": MeanReversionStrategyV3(),
             "ScalpingStrategy": ScalpingStrategy(),
         }
 

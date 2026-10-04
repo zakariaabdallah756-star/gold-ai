@@ -110,6 +110,33 @@ class StrategyEngine:
             return "BreakoutStrategy"
 
         if market_regime == MarketRegime.RANGE:
+
+            mean_reversion_strategies = (
+                "MeanReversionStrategy",
+                "MeanReversionStrategyV2",
+                "MeanReversionStrategyV3",
+            )
+
+            enabled_mean_reversion_strategies = [
+                strategy_name
+                for strategy_name in mean_reversion_strategies
+                if self.portfolio_manager.is_enabled(
+                    strategy_name
+                )
+            ]
+
+            # Benchmark isolato
+            if (
+                len(
+                    enabled_mean_reversion_strategies
+                )
+                == 1
+            ):
+                return (
+                    enabled_mean_reversion_strategies[0]
+                )
+
+            # Comportamento normale invariato
             return "MeanReversionStrategy"
 
         if market_regime == MarketRegime.SCALPING:
