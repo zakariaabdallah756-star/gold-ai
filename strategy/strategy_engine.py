@@ -140,6 +140,23 @@ class StrategyEngine:
             return "MeanReversionStrategy"
 
         if market_regime == MarketRegime.SCALPING:
+
+            scalping_strategies = (
+                "ScalpingStrategy",
+                "ScalpingStrategyV2",
+            )
+
+            enabled_scalping_strategies = [
+                strategy_name
+                for strategy_name in scalping_strategies
+                if self.portfolio_manager.is_enabled(
+                    strategy_name
+                )
+            ]
+
+            if len(enabled_scalping_strategies) == 1:
+                return enabled_scalping_strategies[0]
+
             return "ScalpingStrategy"
 
         return "GoldStrategy"
