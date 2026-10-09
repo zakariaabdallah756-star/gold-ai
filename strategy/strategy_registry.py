@@ -28,6 +28,9 @@ from strategy.mean_reversion_strategy_v3 import (
 from strategy.scalping_strategy_v2 import (
     ScalpingStrategyV2,
 )
+from strategy.scalping_strategy_v3 import (
+    ScalpingStrategyV3,
+)
 
 class StrategyRegistry:
 
@@ -52,6 +55,7 @@ class StrategyRegistry:
             "MeanReversionStrategyV3": MeanReversionStrategyV3(),
             "ScalpingStrategy": ScalpingStrategy(),
             "ScalpingStrategyV2": ScalpingStrategyV2(),
+            "ScalpingStrategyV3": ScalpingStrategyV3(),
         }
 
     def get(self, strategy_name: str):

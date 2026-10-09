@@ -144,6 +144,7 @@ class StrategyEngine:
             scalping_strategies = (
                 "ScalpingStrategy",
                 "ScalpingStrategyV2",
+                "ScalpingStrategyV3",
             )
 
             enabled_scalping_strategies = [
