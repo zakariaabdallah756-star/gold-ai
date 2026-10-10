@@ -44,6 +44,7 @@ class StrategyEngine:
                 "TrendFollowingStrategyV3",
                 "TrendFollowingStrategyV4",
                 "TrendFollowingStrategyV5",
+                "TrendFollowingStrategyV6",
             )
 
             enabled_trend_strategies = [

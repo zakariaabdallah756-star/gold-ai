@@ -11,17 +11,11 @@ from market.mt5_historical_loader import (
 
 TIMEFRAMES = [
     "M15",
-    "M30",
-    "H1",
-    "H4",
 ]
 
 TREND_STRATEGIES = [
-    "TrendFollowingStrategy",
-    "TrendFollowingStrategyV2",
     "TrendFollowingStrategyV3",
-    "TrendFollowingStrategyV4",
-    "TrendFollowingStrategyV5",
+    "TrendFollowingStrategyV6",
 ]
 
 def main():
