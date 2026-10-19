@@ -22,3 +22,7 @@ logs/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Trading OS local data (journal database, screenshots, backups)
+trading_os_data/
+trading_os_demo_data/

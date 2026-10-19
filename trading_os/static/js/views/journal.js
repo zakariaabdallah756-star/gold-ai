@@ -1,0 +1,277 @@
+// Trade journal: filterable, sortable table with detail view and CRUD.
+
+import { api, query } from "../api.js";
+import { clear, confirmDialog, debounce, field, h, icon, modal, select, toast } from "../dom.js";
+import { fmt, pnlClass } from "../format.js";
+import { loadStatus, state } from "../state.js";
+import { violationList } from "./calculator.js";
+import { openTradeForm, screenshotGallery } from "./trade-form.js";
+
+const PAGE_SIZE = 50;
+const filters = { q: "", status: "", outcome: "", symbol: "", strategy: "", date_from: "", date_to: "" };
+const sorting = { sort: "entry_time", order: "desc" };
+
+const OUTCOME_BADGE = { win: ["good", "Win"], loss: ["bad", "Loss"], breakeven: ["", "Breakeven"] };
+
+function complianceCell(trade) {
+  const count = trade.violations.length;
+  if (trade.rule_compliant === null) return h("span", { class: "muted" }, "—");
+  return h(
+    "span",
+    { class: "row", style: { gap: "4px", flexWrap: "nowrap" }, title: trade.violations.map((v) => v.message).join("\n") || "No violations" },
+    h("span", { class: trade.rule_compliant ? "pos" : "neg", "aria-label": trade.rule_compliant ? "Followed plan" : "Broke rules" }, icon(trade.rule_compliant ? "check" : "x")),
+    count ? h("span", { class: "badge warn" }, count) : null,
+  );
+}
+
+function detailItem(label, value, cls = "") {
+  return h("div", {}, h("div", { class: "label" }, label), h("div", { class: `value ${cls}` }, value));
+}
+
+function holdTime(trade) {
+  if (!trade.exit_time) return "—";
+  return fmt.duration((new Date(trade.exit_time) - new Date(trade.entry_time)) / 60000);
+}
+
+export function openTradeDetail(trade, { onChange } = {}) {
+  const [outcomeCls, outcomeText] = OUTCOME_BADGE[trade.outcome] || ["open", "Open"];
+  const reopen = (saved) => {
+    onChange?.();
+    openTradeDetail(saved, { onChange });
+  };
+
+  const body = h(
+    "div",
+    { class: "stack" },
+    h(
+      "div",
+      { class: "row" },
+      h("span", { class: `badge ${trade.direction}` }, trade.direction.toUpperCase()),
+      h("span", { class: `badge ${trade.status === "open" ? "open" : outcomeCls}` }, trade.status === "open" ? "Open" : outcomeText),
+      trade.rule_compliant === null ? null : h("span", { class: `badge ${trade.rule_compliant ? "good" : "bad"}` }, trade.rule_compliant ? "Followed plan" : "Broke rules"),
+      trade.tags.map((tag) => h("span", { class: "badge" }, `#${tag}`)),
+    ),
+    h(
+      "div",
+      { class: "detail-grid" },
+      detailItem("Net P&L", fmt.signedMoney(trade.pnl), pnlClass(trade.pnl)),
+      detailItem("R-multiple", fmt.r(trade.r_multiple), pnlClass(trade.r_multiple)),
+      detailItem("Planned R:R", fmt.rr(trade.planned_rr)),
+      detailItem("Executed R:R", fmt.r(trade.executed_rr)),
+      detailItem("Entry", fmt.price(trade.entry_price)),
+      detailItem("Stop loss", fmt.price(trade.stop_loss)),
+      detailItem("Take profit", fmt.price(trade.take_profit)),
+      detailItem("Exit", fmt.price(trade.exit_price)),
+      detailItem("Size", trade.position_size === null ? "—" : `${fmt.lots(trade.position_size)} lots`),
+      detailItem("Risk", fmt.money(trade.risk_amount)),
+      detailItem("Fees", fmt.money(trade.fees)),
+      detailItem("P&L source", trade.pnl === null ? "—" : trade.pnl_manual ? "Manual" : "Auto from prices"),
+      detailItem("Entry time", fmt.datetime(trade.entry_time)),
+      detailItem("Exit time", fmt.datetime(trade.exit_time)),
+      detailItem("Holding time", holdTime(trade)),
+      detailItem("Session", trade.session || "Off-session"),
+      detailItem("Strategy", trade.strategy || "—"),
+      detailItem("Timeframe", trade.timeframe || "—"),
+      detailItem("Emotion", trade.emotion || "—"),
+    ),
+    h("div", {}, h("div", { class: "section-title" }, "Confluences"), trade.confluences.length ? h("div", { class: "chips" }, trade.confluences.map((c) => h("span", { class: "chip-toggle on" }, c))) : h("p", { class: "muted small" }, "None recorded.")),
+    trade.violations.length ? h("div", {}, h("div", { class: "section-title" }, "Rule violations recorded"), violationList(trade.violations)) : null,
+    trade.notes ? h("div", {}, h("div", { class: "section-title" }, "Notes"), h("div", { class: "notes" }, trade.notes)) : null,
+    h("div", {}, h("div", { class: "section-title" }, "Screenshots"), screenshotGallery(trade.screenshots)),
+  );
+
+  const ref = modal({
+    title: `${trade.symbol} · ${fmt.datetime(trade.entry_time)}`,
+    body,
+    wide: true,
+    footer: [
+      h(
+        "button",
+        {
+          class: "btn danger left",
+          type: "button",
+          onclick: async () => {
+            if (!(await confirmDialog(`Delete trade #${trade.id} (${trade.symbol}) and its screenshots? This cannot be undone.`, { title: "Delete trade", confirmText: "Delete", danger: true }))) return;
+            try {
+              await api.del(`/api/trades/${trade.id}`);
+              toast("Trade deleted", "success");
+              ref.close();
+              loadStatus().catch(() => {});
+              onChange?.();
+            } catch (error) {
+              toast(error.message, "error");
+            }
+          },
+        },
+        icon("trash"),
+        "Delete",
+      ),
+      trade.status === "open"
+        ? h("button", { class: "btn", type: "button", onclick: () => (ref.close(), openTradeForm({ trade, closing: true, onSaved: reopen })) }, "Close trade")
+        : null,
+      h("button", { class: "btn primary", type: "button", onclick: () => (ref.close(), openTradeForm({ trade, onSaved: reopen })) }, icon("edit"), "Edit"),
+    ],
+  });
+}
+
+export async function render(root, { params }) {
+  const { plan } = state;
+  let page = 0;
+  const tableBox = h("div");
+  const pager = h("div", { class: "row", style: { marginTop: "12px" } });
+  const countLabel = h("span", { class: "muted small" });
+
+  async function load() {
+    tableBox.classList.add("refreshing");
+    try {
+      const data = await api.get(`/api/trades${query({ ...filters, ...sorting, limit: PAGE_SIZE, offset: page * PAGE_SIZE })}`);
+      drawTable(data);
+    } catch (error) {
+      clear(tableBox, h("div", { class: "empty" }, error.message));
+    } finally {
+      tableBox.classList.remove("refreshing");
+    }
+  }
+
+  function sortHeader(label, key, numeric = false) {
+    const active = sorting.sort === key;
+    return h(
+      "th",
+      {
+        class: `sortable${numeric ? " num" : ""}`,
+        "aria-sort": active ? (sorting.order === "asc" ? "ascending" : "descending") : "none",
+        onclick: () => {
+          sorting.order = active && sorting.order === "desc" ? "asc" : "desc";
+          sorting.sort = key;
+          page = 0;
+          load();
+        },
+      },
+      label,
+      active ? icon(sorting.order === "asc" ? "up" : "down") : null,
+    );
+  }
+
+  function drawTable({ items, total }) {
+    countLabel.textContent = `${total} trade${total === 1 ? "" : "s"}`;
+    if (!items.length) {
+      clear(
+        tableBox,
+        h("div", { class: "empty" }, h("strong", {}, total ? "No trades on this page" : "No trades found"), Object.values(filters).some(Boolean) ? "Try clearing the filters." : "Log your first trade to start building your edge."),
+      );
+      clear(pager);
+      return;
+    }
+    clear(
+      tableBox,
+      h(
+        "div",
+        { class: "table-wrap" },
+        h(
+          "table",
+          {},
+          h(
+            "thead",
+            {},
+            h(
+              "tr",
+              {},
+              sortHeader("Date", "entry_time"),
+              sortHeader("Asset", "symbol"),
+              h("th", {}, "Side"),
+              h("th", {}, "Strategy"),
+              h("th", {}, "Session"),
+              h("th", { class: "num" }, "Entry"),
+              h("th", { class: "num" }, "Exit"),
+              h("th", { class: "num" }, "Size"),
+              sortHeader("Plan R:R", "planned_rr", true),
+              sortHeader("Result", "r_multiple", true),
+              sortHeader("P&L", "pnl", true),
+              h("th", {}, "Emotion"),
+              h("th", {}, "Rules"),
+              h("th", { "aria-label": "Screenshots" }, icon("image")),
+            ),
+          ),
+          h(
+            "tbody",
+            {},
+            items.map((trade) =>
+              h(
+                "tr",
+                { class: "clickable", tabindex: "0", onclick: () => openTradeDetail(trade, { onChange: load }), onkeydown: (e) => e.key === "Enter" && openTradeDetail(trade, { onChange: load }) },
+                h("td", {}, fmt.date(trade.entry_time), h("span", { class: "muted" }, ` ${fmt.time(trade.entry_time)}`)),
+                h("td", {}, h("strong", {}, trade.symbol)),
+                h("td", {}, h("span", { class: `badge ${trade.direction}` }, trade.direction === "long" ? "Long" : "Short")),
+                h("td", {}, trade.strategy || h("span", { class: "muted" }, "—")),
+                h("td", {}, trade.session || h("span", { class: "muted" }, "—")),
+                h("td", { class: "num" }, fmt.price(trade.entry_price)),
+                h("td", { class: "num" }, trade.status === "open" ? h("span", { class: "badge open" }, "Open") : fmt.price(trade.exit_price)),
+                h("td", { class: "num" }, fmt.lots(trade.position_size)),
+                h("td", { class: "num" }, fmt.rr(trade.planned_rr)),
+                h("td", { class: `num ${pnlClass(trade.r_multiple)}` }, fmt.r(trade.r_multiple)),
+                h("td", { class: `num ${pnlClass(trade.pnl)}` }, fmt.signedMoney(trade.pnl)),
+                h("td", {}, trade.emotion || h("span", { class: "muted" }, "—")),
+                h("td", {}, complianceCell(trade)),
+                h("td", { class: "muted" }, trade.screenshots.length || ""),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    const pages = Math.ceil(total / PAGE_SIZE);
+    clear(
+      pager,
+      h("span", { class: "muted small" }, `Showing ${page * PAGE_SIZE + 1}–${Math.min(total, (page + 1) * PAGE_SIZE)} of ${total}`),
+      h("span", { class: "spacer" }),
+      h("button", { class: "btn sm", disabled: page === 0, onclick: () => (page--, load()) }, icon("chevronLeft"), "Prev"),
+      h("button", { class: "btn sm", disabled: page >= pages - 1, onclick: () => (page++, load()) }, "Next", icon("chevronRight")),
+    );
+  }
+
+  const reload = () => {
+    page = 0;
+    load();
+  };
+  const bind = (key, options, label) => field(label, select([["", "All"], ...options], filters[key], { onchange: (e) => ((filters[key] = e.target.value), reload()) }));
+  const search = h("input", { type: "search", placeholder: "Notes, tags, asset, strategy…", value: filters.q, oninput: debounce((e) => ((filters.q = e.target.value), reload()), 300) });
+  const dateInput = (key) => h("input", { type: "date", value: filters[key], onchange: (e) => ((filters[key] = e.target.value), reload()) });
+
+  const newTrade = (prefill = {}) => openTradeForm({ prefill, onSaved: (saved) => (reload(), openTradeDetail(saved, { onChange: load })) });
+  const status = state.status;
+
+  clear(
+    root,
+    h(
+      "div",
+      { class: "page-head" },
+      h("div", {}, h("h1", {}, "Trade journal"), h("p", {}, countLabel)),
+      h(
+        "div",
+        { class: "row" },
+        status.can_trade ? null : h("span", { class: "chip bad" }, icon("lock"), "Live entries locked - closed trades can still be logged"),
+        h("button", { class: "btn primary", type: "button", onclick: () => newTrade() }, icon("plus"), "New trade"),
+      ),
+    ),
+    h(
+      "div",
+      { class: "filters" },
+      h("div", { class: "field grow" }, h("label", {}, "Search"), search),
+      bind("status", [["open", "Open"], ["closed", "Closed"]], "Status"),
+      bind("outcome", [["win", "Win"], ["loss", "Loss"], ["breakeven", "Breakeven"]], "Outcome"),
+      bind("symbol", plan.markets.map((m) => m.symbol), "Asset"),
+      bind("strategy", plan.strategies.map((s) => s.name), "Strategy"),
+      field("From", dateInput("date_from")),
+      field("To", dateInput("date_to")),
+    ),
+    h("div", { class: "card", style: { padding: "8px 14px" } }, tableBox),
+    pager,
+  );
+
+  await load();
+
+  if (params.get("new")) {
+    history.replaceState(null, "", "#/journal");
+    newTrade({ symbol: params.get("symbol"), direction: params.get("direction"), entry: params.get("entry"), sl: params.get("sl"), tp: params.get("tp"), size: params.get("size") });
+  }
+}
