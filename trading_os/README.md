@@ -6,18 +6,20 @@ entries. Position sizing comes with hard risk rules and a signal parser, and ope
 positions can be managed with scale-out targets. The trade journal includes
 mistakes and post-market reviews. A statistical dashboard tells you whether you
 actually have an edge. On top of that there are a strategy incubator for
-backtests, a prop-firm challenge tracker, and an optional AI chart assistant.
+backtests, a prop-firm challenge tracker, an optional AI chart assistant, a
+strategy alert engine that scans the market for your setups, and push
+notifications to your phone.
 
 Everything runs on your machine. Data lives in one SQLite file plus a
 screenshots folder, and there are no accounts or telemetry. The only network
-calls are the optional ones you trigger yourself: Vision AI and the economic
-calendar import.
+calls are the optional ones you set up yourself: Vision AI, the economic
+calendar import, market data for strategy alerts and your notification channels.
 
-> **Risk warning.** Trading forex, CFDs, futures and crypto, especially with
-> leverage, carries a high risk of losing money. Statistics, backtests, AI
-> analysis and parsed signals in this app are for education and record-keeping
-> only. They are not financial advice. The app shows this warning on first launch
-> and in the footer of every page.
+> **Risk warning.** Trading involves substantial risk of loss and is not
+> suitable for everyone. Content and tools are for organizational and
+> educational purposes only and do not constitute financial advice. Strategy
+> alerts never execute anything: the decision to trade is always yours. The app
+> shows this warning on first launch and in the footer of every page.
 
 ## Quick start
 
@@ -64,6 +66,19 @@ The sidebar groups the pages into **Trade**, **Improve** and **Setup**.
 **Signals.** Paste a Telegram/WhatsApp signal and the parser extracts symbol, direction, entry (or entry zone), stop and TP1 to TP4. It copes with aliases like GOLD/XAU, broker suffixes, emojis, comma decimals and stops or targets given in pips.
 - The resulting ticket is sized with your risk %, shows the blended R:R of the scale-out plan and runs the full guardrail and Strategy Co-Pilot check before you can execute it.
 - Executed signals are logged as managed trades with their targets and the original text.
+
+**Strategy Alerts.** A background scanner watches the market for your strategies and notifies you when a setup lines up. **It never trades:** every alert is information, and the decision is yours.
+- A *rule* binds a strategy to symbols, a timeframe (M1 to D1), a market data source and a list of conditions. The conditions are EMA trend or cross, RSI, liquidity sweep, break of structure, engulfing candle, pin bar, fair value gap, range breakout, key level and an ATR volatility filter. Each condition counts as one of your plan's confluences.
+- On every closed candle the engine checks the conditions. Directional conditions must agree, then the strategy's Co-Pilot rules must pass: required confluences, minimum count, sessions, timeframes, direction and minimum R:R.
+- A setup gets entry, stop (swing, ATR or the signal's own structure), scale-out targets, blended R:R and a position size at your risk %. It also gets a *guardrail pre-check* that tells you whether an entry would be blocked right now, e.g. checklist not done, news window or daily loss limit.
+- The alert is stored, pushed to your phone (see Notifications) and listed on the page. **Review in Signals** opens it in the signal ticket, where sizing, guardrails and the Co-Pilot run again before you decide.
+- Each rule can be tested on the latest data with per-condition diagnostics. The scanner can be switched on or off, and a scan can be run on demand.
+- Market data sources:
+  - *Yahoo Finance*: free and unofficial, may be delayed; gold uses COMEX futures, not spot.
+  - *Binance*: crypto.
+  - *Twelve Data*: needs your API key.
+  - *Pushed from your platform*: an MT4/MT5 script, a TradingView webhook or your own script, see below.
+  - *Demo*: synthetic prices for trying the scanner offline. Never trade from them.
 
 **Vision AI.** Upload, drop or paste a chart screenshot and Claude returns an objective technical read of everything on the chart, whatever your strategy:
 - trend and market structure (BOS / CHoCH)
@@ -113,6 +128,15 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 
 ### Setup
 
+**Notifications** (*Trading Plan → Notifications*). Send strategy alerts, risk events and news reminders to your phone or browser. Risk events cover daily loss limit near or reached, max trades, kill switch and prop-firm rule breaches. News reminders arrive a few minutes before high-impact releases. A master switch turns everything on or off, and each event type can be chosen separately. Channels:
+- **ntfy**, recommended for phones: install the free ntfy app (Android/iOS), subscribe to a private, hard-to-guess topic name and enter the same topic here.
+- **Telegram**: create a bot with @BotFather, send it a message, then enter the bot token and your chat id.
+- **Pushover**, **Discord** and **Slack** (incoming webhooks).
+- **Webhook**: JSON POST to any URL, e.g. Home Assistant, n8n or your own script. It is signed with `X-TradingOS-Signature: sha256=<HMAC-SHA256 of the body>` when you set a secret.
+- **Web Push** to this browser or device. Browsers only allow it on `https://` or `localhost`, so it works on the computer running Trading OS. Phones need the app served over HTTPS (on iOS 16.4+ also added to the Home Screen); otherwise use ntfy, Telegram or Pushover.
+
+  Set *App link* (e.g. `http://192.168.1.20:8765`) so a tap on a notification opens the right page. Every channel has a Test button, and the history shows what was delivered and why something failed.
+
 **Trading Plan.** Tabs for:
 - Account & risk rules, including news guardrail, cool-off and position-management defaults
 - Markets (contract specs)
@@ -127,7 +151,7 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 
 **Partners.** A reference list of brokers and prop firms, shown with a plain trading-risk disclaimer. Edit the list in *Trading Plan → Partners*, where you can also give a partner a custom link that replaces its official website link.
 
-**Backup & Export.** Trades as CSV (Excel-friendly, formula-injection safe), a full JSON backup, and a ZIP with JSON plus screenshots. You can restore from JSON or ZIP; a safety snapshot of the current data is written to `backups/` first. Backups never contain your saved AI API key.
+**Backup & Export.** Trades as CSV (Excel-friendly, formula-injection safe), a full JSON backup, and a ZIP with JSON plus screenshots. You can restore from JSON or ZIP; a safety snapshot of the current data is written to `backups/` first. Backups never contain secrets: no AI API key, notification channels, Web Push keys or market data keys. These stay on the machine and are kept as they are on restore.
 
 ## How the guardrails work
 
@@ -172,6 +196,27 @@ Vision AI uses Anthropic's Claude API. It is optional, and the rest of the app w
 
 In the same tab you choose the model and the effort level (higher effort is more thorough, but slower and more expensive). Charts you analyse are sent to Anthropic's API for processing. AI output can be wrong, so always verify levels and prices yourself.
 
+## Strategy alerts: market data
+
+The scanner runs in the background while Trading OS is running. Turn it on and set its interval on the
+*Strategy Alerts* page. Each source is asked for each symbol and timeframe once per scan, and only closed
+candles are evaluated. Each rule and symbol alerts at most once per signal candle, and not again within the
+rule's cooldown.
+
+To use your own feed, choose the *Pushed from my platform* source and send closed candles from an MT4/MT5 script,
+a TradingView webhook or any script:
+
+```http
+POST /api/alerts/candles
+Content-Type: application/json
+
+{"symbol": "XAUUSD", "timeframe": "M15", "token": "<push token, if set>",
+ "bars": [{"time": "2026-10-20T09:15:00Z", "open": 2650.1, "high": 2654.0, "low": 2648.7, "close": 2653.2}]}
+```
+
+`time` is the bar's open time. Times with a zone are converted to the account time zone. Set a push token on the
+Strategy Alerts page before exposing this endpoint beyond your machine (e.g. through a tunnel for TradingView).
+
 ## Calculations
 
 - **Pip value per lot** = contract size × pip size × FX. FX is 1 when the quote currency is the account currency, 1/price when the base currency is (e.g. USDJPY on a USD account), and otherwise the rate you enter.
@@ -197,8 +242,8 @@ trading_os/
   models.py       SQLAlchemy models               schemas.py  Pydantic validation
   database.py     engine, in-place schema migrations
   seed.py         default plan (markets, sessions, strategies, checklist, mistakes, partners)
-  api/            REST routers (plan, checklist, risk, trades, positions, signals, news,
-                  reviews, analytics, vision, backtest, prop, partners, reports, backup)
+  api/            REST routers (plan, checklist, risk, trades, positions, signals, alerts, news,
+                  notifications, reviews, analytics, vision, backtest, prop, partners, reports, backup)
   services/       domain logic
     sizing.py         position sizing & R:R math           (pure)
     guardrails.py     risk rules & day state               (pure)
@@ -216,8 +261,15 @@ trading_os/
     reviews.py        post-market reviews               partners.py  partner listings
     report_pdf.py     PDF reports                        disclaimer.py risk disclaimer
     backup.py         CSV / JSON / ZIP export & restore  uploads.py   image storage
+    alerts.py         strategy alert engine and scanner job
+    detectors.py      indicators and alert conditions        (pure)
+    market_data.py    candle sources (Yahoo, Binance, Twelve Data, pushed, demo)
+    notify.py / notify_channels.py  notification delivery, risk and news watchers
+    webpush.py        Web Push: VAPID signing and payload encryption
+    scheduler.py      background job thread
     demo.py           demo data generator
-  static/         dark-themed SPA (vanilla ES modules, no build step; Chart.js vendored)
+  static/         dark-themed SPA (vanilla ES modules, no build step; Chart.js vendored),
+                  service worker (sw.js) and web app manifest
   tests/          unit + API tests
 ```
 
@@ -234,6 +286,7 @@ ruff check --select F,E9,B --line-length 120 trading_os
 
 Notes:
 - Tables are created on startup, and older databases are upgraded in place: new columns are added with their defaults and the schema version is kept in `PRAGMA user_version`. Backups from v1.0 onwards can be restored.
-- The test suite never calls the network. The Claude client and the calendar feed are replaced with fakes.
-- The server binds to `127.0.0.1` by default and has no authentication. Don't expose it to a network.
+- The test suite never calls the network. The Claude client, the calendar feed, market data sources and notification channels are replaced with fakes.
+- Background jobs (alert scanner, risk and news watchers) run on one thread inside the server. Set `TRADING_OS_BACKGROUND_JOBS=0` to switch them off; the tests do this and run jobs on demand.
+- The server binds to `127.0.0.1` by default and has no authentication. Don't expose it to a network. If you open it on your LAN (`--host 0.0.0.0`) so a phone can open notification links, do it only on a network you trust.
 - Chart.js 4.4.7 is vendored in `static/vendor/` (MIT, licence included), so the app works offline. PDF reports use ReportLab.

@@ -217,6 +217,7 @@ export async function renderNotificationSettings(container) {
       }),
     );
     const appUrl = h("input", { type: "url", value: s.app_url, placeholder: "http://192.168.1.20:8765", spellcheck: false, inputmode: "url" });
+    const contact = h("input", { value: s.vapid_contact || "", placeholder: "mailto:you@example.com", spellcheck: false, maxlength: 120 });
     const saveBtn = h("button", { class: "btn primary", type: "submit" }, icon("check"), "Save");
     const background = data.jobs.length && !data.jobs[0].running;
 
@@ -235,6 +236,7 @@ export async function renderNotificationSettings(container) {
           events: USER_EVENTS.filter((id) => eventBoxes[id]?.checked),
           news_reminder_min: value,
           app_url: appUrl.value.trim(),
+          ...(contact.value.trim() ? { vapid_contact: contact.value.trim() } : {}), // empty keeps the current contact
         });
         toast("Notification settings saved", "success");
         drawSettings();
@@ -267,6 +269,10 @@ export async function renderNotificationSettings(container) {
         field("App link", appUrl, {
           full: true,
           help: "The address your phone uses to open Trading OS, e.g. http://192.168.1.20:8765. Notifications then link to the right page. Leave empty to omit links.",
+        }),
+        field("Web Push contact", contact, {
+          full: true,
+          help: "Sent to browser push services (Apple, Google, Mozilla) as the sender's contact: a mailto: address or an https:// page. Apple may reject placeholder addresses.",
         }),
       ),
       background
