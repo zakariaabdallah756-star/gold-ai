@@ -4,8 +4,21 @@ from fastapi import APIRouter
 from sqlalchemy import select
 
 from .. import APP_NAME, __version__
-from ..constants import ASSET_CLASSES, BIASES, CURRENCIES, EMOTIONS, TIMEFRAMES
-from ..models import ChecklistItem, Confluence, Market, Strategy, TradingSession
+from ..constants import (
+    ASSET_CLASSES,
+    BIASES,
+    CURRENCIES,
+    DEFAULT_TP_SPLITS,
+    EMOTIONS,
+    MAX_TARGETS,
+    MOODS,
+    NEWS_IMPACTS,
+    NEWS_MODES,
+    NEWS_PRESETS,
+    TIMEFRAMES,
+    TRAIL_TRIGGERS,
+)
+from ..models import ChecklistItem, Confluence, Market, MistakeType, Strategy, TradingSession
 from ..schemas import (
     ChecklistItemIn,
     ChecklistItemOut,
@@ -13,6 +26,8 @@ from ..schemas import (
     ConfluenceOut,
     MarketIn,
     MarketOut,
+    MistakeTypeIn,
+    MistakeTypeOut,
     SessionIn,
     SessionOut,
     SettingsIn,
@@ -34,7 +49,8 @@ def read_settings(settings: SettingsDep):
 
 @router.put("/settings", response_model=SettingsOut)
 def update_settings(payload: SettingsIn, settings: SettingsDep, db: DbDep):
-    for key, value in payload.model_dump().items():
+    # Only fields the client sent are changed, so partial forms can't reset others.
+    for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(settings, key, value)
     db.commit()
     return settings
@@ -58,12 +74,20 @@ def read_plan(settings: SettingsDep, db: DbDep, config: ConfigDep):
         "strategies": dump(Strategy, StrategyOut, Strategy.name),
         "confluences": dump(Confluence, ConfluenceOut, Confluence.name),
         "checklist_items": dump(ChecklistItem, ChecklistItemOut, ChecklistItem.sort_order, ChecklistItem.id),
+        "mistake_types": dump(MistakeType, MistakeTypeOut, MistakeType.name),
         "enums": {
             "emotions": EMOTIONS,
             "timeframes": TIMEFRAMES,
             "asset_classes": ASSET_CLASSES,
             "currencies": CURRENCIES,
             "biases": BIASES,
+            "moods": MOODS,
+            "news_modes": NEWS_MODES,
+            "news_impacts": NEWS_IMPACTS,
+            "news_presets": [{"title": title, "currency": currency} for title, currency in NEWS_PRESETS],
+            "trail_triggers": TRAIL_TRIGGERS,
+            "max_targets": MAX_TARGETS,
+            "tp_splits": {str(count): list(split) for count, split in DEFAULT_TP_SPLITS.items()},
         },
     }
 
@@ -85,5 +109,8 @@ plan_routers = [
         path="checklist-items",
         label="checklist item",
         order_by=(ChecklistItem.sort_order, ChecklistItem.id),
+    ),
+    crud_router(
+        MistakeType, MistakeTypeIn, MistakeTypeOut, path="mistakes", label="mistake", order_by=(MistakeType.name,)
     ),
 ]

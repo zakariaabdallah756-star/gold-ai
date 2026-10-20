@@ -1,8 +1,9 @@
-"""Command-line launcher: ``python run_trading_os.py`` / ``python -m trading_os``."""
+"""Command-line launcher: ``python trading_os/run.py`` / ``python -m trading_os``."""
 
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import threading
 import webbrowser
@@ -48,8 +49,12 @@ def main(argv: list[str] | None = None) -> None:
     import uvicorn
 
     from .app import create_app
-    from .config import load_config
+    from .config import LEGACY_DATA_DIR, load_config, migrate_legacy_data_dir
 
+    if not args.data_dir and not args.demo and not os.environ.get("TRADING_OS_DATA_DIR"):
+        moved = migrate_legacy_data_dir()
+        if moved:
+            print(f"Moved your journal from {LEGACY_DATA_DIR} to {moved}")
     config = load_config(args.data_dir or (DEMO_DATA_DIR if args.demo else None))
     app = create_app(config)
 

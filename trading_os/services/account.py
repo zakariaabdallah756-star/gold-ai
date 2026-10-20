@@ -81,9 +81,13 @@ def compute_day_state(db: Session, settings: AccountSettings, today: date | None
 
 def daily_status(db: Session, settings: AccountSettings) -> dict:
     """Everything the UI needs to render the discipline status bar."""
+    from . import context_rules  # local import: context_rules may use this module
+
     day = compute_day_state(db, settings)
-    reasons = daily_violations(settings, day)
+    extras = context_rules.status_extras(db, settings, local_now(settings))
+    reasons = daily_violations(settings, day) + list(extras.pop("reasons", []))
     return {
+        **extras,
         "today": day.today,
         "currency": settings.currency,
         "starting_balance": settings.starting_balance,

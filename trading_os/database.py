@@ -6,10 +6,13 @@ from collections.abc import Iterator
 from pathlib import Path
 
 from fastapi import Request
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import JSON, Column, Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
+
+# Bump when the models change; ``migrate`` brings older files up to date.
+SCHEMA_VERSION = 2
 
 
 def create_db_engine(db_path: Path) -> Engine:
@@ -29,9 +32,54 @@ def create_db_engine(db_path: Path) -> Engine:
 
 
 def init_db(engine: Engine) -> sessionmaker[Session]:
-    """Create missing tables and return a session factory bound to ``engine``."""
+    """Create missing tables, add missing columns, return a session factory."""
     Base.metadata.create_all(engine)
+    migrate(engine)
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def _default_sql(column: Column) -> str | None:
+    """SQL literal for a column's Python-side default, if it has a constant one."""
+    default = column.default
+    if default is None:
+        return None
+    if default.is_callable:
+        return "'[]'" if isinstance(column.type, JSON) else None
+    value = default.arg
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    if isinstance(value, str):
+        return "'" + value.replace("'", "''") + "'"
+    return None
+
+
+def migrate(engine: Engine) -> list[str]:
+    """Add columns that the models define but an older database file lacks.
+
+    SQLite can only *add* columns, which is all this app's schema evolution
+    needs. Existing rows receive the column's default (or NULL). Returns the
+    ``table.column`` names that were added.
+    """
+    inspector = inspect(engine)
+    added: list[str] = []
+    with engine.begin() as connection:
+        for table in Base.metadata.sorted_tables:
+            if not inspector.has_table(table.name):
+                continue
+            existing = {column["name"] for column in inspector.get_columns(table.name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {column.type.compile(engine.dialect)}'
+                default = _default_sql(column)
+                if default is not None:
+                    ddl += f" NOT NULL DEFAULT {default}" if not column.nullable else f" DEFAULT {default}"
+                connection.execute(text(ddl))
+                added.append(f"{table.name}.{column.name}")
+        connection.execute(text(f"PRAGMA user_version = {SCHEMA_VERSION}"))
+    return added
 
 
 def get_db(request: Request) -> Iterator[Session]:

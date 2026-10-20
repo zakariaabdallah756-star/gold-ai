@@ -46,6 +46,19 @@ def planned_rr(entry: float, stop: float, take_profit: float | None) -> float | 
     return abs(take_profit - entry) / risk
 
 
+def blended_rr(entry: float, stop: float, targets: list[tuple[float, float]]) -> float | None:
+    """Reward-to-risk of a scale-out plan: targets weighted by the % closed at each.
+
+    ``targets`` is ``[(price, close_pct), ...]`` with percentages summing to ~100.
+    E.g. 50% at 1R + 50% at 3R is a 1:2 plan.
+    """
+    risk = abs(entry - stop)
+    total = sum(pct for _, pct in targets)
+    if not targets or risk == 0 or total <= 0:
+        return None
+    return sum(abs(price - entry) * pct for price, pct in targets) / total / risk
+
+
 def executed_rr(direction: str, entry: float, stop: float, exit_price: float | None) -> float | None:
     """Realised move in units of initial risk (price based, before costs)."""
     risk = abs(entry - stop)

@@ -49,6 +49,13 @@ class SettingsIn(BaseModel):
     daily_limit_mode: Literal["lock", "warn"] = "lock"
     require_checklist: bool = True
     warn_outside_sessions: bool = True
+    news_mode: Literal["off", "warn", "block"] = "warn"
+    news_before_min: int = Field(30, ge=0, le=240)
+    news_after_min: int = Field(30, ge=0, le=240)
+    news_min_impact: Literal["low", "medium", "high"] = "high"
+    news_match_currency: bool = True
+    default_auto_be: bool = True
+    default_trail_pips: float = Field(0.0, ge=0)
 
     @field_validator("timezone")
     @classmethod
@@ -67,7 +74,8 @@ class SettingsIn(BaseModel):
 
 
 class SettingsOut(SettingsIn, ORMModel):
-    pass
+    cooloff_until: datetime | None = None
+    cooloff_reason: str = ""
 
 
 # --------------------------------------------------------------------------- trading plan
@@ -152,6 +160,16 @@ class ChecklistItemIn(BaseModel):
 
 
 class ChecklistItemOut(ChecklistItemIn, ORMModel):
+    id: int
+
+
+class MistakeTypeIn(BaseModel):
+    name: Annotated[str, StringConstraints(min_length=1, max_length=60, strip_whitespace=True)]
+    description: LongText = ""
+    active: bool = True
+
+
+class MistakeTypeOut(MistakeTypeIn, ORMModel):
     id: int
 
 
@@ -253,9 +271,40 @@ class DailyStatusOut(BaseModel):
     state: Literal["ok", "warning", "locked", "breached"]
     can_trade: bool
     reasons: list[Violation]
+    # Filled by services.context_rules (kill switch & economic calendar).
+    cooloff_until: datetime | None = None
+    cooloff_reason: str = ""
+    upcoming_news: list[dict] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- trades
+
+
+class TargetIn(BaseModel):
+    price: float = Field(gt=0)
+    close_pct: float = Field(gt=0, le=100)  # share of the ORIGINAL size closed at this target
+
+
+class TargetOut(ORMModel):
+    level: int
+    price: float
+    close_pct: float
+    hit: bool
+    rr: float | None
+
+
+class TradeEventOut(ORMModel):
+    id: int
+    time: datetime
+    kind: str
+    price: float | None
+    lots: float | None
+    pnl: float | None
+    pnl_manual: bool
+    target_level: int | None
+    stop_before: float | None
+    stop_after: float | None
+    note: str
 
 
 class TradeIn(BaseModel):
@@ -281,7 +330,20 @@ class TradeIn(BaseModel):
     tags: list[Annotated[str, StringConstraints(max_length=40, strip_whitespace=True)]] = Field(
         default_factory=list, max_length=30
     )
+    mistakes: list[Annotated[str, StringConstraints(max_length=60, strip_whitespace=True)]] = Field(
+        default_factory=list, max_length=30
+    )
     notes: LongText = ""
+    source: Literal["manual", "signal", "calculator"] = "manual"
+    signal_text: LongText = ""
+
+    # Scale-out plan and stop management (see services.positions).
+    targets: list[TargetIn] = Field(default_factory=list, max_length=4)
+    be_enabled: bool = False
+    be_offset_pips: float = Field(0.0, ge=0)
+    trail_enabled: bool = False
+    trail_distance_pips: float | None = Field(None, gt=0)
+    trail_trigger: Literal["tp1", "immediate"] = "tp1"
 
     @model_validator(mode="after")
     def _geometry(self) -> TradeIn:
@@ -307,8 +369,27 @@ class TradeIn(BaseModel):
             if self.exit_time is not None and _exit_before_entry(self.exit_time, self.entry_time):
                 raise ValueError("Exit time cannot be before entry time")
 
+        if self.targets:
+            sign = 1 if long else -1
+            previous = self.entry_price
+            for index, target in enumerate(self.targets, start=1):
+                if (target.price - previous) * sign <= 0:
+                    raise ValueError(
+                        f"TP{index} must be beyond the entry and the previous target "
+                        f"({'above' if long else 'below'} it for a {self.direction} trade)"
+                    )
+                previous = target.price
+            total = sum(target.close_pct for target in self.targets)
+            if abs(total - 100) > 0.5:
+                raise ValueError(f"Target close percentages must add up to 100% (got {total:g}%)")
+            # The farthest target is the trade's take profit.
+            self.take_profit = self.targets[-1].price
+        if self.trail_enabled and not self.trail_distance_pips:
+            raise ValueError("Trailing stop needs a trail distance in pips/points")
+
         self.confluences = _dedupe(self.confluences)
         self.tags = _dedupe(self.tags)
+        self.mistakes = _dedupe(self.mistakes)
         return self
 
 
@@ -360,8 +441,28 @@ class TradeOut(ORMModel):
     rule_compliant: bool | None
     violations: list[Violation]
     tags: list[str]
+    mistakes: list[str]
     notes: str
+    source: str
+    signal_text: str
     screenshots: list[ScreenshotOut]
+    targets: list[TargetOut]
+    events: list[TradeEventOut]
+    managed: bool
+    current_stop: float | None
+    remaining_size: float | None
+    realized_pnl: float
+    remaining_risk: float | None
+    risk_free: bool
+    be_enabled: bool
+    be_offset_pips: float
+    trail_enabled: bool
+    trail_distance_pips: float | None
+    trail_trigger: str
+    best_price: float | None
+    worst_price: float | None
+    last_price: float | None
+    last_price_at: datetime | None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

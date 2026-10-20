@@ -284,7 +284,7 @@ def test_export_and_restore_roundtrip(client):
     assert "'=SUM(A1)" in csv_text  # formula injection neutralised
 
     backup_json = client.get("/api/export/backup.json").json()
-    assert backup_json["schema_version"] == 1
+    assert backup_json["schema_version"] == 2
     assert len(backup_json["tables"]["trades"]) == 1
 
     archive = zipfile.ZipFile(io.BytesIO(client.get("/api/export/backup.zip").content))
@@ -313,3 +313,21 @@ def test_export_and_restore_roundtrip(client):
         client.post("/api/import", files={"file": ("x.json", b'{"app": "other"}', "application/json")}).status_code
         == 400
     )
+
+
+def test_v1_backup_still_restores(client):
+    """A backup made by v1.0 (no targets/events/news/reviews tables) restores."""
+    client.post("/api/trades", json=trade_payload(status="closed", entry_time=yesterday_iso(), exit_price=2660.0))
+    backup_json = client.get("/api/export/backup.json").json()
+    backup_json["schema_version"] = 1
+    for table in ("trade_targets", "trade_events", "news_events", "daily_reviews", "mistake_types"):
+        backup_json["tables"].pop(table)
+    for row in backup_json["tables"]["trades"]:
+        for column in ("mistakes", "source", "managed", "current_stop", "remaining_size", "realized_pnl"):
+            row.pop(column)
+    restored = client.post(
+        "/api/import", files={"file": ("v1.json", json.dumps(backup_json).encode(), "application/json")}
+    )
+    assert restored.status_code == 200, restored.text
+    trade = client.get("/api/trades").json()["items"][0]
+    assert trade["mistakes"] == [] and trade["source"] == "manual" and trade["realized_pnl"] == 0

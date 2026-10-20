@@ -9,15 +9,18 @@ the ``TRADING_OS_DATA_DIR`` environment variable or the ``--data-dir`` CLI flag.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
 PACKAGE_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = PACKAGE_DIR.parent
 STATIC_DIR = PACKAGE_DIR / "static"
 
-DEFAULT_DATA_DIR = PROJECT_DIR / "trading_os_data"
-DEMO_DATA_DIR = PROJECT_DIR / "trading_os_demo_data"
+# Data lives inside the standalone trading_os/ folder (git-ignored there).
+DEFAULT_DATA_DIR = PACKAGE_DIR / "data"
+DEMO_DATA_DIR = PACKAGE_DIR / "demo_data"
+# v1.0 kept the journal next to the package; it is moved in on first start.
+LEGACY_DATA_DIR = PACKAGE_DIR.parent / "trading_os_data"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
@@ -50,6 +53,18 @@ class AppConfig:
     def ensure_dirs(self) -> None:
         for path in (self.data_dir, self.uploads_dir, self.backups_dir):
             path.mkdir(parents=True, exist_ok=True)
+
+
+def migrate_legacy_data_dir() -> Path | None:
+    """Move a v1.0 journal from ``../trading_os_data`` into ``trading_os/data``.
+
+    Only runs when the new folder does not exist yet, so nothing is overwritten.
+    Returns the new location when a move happened.
+    """
+    if DEFAULT_DATA_DIR.exists() or not (LEGACY_DATA_DIR / "journal.db").is_file():
+        return None
+    shutil.move(str(LEGACY_DATA_DIR), str(DEFAULT_DATA_DIR))
+    return DEFAULT_DATA_DIR
 
 
 def load_config(data_dir: str | Path | None = None) -> AppConfig:

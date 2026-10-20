@@ -5,11 +5,13 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .constants import DEFAULT_MISTAKES
 from .models import (
     AccountSettings,
     ChecklistItem,
     Confluence,
     Market,
+    MistakeType,
     Strategy,
     TradingSession,
 )
@@ -128,5 +130,9 @@ def seed_defaults(session: Session) -> None:
     if session.scalar(select(ChecklistItem.id).limit(1)) is None:
         for order, (category, label, required) in enumerate(DEFAULT_CHECKLIST):
             session.add(ChecklistItem(category=category, label=label, required=required, sort_order=order))
+
+    if session.scalar(select(MistakeType.id).limit(1)) is None:
+        for name, description in DEFAULT_MISTAKES:
+            session.add(MistakeType(name=name, description=description))
 
     session.commit()

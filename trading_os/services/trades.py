@@ -9,10 +9,10 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Select, String, cast, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models import AccountSettings, Market, Strategy, Trade, TradingSession
+from ..models import AccountSettings, Market, Strategy, Trade, TradeTarget, TradingSession
 from ..schemas import TradeIn
-from . import uploads
-from .account import CLOSE_TIME, compute_day_state, equity_at, local_today
+from . import context_rules, positions, uploads
+from .account import CLOSE_TIME, compute_day_state, equity_at, local_now, local_today
 from .guardrails import (
     DAILY_CODES,
     Violation,
@@ -21,7 +21,7 @@ from .guardrails import (
     trade_rule_violations,
 )
 from .sessions import classify_session, in_trading_window
-from .sizing import conversion_hint, executed_rr, gross_pnl, planned_rr, risk_for_lots
+from .sizing import blended_rr, conversion_hint, executed_rr, gross_pnl, planned_rr, risk_for_lots
 
 # Warnings that should not, on their own, mark a trade as "rules broken".
 NON_COMPLIANCE_EXEMPT = frozenset({"NO_TAKE_PROFIT"})
@@ -109,7 +109,10 @@ def evaluate(
 
     windows = list(db.scalars(select(TradingSession)))
     session_name = data.session or classify_session(entry_time, tz, windows)
-    rr = planned_rr(data.entry_price, data.stop_loss, data.take_profit)
+    if data.targets:
+        rr = blended_rr(data.entry_price, data.stop_loss, [(t.price, t.close_pct) for t in data.targets])
+    else:
+        rr = planned_rr(data.entry_price, data.stop_loss, data.take_profit)
     equity = equity_at(db, settings, entry_time)
     strategy = db.scalar(select(Strategy).where(Strategy.name == data.strategy)) if data.strategy else None
 
@@ -130,6 +133,10 @@ def evaluate(
         if entry_time.date() >= today:
             day = compute_day_state(db, settings, today)
             violations += daily_violations(settings, day, risk_amount)
+        # Economic-calendar window and kill switch (services.context_rules).
+        violations += context_rules.entry_violations(
+            db, settings, symbol=data.symbol, entry_time=entry_time, now=local_now(settings)
+        )
     else:
         violations += [Violation(**v) for v in existing.violations or [] if v.get("code") in DAILY_CODES]
 
@@ -169,7 +176,16 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
     trade.confluences = list(data.confluences)
     trade.emotion = data.emotion
     trade.tags = list(data.tags)
+    trade.mistakes = list(data.mistakes)
     trade.notes = data.notes
+    trade.source = data.source
+    trade.signal_text = data.signal_text
+    trade.be_enabled = data.be_enabled
+    trade.be_offset_pips = data.be_offset_pips
+    trade.trail_enabled = data.trail_enabled
+    trade.trail_distance_pips = data.trail_distance_pips
+    trade.trail_trigger = data.trail_trigger
+    _sync_targets(trade, data)
     trade.planned_rr = round(ev.planned_rr, 4) if ev.planned_rr is not None else None
     trade.violations = [violation.to_dict() for violation in ev.violations]
     trade.rule_compliant = (
@@ -181,6 +197,7 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
     if data.status != "closed":
         trade.pnl = trade.executed_rr = trade.r_multiple = trade.outcome = None
         trade.pnl_manual = False
+        positions.recompute(trade, ev.market, settings)
         return
 
     if data.pnl is not None:
@@ -204,6 +221,16 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
     r_multiple = trade.pnl / ev.risk_amount if ev.risk_amount else rr
     trade.r_multiple = round(r_multiple, 4) if r_multiple is not None else None
     trade.outcome = outcome_for(trade.pnl)
+    positions.recompute(trade, ev.market, settings)
+
+
+def _sync_targets(trade: Trade, data: TradeIn) -> None:
+    wanted = [(t.price, t.close_pct) for t in data.targets]
+    if [(t.price, t.close_pct) for t in trade.targets] != wanted:
+        trade.targets = [
+            TradeTarget(level=level, price=price, close_pct=close_pct)
+            for level, (price, close_pct) in enumerate(wanted, start=1)
+        ]
 
 
 def create_trade(db: Session, settings: AccountSettings, data: TradeIn) -> tuple[Trade, list[Violation]]:
@@ -232,8 +259,11 @@ def delete_trade(db: Session, uploads_dir, trade: Trade) -> None:
         uploads.delete_file(uploads_dir, filename)
 
 
+TRADE_LOAD_OPTIONS = (selectinload(Trade.screenshots), selectinload(Trade.targets), selectinload(Trade.events))
+
+
 def get_trade(db: Session, trade_id: int) -> Trade | None:
-    stmt = select(Trade).options(selectinload(Trade.screenshots)).where(Trade.id == trade_id)
+    stmt = select(Trade).options(*TRADE_LOAD_OPTIONS).where(Trade.id == trade_id)
     return db.scalar(stmt.execution_options(populate_existing=True))
 
 
@@ -296,7 +326,7 @@ def list_trades(
     total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
     column = SORTABLE.get(sort, Trade.entry_time)
     order = (column.desc(), Trade.id.desc()) if descending else (column.asc(), Trade.id.asc())
-    stmt = base.options(selectinload(Trade.screenshots)).order_by(*order).offset(offset)
+    stmt = base.options(*TRADE_LOAD_OPTIONS).order_by(*order).offset(offset)
     if limit:
         stmt = stmt.limit(limit)
     return list(db.scalars(stmt)), total

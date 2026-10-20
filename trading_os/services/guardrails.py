@@ -20,7 +20,17 @@ from datetime import date
 
 from ..constants import DAILY_LOSS_WARNING_RATIO
 
-DAILY_CODES = frozenset({"CHECKLIST_INCOMPLETE", "DAILY_LOSS_LIMIT", "MAX_TRADES_REACHED", "DAILY_RISK_BUDGET"})
+# Context rules recorded at entry time and kept unchanged when a trade is edited.
+DAILY_CODES = frozenset(
+    {
+        "CHECKLIST_INCOMPLETE",
+        "DAILY_LOSS_LIMIT",
+        "MAX_TRADES_REACHED",
+        "DAILY_RISK_BUDGET",
+        "NEWS_WINDOW",
+        "KILL_SWITCH",
+    }
+)
 EPSILON = 1e-9
 
 

@@ -26,15 +26,22 @@ from ..models import (
     ChecklistDay,
     ChecklistItem,
     Confluence,
+    DailyReview,
     Market,
+    MistakeType,
+    NewsEvent,
     Screenshot,
     Strategy,
     Trade,
+    TradeEvent,
+    TradeTarget,
     TradingSession,
 )
 from . import uploads
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+# Older backups restore fine: missing tables/columns fall back to defaults.
+SUPPORTED_SCHEMA_VERSIONS = (1, 2)
 BACKUP_JSON_NAME = "backup.json"
 
 # Insert order respects foreign keys; deletion runs in reverse.
@@ -46,7 +53,12 @@ MODELS = (
     Confluence,
     ChecklistItem,
     ChecklistDay,
+    MistakeType,
+    NewsEvent,
+    DailyReview,
     Trade,
+    TradeTarget,
+    TradeEvent,
     Screenshot,
 )
 
@@ -77,7 +89,10 @@ CSV_COLUMNS = (
     "rule_compliant",
     "violations",
     "tags",
+    "mistakes",
     "notes",
+    "source",
+    "targets",
     "screenshots",
 )
 
@@ -126,7 +141,9 @@ def export_trades_csv(trades: list[Trade]) -> str:
                 value = "; ".join(v.get("code", "") for v in trade.violations or [])
             elif column == "screenshots":
                 value = "; ".join(shot.src for shot in trade.screenshots)
-            elif column in ("confluences", "tags"):
+            elif column == "targets":
+                value = "; ".join(f"{t.price:g}@{t.close_pct:g}%" for t in trade.targets)
+            elif column in ("confluences", "tags", "mistakes"):
                 value = _csv_text("; ".join(getattr(trade, column) or []))
             elif column in ("strategy", "session", "emotion", "notes", "timeframe"):
                 value = _csv_text(getattr(trade, column) or "")
@@ -167,7 +184,7 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
     """Replace every table with the content of ``payload``. Atomic."""
     if not isinstance(payload, dict) or payload.get("app") != "trading_os":
         raise BackupError("Not a Trading OS backup file")
-    if payload.get("schema_version") != SCHEMA_VERSION:
+    if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
         raise BackupError(f"Unsupported backup schema version {payload.get('schema_version')!r}")
     tables = payload.get("tables")
     if not isinstance(tables, dict):

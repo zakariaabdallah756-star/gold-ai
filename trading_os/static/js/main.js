@@ -9,12 +9,20 @@ import * as checklist from "./views/checklist.js";
 import * as dashboard from "./views/dashboard.js";
 import * as journal from "./views/journal.js";
 import * as plan from "./views/plan.js";
+import * as positions from "./views/positions.js";
+import * as review from "./views/review.js";
+import * as signals from "./views/signals.js";
+import * as timeCalendar from "./views/calendar.js";
 
 const ROUTES = [
   { path: "dashboard", label: "Dashboard", icon: "dashboard", view: dashboard },
   { path: "premarket", label: "Pre-Market", icon: "checklist", view: checklist },
+  { path: "signals", label: "Signals", icon: "signal", view: signals },
   { path: "calculator", label: "Risk Calculator", icon: "calculator", view: calculator },
+  { path: "positions", label: "Positions", icon: "layers", view: positions },
   { path: "journal", label: "Journal", icon: "journal", view: journal },
+  { path: "calendar", label: "Calendar", icon: "calendar", view: timeCalendar },
+  { path: "review", label: "Review", icon: "review", view: review },
   { path: "plan", label: "Trading Plan", icon: "plan", view: plan },
   { path: "backup", label: "Backup & Export", icon: "backup", view: backup },
 ];
