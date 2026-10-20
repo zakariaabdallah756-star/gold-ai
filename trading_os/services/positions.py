@@ -434,18 +434,17 @@ def move_stop(
 def undo_event(db: Session, settings: AccountSettings, trade: Trade, event: TradeEvent) -> None:
     """Delete ``event`` - only the most recent event of the ledger can be undone.
 
-    Undoing an automatic event (target, stop-out, break-even, trail) also
-    rewinds the price tracking to what the remaining ledger supports, so a
-    mistyped price can't keep driving the trailing stop.
+    Undoing any event also rewinds the price tracking (best/worst/last) to what
+    the remaining ledger supports, so a mistyped price - from a price update or
+    a manual partial/close - can't keep driving the trailing stop.
     """
     events = ordered_events(trade)
     if not events or events[-1].id != event.id:
         raise PositionConflict("Only the most recent position event can be undone - undo the later events first")
     with _atomic(db):
         trade.events.remove(event)
-        if event.kind in engine.AUTOMATIC_KINDS:
-            best, worst, last, last_at = engine.rebuild_tracking(trade.direction, trade.entry_price, events[:-1])
-            trade.best_price, trade.worst_price, trade.last_price, trade.last_price_at = best, worst, last, last_at
+        best, worst, last, last_at = engine.rebuild_tracking(trade.direction, trade.entry_price, events[:-1])
+        trade.best_price, trade.worst_price, trade.last_price, trade.last_price_at = best, worst, last, last_at
         recompute(trade, _market(db, trade.symbol), settings)
         db.commit()
 

@@ -294,3 +294,19 @@ def test_short_scale_out_then_break_even_stop(live):
     assert closed["status"] == "closed" and closed["events"][-1]["note"] == "break-even stop"
     assert closed["realized_pnl"] == 110.0 and closed["pnl"] == 108.0  # +100 at TP1, +10 at 2649
     assert closed["exit_price"] == 2644.5 and closed["executed_rr"] == 1.1
+
+
+def test_undoing_a_mistyped_manual_partial_rewinds_price_tracking(live):
+    """A partial close typed at 2950 instead of 2655 and undone must not feed the trailing stop."""
+    trade = create(live, position_size=0.2, trail_enabled=True, trail_distance_pips=50, trail_trigger="immediate")
+    post(live, f"/api/trades/{trade['id']}/price", {"price": 2652})
+    body = post(live, f"/api/trades/{trade['id']}/partial-close", {"lots": 0.1, "price": 2950})
+    mistyped = body["events"][0]
+    undone = live.delete(f"/api/trades/{trade['id']}/events/{mistyped['id']}")
+    assert undone.status_code == 200, undone.text
+    after = undone.json()["trade"]
+    assert after["best_price"] != 2950 and after["last_price"] != 2950
+
+    body = post(live, f"/api/trades/{trade['id']}/price", {"price": 2653})
+    trade = body["trade"]
+    assert trade["status"] == "open" and trade["current_stop"] < 2653  # the trail follows real prices only
