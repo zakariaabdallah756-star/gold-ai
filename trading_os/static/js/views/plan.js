@@ -4,6 +4,8 @@ import { api } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
 import { loadPlan, loadStatus, state } from "../state.js";
+import { renderPartnerSettings } from "./partners.js";
+import { renderAiSettings } from "./settings-ai.js";
 
 const TABS = [
   ["rules", "Account & risk rules"],
@@ -12,7 +14,17 @@ const TABS = [
   ["strategies", "Strategies"],
   ["confluences", "Confluences"],
   ["checklist", "Checklist"],
+  ["mistakes", "Mistakes"],
+  ["ai", "AI assistant"],
+  ["partners", "Partners & referrals"],
 ];
+// Tabs rendered by other modules into their own container.
+const MOUNTED_TABS = { ai: renderAiSettings, partners: renderPartnerSettings };
+const STRATEGY_STATUS = {
+  live: { cls: "good", icon: "play", label: "Live" },
+  incubator: { cls: "warn", icon: "flame", label: "Incubator" },
+  retired: { cls: "", icon: "x", label: "Retired" },
+};
 let activeTab = "rules";
 
 // ------------------------------------------------------------- form builder
@@ -23,8 +35,31 @@ function buildForm(fields, values = {}) {
     "div",
     { class: "form-grid" },
     fields.map((f) => {
+      if (f.type === "heading") {
+        return h("div", { class: "full form-section" }, h("h3", {}, f.label), f.help ? h("p", { class: "muted small" }, f.help) : null);
+      }
       const value = values[f.name] ?? f.default ?? "";
       let control;
+      if (f.type === "multi") {
+        // Checkbox group; selections no longer offered (renamed / removed items) stay visible so they can be unticked.
+        const selected = new Set(values[f.name] || []);
+        const options = [...f.options, ...[...selected].filter((option) => !f.options.includes(option))];
+        const boxes = options.map((option) => ({ option, box: h("input", { type: "checkbox", checked: selected.has(option) }) }));
+        controls.set(f.name, { f, control: boxes });
+        return h(
+          "div",
+          { class: "field full" },
+          h("span", { class: "label" }, f.label),
+          options.length
+            ? h(
+                "div",
+                { class: "check-multi", role: "group", "aria-label": f.label },
+                boxes.map(({ option, box }) => h("label", { class: "check" }, box, f.options.includes(option) ? option : `${option} (not in plan)`)),
+              )
+            : h("div", { class: "muted small" }, f.empty || "Nothing to choose from yet."),
+          f.help ? h("div", { class: "help" }, f.help) : null,
+        );
+      }
       if (f.type === "checkbox") {
         control = h("input", { type: "checkbox", checked: Boolean(values[f.name] ?? f.default) });
         controls.set(f.name, { f, control });
@@ -32,7 +67,7 @@ function buildForm(fields, values = {}) {
       }
       if (f.type === "select") control = select(f.options, value);
       else if (f.type === "textarea") control = h("textarea", { rows: f.rows || 3, value });
-      else if (f.type === "number") control = h("input", { type: "number", step: f.step || "any", min: f.min, max: f.max, value });
+      else if (f.type === "number") control = h("input", { type: "number", step: f.step || "any", min: f.min, max: f.max, value, placeholder: f.placeholder || "" });
       else control = h("input", { type: f.type || "text", value, placeholder: f.placeholder || "", list: f.list, maxlength: f.maxlength });
       controls.set(f.name, { f, control });
       return field(f.label, control, { help: f.help, full: f.full });
@@ -42,12 +77,29 @@ function buildForm(fields, values = {}) {
     const out = {};
     for (const [name, { f, control }] of controls) {
       if (f.type === "checkbox") out[name] = control.checked;
+      else if (f.type === "multi") out[name] = control.filter(({ box }) => box.checked).map(({ option }) => option);
       else if (f.type === "number") out[name] = control.value === "" ? null : Number(control.value);
       else out[name] = control.value.trim();
     }
     return out;
   }
   return { el, read, controls };
+}
+
+function statusBadge(status) {
+  const meta = STRATEGY_STATUS[status] || STRATEGY_STATUS.live;
+  return h("span", { class: `badge ${meta.cls}` }, icon(meta.icon), meta.label);
+}
+
+function copilotSummary(strategy) {
+  const parts = [];
+  if (strategy.required_confluences.length) parts.push(`Needs ${strategy.required_confluences.join(", ")}`);
+  if (strategy.allowed_sessions.length) parts.push(`Sessions ${strategy.allowed_sessions.join(", ")}`);
+  if (strategy.allowed_timeframes.length) parts.push(`TF ${strategy.allowed_timeframes.join(", ")}`);
+  if (strategy.allowed_directions !== "both") parts.push(strategy.allowed_directions === "long" ? "Long only" : "Short only");
+  if (strategy.min_rr !== null && strategy.min_rr !== undefined) parts.push(`R:R ≥ 1:${strategy.min_rr}`);
+  if (strategy.require_bias_alignment) parts.push("With daily bias");
+  return parts.length ? h("span", { class: "small" }, parts.join(" · ")) : h("span", { class: "muted small" }, "No parameters - any setup");
 }
 
 const yesNo = (value) => (value ? h("span", { class: "pos", "aria-label": "Yes" }, icon("check")) : h("span", { class: "muted", "aria-label": "No" }, icon("x")));
@@ -192,6 +244,43 @@ function rulesSection() {
     s,
   );
 
+  const newsRules = buildForm(
+    [
+      { name: "news_mode", label: "During a news window", type: "select", options: [["off", "Off (calendar is informational)"], ["warn", "Warn on entries"], ["block", "Block live entries"]] },
+      { name: "news_min_impact", label: "Minimum impact", type: "select", options: [["high", "High only"], ["medium", "Medium and high"], ["low", "All releases"]] },
+      { name: "news_before_min", label: "Minutes before the release", type: "number", min: "0", max: "240", step: "1" },
+      { name: "news_after_min", label: "Minutes after the release", type: "number", min: "0", max: "240", step: "1" },
+      {
+        name: "news_match_currency",
+        label: "Only events in the traded market's currencies",
+        type: "checkbox",
+        full: true,
+        help: 'USD news restricts XAUUSD and EURUSD but not GER40. Events with currency "ALL" always apply. Events can override the minutes.',
+      },
+    ],
+    s,
+  );
+  const positionDefaults = buildForm(
+    [
+      { name: "default_auto_be", label: "Move stop to break-even at TP1 by default", type: "checkbox", full: true },
+      { name: "default_trail_pips", label: "Default trailing distance (pips/points, 0 = off)", type: "number", min: "0", step: "0.1", full: true },
+    ],
+    s,
+  );
+  const cooloffNote = h(
+    "div",
+    { class: "news-note" },
+    icon("power"),
+    h(
+      "span",
+      {},
+      state.status?.cooloff_until
+        ? `Cool-off active until ${fmt.datetime(state.status.cooloff_until)}${state.status.cooloff_reason ? ` (${state.status.cooloff_reason})` : ""}. `
+        : "",
+      "The Kill switch in the top bar stops all new entries for 4–48 hours. A cool-off can be extended but not shortened, and ending it early requires typing UNLOCK.",
+    ),
+  );
+
   const browserZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const useBrowserZone = h("button", { class: "btn sm", type: "button", onclick: () => (account.controls.get("timezone").control.value = browserZone) }, `Use ${browserZone}`);
 
@@ -201,7 +290,14 @@ function rulesSection() {
     onclick: async () => {
       save.disabled = true;
       try {
-        await api.put("/api/settings", { ...account.read(), ...tradeRules.read(), ...dailyRules.read(), ...processRules.read() });
+        await api.put("/api/settings", {
+          ...account.read(),
+          ...tradeRules.read(),
+          ...dailyRules.read(),
+          ...processRules.read(),
+          ...newsRules.read(),
+          ...positionDefaults.read(),
+        });
         await refreshPlan();
         toast("Trading plan saved", "success");
       } catch (error) {
@@ -212,8 +308,8 @@ function rulesSection() {
     },
   }, "Save rules");
 
-  const block = (title, description, form, extra) =>
-    h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", {}, h("h2", {}, title), h("p", {}, description)), extra), form.el);
+  const block = (title, description, form, extra, footer) =>
+    h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", {}, h("h2", {}, title), h("p", {}, description)), extra), form.el, footer);
 
   return h(
     "div",
@@ -226,7 +322,13 @@ function rulesSection() {
       block("Per-trade rules", "Checked on every entry and in the calculator", tradeRules),
       block("Daily limits", "Protect the account from a bad day", dailyRules),
     ),
-    block("Process rules", "Discipline before and during the session", processRules),
+    h(
+      "div",
+      { class: "grid cols-2" },
+      block("Process rules", "Discipline before and during the session", processRules),
+      block("Position management defaults", "Pre-filled on new trades and signals", positionDefaults),
+    ),
+    block("News & cool-off", "Economic-calendar guardrail and the emergency kill switch", newsRules, h("a", { class: "btn sm", href: "#/premarket" }, icon("calendar"), "Calendar"), cooloffNote),
     h("div", { class: "row" }, h("span", { class: "muted small" }, "Blocking rules stop new open positions dated today. Closed trades logged after the fact are always recorded, with any violations attached."), h("span", { class: "spacer" }), save),
   );
 }
@@ -245,6 +347,8 @@ function utcToZone(hhmm, tz) {
 function sections() {
   const { settings, enums } = state.plan;
   const currency = settings.currency;
+  const confluenceNames = state.plan.confluences.filter((c) => c.active).map((c) => c.name);
+  const sessionNames = state.plan.sessions.map((s) => s.name);
   return {
     markets: entitySection({
       title: "Markets",
@@ -300,20 +404,30 @@ function sections() {
     strategies: entitySection({
       title: "Strategies",
       label: "Strategy",
-      description: "Your playbook. Minimum confluences become a rule on every entry.",
+      description: "Your playbook. The Strategy Co-Pilot checks every entry against the chosen strategy's parameters.",
       endpoint: "/api/strategies",
-      defaults: { min_confluences: 2, active: true },
+      defaults: { min_confluences: 2, active: true, status: "live", allowed_directions: "both", required_confluences: [], allowed_sessions: [], allowed_timeframes: [] },
       fields: [
         { name: "name", label: "Name" },
-        { name: "timeframes", label: "Timeframes", placeholder: "H4, M15" },
-        { name: "min_confluences", label: "Min confluences", type: "number", min: "0", step: "1" },
+        { name: "status", label: "Status", type: "select", options: [["live", "Live"], ["incubator", "Incubator (testing)"], ["retired", "Retired"]] },
+        { name: "timeframes", label: "Timeframes (notes)", placeholder: "H4 bias, M15 entry" },
+        { name: "min_confluences", label: "Min confluences", type: "number", min: "0", step: "1", help: "Never below the required confluences" },
         { name: "active", label: "Active", type: "checkbox" },
         { name: "description", label: "Description", type: "textarea", full: true, rows: 2 },
         { name: "rules", label: "Entry / exit rules", type: "textarea", full: true, rows: 5 },
+        { type: "heading", label: "Strategy Co-Pilot", help: "Entries with this strategy must meet every parameter below (blocked or warned per your trade-rule mode). Empty groups allow anything." },
+        { name: "required_confluences", label: "Required confluences", type: "multi", options: confluenceNames, empty: "Add confluences first (Confluences tab)." },
+        { name: "allowed_sessions", label: "Allowed sessions", type: "multi", options: sessionNames, empty: "Add sessions first (Sessions tab)." },
+        { name: "allowed_timeframes", label: "Allowed entry timeframes", type: "multi", options: enums.timeframes },
+        { name: "allowed_directions", label: "Allowed directions", type: "select", options: [["both", "Long and short"], ["long", "Long only"], ["short", "Short only"]] },
+        { name: "min_rr", label: "Minimum R:R (1 : x)", type: "number", min: "0", step: "0.1", placeholder: `Account 1:${settings.min_rr}`, help: "Blank = account minimum" },
+        { name: "backtest_risk_per_trade", label: `Backtest risk per trade (${currency})`, type: "number", min: "0", step: "any", placeholder: "Account default", help: "Money per 1R in backtests. Blank = account default risk" },
+        { name: "require_bias_alignment", label: "Only trade in the direction of the daily bias", type: "checkbox", full: true },
       ],
       columns: [
         { label: "Strategy", value: (s) => h("strong", {}, s.name) },
-        { label: "Timeframes", value: (s) => s.timeframes || "—" },
+        { label: "Status", value: (s) => statusBadge(s.status) },
+        { label: "Co-Pilot", value: (s) => copilotSummary(s), wrap: true },
         { label: "Min confluences", value: (s) => s.min_confluences, num: true },
         { label: "Rules", value: (s) => s.rules || s.description || "—", wrap: true },
         { label: "Active", value: (s) => yesNo(s.active) },
@@ -376,11 +490,29 @@ function sections() {
         ];
       },
     }),
+    mistakes: entitySection({
+      title: "Mistakes",
+      label: "Mistake",
+      description: "Your mistake library. Tag trades and daily reviews with these to see what each error costs you.",
+      endpoint: "/api/mistakes",
+      defaults: { active: true },
+      fields: [
+        { name: "name", label: "Name", full: true, maxlength: "60" },
+        { name: "description", label: "Description", type: "textarea", full: true, rows: 2 },
+        { name: "active", label: "Active", type: "checkbox" },
+      ],
+      columns: [
+        { label: "Mistake", value: (m) => h("strong", {}, m.name) },
+        { label: "Description", value: (m) => m.description || "—", wrap: true },
+        { label: "Active", value: (m) => yesNo(m.active) },
+      ],
+    }),
   };
 }
 
 export async function render(root, { params }) {
   if (params.get("tab")) activeTab = params.get("tab");
+  if (!TABS.some(([key]) => key === activeTab)) activeTab = "rules";
   const content = h("div");
   const tabs = h("div", { class: "tabs", role: "tablist" });
 
@@ -388,6 +520,12 @@ export async function render(root, { params }) {
     clear(tabs, TABS.map(([key, label]) => h("button", { type: "button", role: "tab", class: key === activeTab ? "on" : "", "aria-selected": String(key === activeTab), onclick: () => ((activeTab = key), show()) }, label)));
     if (activeTab === "rules") {
       clear(content, rulesSection());
+      return;
+    }
+    if (MOUNTED_TABS[activeTab]) {
+      const container = h("div");
+      clear(content, container);
+      await MOUNTED_TABS[activeTab](container);
       return;
     }
     const section = sections()[activeTab];

@@ -262,7 +262,12 @@ export async function render(root) {
 
   clear(
     root,
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Position size calculator"), h("p", {}, `Size every trade from your stop - never from a feeling. Account currency: ${settings.currency}`))),
+    h(
+      "div",
+      { class: "page-head" },
+      h("div", {}, h("h1", {}, "Position size calculator"), h("p", {}, `Size every trade from your stop - never from a feeling. Account currency: ${settings.currency}`)),
+      h("a", { class: "btn ghost", href: "#/signals" }, icon("signal"), "Paste a signal"),
+    ),
     h(
       "div",
       { class: "grid split" },

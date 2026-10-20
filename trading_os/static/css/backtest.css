@@ -1,1 +1,20 @@
-/* Strategy incubator & backtests (track BT). Uses the tokens defined in app.css. */
+/* Strategy incubator & backtests. Uses the tokens defined in app.css. */
+
+.bt-layout { display: grid; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); gap: 16px; align-items: start; }
+.bt-list { position: sticky; top: 72px; gap: 6px; }
+.bt-list .section-title { margin: 6px 0 6px; }
+.bt-strategy {
+  display: block; width: 100%; text-align: left; cursor: pointer; margin-bottom: 6px;
+  padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font: inherit;
+}
+.bt-strategy:hover { border-color: var(--border-strong); }
+.bt-strategy.selected { border-color: var(--accent); background: var(--accent-wash); }
+.bt-strategy-stats { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.bt-notes { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.bt-import-result:empty { display: none; }
+
+@media (max-width: 1100px) {
+  .bt-layout { grid-template-columns: minmax(0, 1fr); }
+  .bt-list { position: static; }
+}

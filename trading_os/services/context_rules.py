@@ -8,16 +8,29 @@ Hook points used by the rest of the app (signatures are a contract):
   are not live entries.
 * ``status_extras`` is merged into ``/api/risk/status`` by
   ``services.account.daily_status``.
+
+The rules themselves are pure functions in ``services.news``; this module only
+loads the events that can matter for a given moment.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models import AccountSettings
+from ..models import AccountSettings, Market, NewsEvent
+from . import news
 from .guardrails import Violation
+
+
+def events_between(db: Session, start: datetime, end: datetime) -> list[NewsEvent]:
+    """News events released within ``[start, end]``, in chronological order."""
+    stmt = (
+        select(NewsEvent).where(NewsEvent.time >= start, NewsEvent.time <= end).order_by(NewsEvent.time, NewsEvent.id)
+    )
+    return list(db.scalars(stmt))
 
 
 def entry_violations(
@@ -28,11 +41,30 @@ def entry_violations(
     entry_time: datetime,
     now: datetime,
 ) -> list[Violation]:
-    """NEWS_WINDOW / KILL_SWITCH violations for a new trade (stub: none)."""
-    return []
+    """NEWS_WINDOW violations for ``symbol`` at ``entry_time`` plus KILL_SWITCH while a cool-off runs."""
+    violations: list[Violation] = []
+    if settings.news_mode != "off":
+        margin = news.search_margin(settings)
+        events = events_between(db, entry_time - margin, entry_time + margin)
+        if events:
+            market = db.scalar(select(Market).where(Market.symbol == symbol))
+            violations += news.entry_news_violations(
+                events, settings, symbol=symbol, market=market, entry_time=entry_time
+            )
+    if news.cooloff_active(settings, now):
+        violations.append(news.cooloff_violation(settings))
+    return violations
 
 
 def status_extras(db: Session, settings: AccountSettings, now: datetime) -> dict:
-    """Extra status fields: ``reasons`` (list[Violation]), ``cooloff_until``,
-    ``cooloff_reason`` and ``upcoming_news`` (stub: nothing active)."""
-    return {"reasons": [], "cooloff_until": None, "cooloff_reason": "", "upcoming_news": []}
+    """Status fields: ``reasons`` (list[Violation]), ``cooloff_until``, ``cooloff_reason``, ``upcoming_news``."""
+    events = events_between(db, now - news.search_margin(settings), now + news.UPCOMING_HORIZON)
+    active = news.cooloff_active(settings, now)
+    reasons = [news.cooloff_violation(settings)] if active else []
+    reasons += news.active_window_violations(events, settings, now)
+    return {
+        "reasons": reasons,
+        "cooloff_until": settings.cooloff_until if active else None,
+        "cooloff_reason": settings.cooloff_reason if active else "",
+        "upcoming_news": news.upcoming(events, settings, now),
+    }
