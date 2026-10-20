@@ -5,6 +5,7 @@ import { clear, confirmDialog, debounce, field, h, icon, modal, select, toast } 
 import { fmt, pnlClass } from "../format.js";
 import { loadStatus, state } from "../state.js";
 import { violationList } from "./calculator.js";
+import { eventTimeline, managementSummary, stopKindBadge, stopKindOf, targetsLadder } from "./positions.js";
 import { openTradeForm, screenshotGallery } from "./trade-form.js";
 
 const PAGE_SIZE = 50;
@@ -33,6 +34,37 @@ function holdTime(trade) {
   return fmt.duration((new Date(trade.exit_time) - new Date(trade.entry_time)) / 60000);
 }
 
+function pnlSource(trade) {
+  if (trade.pnl === null) return "—";
+  if (trade.managed) return "Position ledger";
+  return trade.pnl_manual ? "Manual" : "Auto from prices";
+}
+
+/** Targets, break-even / trailing settings, ledger figures and the event timeline. */
+function positionSection(trade) {
+  if (trade.status !== "open" && !trade.targets.length && !trade.events.length && !trade.managed) return null;
+  const tracked = trade.managed || trade.events.length > 0;
+  const open = trade.status === "open";
+  const stop = trade.current_stop ?? trade.stop_loss;
+  const remainingRisk = trade.risk_free ? h("span", { class: "badge good pm-badge" }, icon("shield"), "Risk-free") : fmt.money(trade.remaining_risk);
+  return h(
+    "div",
+    {},
+    h("div", { class: "section-title" }, "Position management"),
+    tracked
+      ? h(
+          "div",
+          { class: "detail-grid", style: { marginBottom: "12px" } },
+          detailItem("Realised (gross)", fmt.signedMoney(trade.realized_pnl), pnlClass(trade.realized_pnl)),
+          detailItem("Remaining", trade.position_size === null ? "—" : `${fmt.lots(trade.remaining_size)} / ${fmt.lots(trade.position_size)} lots`),
+          detailItem(open ? "Current stop" : "Final stop", h("span", { class: "row", style: { gap: "6px" } }, fmt.price(stop), stopKindBadge(stopKindOf(trade)))),
+          open ? detailItem("Remaining risk", remainingRisk) : null,
+        )
+      : null,
+    h("div", { class: "stack", style: { gap: "12px" } }, targetsLadder(trade), managementSummary(trade), trade.events.length ? eventTimeline(trade) : null),
+  );
+}
+
 export function openTradeDetail(trade, { onChange } = {}) {
   const [outcomeCls, outcomeText] = OUTCOME_BADGE[trade.outcome] || ["open", "Open"];
   const reopen = (saved) => {
@@ -49,8 +81,12 @@ export function openTradeDetail(trade, { onChange } = {}) {
       h("span", { class: `badge ${trade.direction}` }, trade.direction.toUpperCase()),
       h("span", { class: `badge ${trade.status === "open" ? "open" : outcomeCls}` }, trade.status === "open" ? "Open" : outcomeText),
       trade.rule_compliant === null ? null : h("span", { class: `badge ${trade.rule_compliant ? "good" : "bad"}` }, trade.rule_compliant ? "Followed plan" : "Broke rules"),
+      trade.source === "signal" ? h("span", { class: "badge open pm-badge" }, icon("signal"), "Signal") : null,
       trade.tags.map((tag) => h("span", { class: "badge" }, `#${tag}`)),
     ),
+    trade.signal_text
+      ? h("details", { class: "pm-signal" }, h("summary", {}, "Original signal text"), h("pre", { class: "notes" }, trade.signal_text))
+      : null,
     h(
       "div",
       { class: "detail-grid" },
@@ -61,11 +97,11 @@ export function openTradeDetail(trade, { onChange } = {}) {
       detailItem("Entry", fmt.price(trade.entry_price)),
       detailItem("Stop loss", fmt.price(trade.stop_loss)),
       detailItem("Take profit", fmt.price(trade.take_profit)),
-      detailItem("Exit", fmt.price(trade.exit_price)),
+      detailItem(trade.managed ? "Avg. exit" : "Exit", fmt.price(trade.exit_price)),
       detailItem("Size", trade.position_size === null ? "—" : `${fmt.lots(trade.position_size)} lots`),
       detailItem("Risk", fmt.money(trade.risk_amount)),
       detailItem("Fees", fmt.money(trade.fees)),
-      detailItem("P&L source", trade.pnl === null ? "—" : trade.pnl_manual ? "Manual" : "Auto from prices"),
+      detailItem("P&L source", pnlSource(trade)),
       detailItem("Entry time", fmt.datetime(trade.entry_time)),
       detailItem("Exit time", fmt.datetime(trade.exit_time)),
       detailItem("Holding time", holdTime(trade)),
@@ -74,7 +110,9 @@ export function openTradeDetail(trade, { onChange } = {}) {
       detailItem("Timeframe", trade.timeframe || "—"),
       detailItem("Emotion", trade.emotion || "—"),
     ),
+    positionSection(trade),
     h("div", {}, h("div", { class: "section-title" }, "Confluences"), trade.confluences.length ? h("div", { class: "chips" }, trade.confluences.map((c) => h("span", { class: "chip-toggle on" }, c))) : h("p", { class: "muted small" }, "None recorded.")),
+    trade.mistakes.length ? h("div", {}, h("div", { class: "section-title" }, "Mistakes"), h("div", { class: "pm-mistakes" }, trade.mistakes.map((m) => h("span", { class: "badge warn pm-badge" }, icon("alert"), m)))) : null,
     trade.violations.length ? h("div", {}, h("div", { class: "section-title" }, "Rule violations recorded"), violationList(trade.violations)) : null,
     trade.notes ? h("div", {}, h("div", { class: "section-title" }, "Notes"), h("div", { class: "notes" }, trade.notes)) : null,
     h("div", {}, h("div", { class: "section-title" }, "Screenshots"), screenshotGallery(trade.screenshots)),
@@ -106,7 +144,8 @@ export function openTradeDetail(trade, { onChange } = {}) {
         icon("trash"),
         "Delete",
       ),
-      trade.status === "open"
+      trade.status === "open" ? h("a", { class: "btn", href: "#/positions", onclick: () => ref.close() }, icon("layers"), "Manage") : null,
+      trade.status === "open" && !trade.managed
         ? h("button", { class: "btn", type: "button", onclick: () => (ref.close(), openTradeForm({ trade, closing: true, onSaved: reopen })) }, "Close trade")
         : null,
       h("button", { class: "btn primary", type: "button", onclick: () => (ref.close(), openTradeForm({ trade, onSaved: reopen })) }, icon("edit"), "Edit"),
@@ -200,7 +239,7 @@ export async function render(root, { params }) {
                 "tr",
                 { class: "clickable", tabindex: "0", onclick: () => openTradeDetail(trade, { onChange: load }), onkeydown: (e) => e.key === "Enter" && openTradeDetail(trade, { onChange: load }) },
                 h("td", {}, fmt.date(trade.entry_time), h("span", { class: "muted" }, ` ${fmt.time(trade.entry_time)}`)),
-                h("td", {}, h("strong", {}, trade.symbol)),
+                h("td", {}, h("strong", {}, trade.symbol), trade.source === "signal" ? h("span", { class: "muted pm-src", title: "From a signal" }, " ", icon("signal")) : null),
                 h("td", {}, h("span", { class: `badge ${trade.direction}` }, trade.direction === "long" ? "Long" : "Short")),
                 h("td", {}, trade.strategy || h("span", { class: "muted" }, "—")),
                 h("td", {}, trade.session || h("span", { class: "muted" }, "—")),

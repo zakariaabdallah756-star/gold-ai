@@ -17,6 +17,7 @@ const VERDICT = {
 const CSV_EXAMPLE = "date,symbol,direction,entry,stop,tp,exit,notes\n2026-09-01 09:30,XAUUSD,buy,2650,2645,2665,2665,London open retest\n2026-09-02 14:45,XAUUSD,sell,2672,2677,2657,2677,\n";
 
 let selectedId = null;
+const VISIBLE_ROWS = 25;
 
 const pf = (m) => (m.profit_factor_infinite ? "∞" : m.profit_factor === null ? "—" : fmt.num(m.profit_factor));
 
@@ -197,7 +198,7 @@ function comparisonCard(report) {
   return h(
     "div",
     { class: "card" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Backtest vs live"), h("p", {}, `Live = closed journal trades tagged ${report.strategy.name}`))),
+    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Backtest vs live"), h("p", {}, `Live = closed journal trades with the strategy ${report.strategy.name}`))),
     h(
       "div",
       { class: "table-wrap" },
@@ -344,6 +345,13 @@ export async function render(root, { params }) {
       ),
     );
 
+    // Newest first; long backtests start collapsed to the latest rows.
+    const tbody = h("tbody", {}, tradeRows.slice(0, VISIBLE_ROWS));
+    const showAll =
+      tradeRows.length > VISIBLE_ROWS
+        ? h("button", { class: "btn ghost sm bt-show-all", type: "button", onclick: () => (tbody.append(...tradeRows.slice(VISIBLE_ROWS)), showAll.remove()) }, `Show all ${tradeRows.length} trades`)
+        : null;
+
     clear(
       detail,
       h(
@@ -386,8 +394,9 @@ export async function render(root, { params }) {
                 "table",
                 {},
                 h("thead", {}, h("tr", {}, ["Date", "Symbol", "Side", "Entry", "Stop", "Exit", "Plan R:R", "Result", "Notes", ""].map((c, i) => h("th", { class: i >= 3 && i <= 7 ? "num" : "" }, c)))),
-                h("tbody", {}, tradeRows),
+                tbody,
               ),
+              showAll,
             )
           : h("div", { class: "empty" }, h("strong", {}, "No backtest trades yet"), "Add trades one by one or paste a CSV export from your backtesting tool."),
       ),

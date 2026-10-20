@@ -5,9 +5,11 @@ import { clear, debounce, field, h, icon, lightbox, modal, numberOrNull, segment
 import { fmt, toInputDateTime } from "../format.js";
 import { accountNow, loadStatus, marketBySymbol, state, strategyByName } from "../state.js";
 import { violationList } from "./calculator.js";
+import { copilotPanel, splitCopilot } from "./copilot.js";
 
 const num = (input) => numberOrNull(input);
 const inputValue = (value) => (value === null || value === undefined ? "" : String(value));
+const TRAIL_TRIGGER_LABELS = { tp1: "After TP1", immediate: "Immediately" };
 
 function screenshotTile(shot, onRemove) {
   const media =
@@ -31,15 +33,19 @@ export function screenshotGallery(shots) {
  * Open the trade form.
  * @param {object} options
  * @param {object|null} options.trade  existing trade to edit
- * @param {object} options.prefill      values for a new trade (symbol, direction, entry, sl, tp, size)
- * @param {boolean} options.closing     preset the status to "closed" (close an open trade)
+ * @param {object} options.prefill      values for a new trade (symbol, direction, entry, sl, tp, size, source, signal_text)
+ * @param {boolean} options.closing     preset the status to "closed" (close an unmanaged open trade)
  * @param {Function} options.onSaved    called with the saved trade
  */
 export function openTradeForm({ trade = null, prefill = {}, closing = false, onSaved } = {}) {
   const { plan } = state;
   const isEdit = Boolean(trade);
   const t = trade || {};
+  // A managed trade's exits come from the position ledger (Positions page).
+  const managed = Boolean(t.managed);
   const confluences = new Set(t.confluences || []);
+  const mistakes = new Set(t.mistakes || []);
+  const targets = (t.targets || []).map((tp) => ({ price: tp.price, close_pct: tp.close_pct, hit: tp.hit }));
   let emotion = t.emotion || "";
   let shots = [...(t.screenshots || [])];
   const queued = []; // screenshots added before a new trade is saved
@@ -51,7 +57,7 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       ["open", "Open"],
       ["closed", "Closed"],
     ],
-    closing ? "closed" : t.status || "open",
+    closing && !managed ? "closed" : t.status || "open",
     () => {
       if (status.value === "closed" && !exitTime.value) exitTime.value = toInputDateTime(accountNow());
       showExit();
@@ -83,9 +89,10 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
   const session = select([["", "Auto-detect"], ...sessionNames], t.session || "", { onchange: () => check() });
 
   const numeric = (value, attrs = {}) => h("input", { type: "number", step: "any", inputmode: "decimal", value: inputValue(value), ...attrs });
-  const entry = numeric(t.entry_price ?? prefill.entry, { oninput: () => (resetRisk(), check()) });
-  const stop = numeric(t.stop_loss ?? prefill.sl, { oninput: () => (resetRisk(), check()) });
+  const entry = numeric(t.entry_price ?? prefill.entry, { oninput: () => (resetRisk(), updateTargets(), check()) });
+  const stop = numeric(t.stop_loss ?? prefill.sl, { oninput: () => (resetRisk(), updateTargets(), check()) });
   const target = numeric(t.take_profit ?? prefill.tp, { placeholder: "optional", oninput: () => check() });
+  const targetHelp = h("div", { class: "help" });
   const size = numeric(t.position_size ?? prefill.size, { placeholder: "lots", min: "0", oninput: () => (resetRisk(), check()) });
   const riskAmount = numeric(t.risk_amount, {
     placeholder: "auto",
@@ -114,7 +121,21 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
   const tags = h("input", { value: (t.tags || []).join(", "), placeholder: "a-plus-setup, news, late-entry" });
   const notes = h("textarea", { rows: 4, value: t.notes || "", placeholder: "Why did you take it? What did you see? What would you do differently?" });
 
+  const beEnabled = h("input", { type: "checkbox", checked: isEdit ? t.be_enabled : plan.settings.default_auto_be, onchange: () => syncManagement() });
+  const beOffset = numeric(isEdit && t.be_offset_pips ? t.be_offset_pips : "", { placeholder: "0", min: "0", oninput: () => check() });
+  const trailEnabled = h("input", { type: "checkbox", checked: isEdit ? t.trail_enabled : plan.settings.default_trail_pips > 0, onchange: () => syncManagement() });
+  const trailDistance = numeric(isEdit ? t.trail_distance_pips : plan.settings.default_trail_pips || "", { placeholder: "pips", min: "0", oninput: () => check() });
+  const trailTrigger = select(
+    plan.enums.trail_triggers.map((value) => [value, TRAIL_TRIGGER_LABELS[value] || value]),
+    isEdit ? t.trail_trigger : "tp1",
+    { onchange: () => check() },
+  );
+  const targetRows = h("div", { class: "tf-targets" });
+  const targetSum = h("span", { class: "tf-sum" });
+  const addTargetButton = h("button", { type: "button", class: "btn sm", onclick: () => addTarget() }, icon("plus"), "Add target");
+
   const confluenceBox = h("div", { class: "chips" });
+  const mistakeBox = h("div", { class: "chips" });
   const confluenceHint = h("span", { class: "muted small" });
   const emotionBox = h("div", { class: "chips" });
   const exitSection = h("div");
@@ -176,8 +197,144 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
     );
   }
 
+  function renderMistakes() {
+    const names = plan.mistake_types.filter((m) => m.active).map((m) => m.name);
+    for (const name of mistakes) if (!names.includes(name)) names.push(name);
+    if (!names.length) {
+      clear(mistakeBox, h("span", { class: "muted small" }, "No mistake types yet - add them in the Trading Plan."));
+      return;
+    }
+    clear(
+      mistakeBox,
+      names.map((name) =>
+        h(
+          "button",
+          {
+            type: "button",
+            class: `chip-toggle${mistakes.has(name) ? " on" : ""}`,
+            "aria-pressed": String(mistakes.has(name)),
+            onclick: () => {
+              if (mistakes.has(name)) mistakes.delete(name);
+              else mistakes.add(name);
+              renderMistakes();
+            },
+          },
+          name,
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------- targets & management
+  let targetInfo = []; // per-row R:R cells, refreshed without re-rendering the inputs
+
+  /** Reset close % to the default split for the row count (hit targets keep theirs). */
+  function applySplit() {
+    if (targets.some((tp) => tp.hit)) return;
+    const split = plan.enums.tp_splits[String(targets.length)] || [];
+    targets.forEach((tp, index) => (tp.close_pct = split[index] ?? null));
+  }
+
+  function addTarget() {
+    if (targets.length >= plan.enums.max_targets) return;
+    targets.push({ price: targets.length ? null : num(target), close_pct: null, hit: false });
+    applySplit();
+    renderTargets();
+    check();
+  }
+
+  function removeTarget(index) {
+    targets.splice(index, 1);
+    applySplit();
+    renderTargets();
+    check();
+  }
+
+  function renderTargets() {
+    const head = targets.length
+      ? h("div", { class: "tf-tp-row head" }, h("span", {}, ""), h("span", {}, "Price"), h("span", {}, "Close %"), h("span", { class: "tf-tp-rr" }, "R:R"), h("span", {}, ""))
+      : null;
+    targetInfo = [];
+    const rows = targets.map((tp, index) => {
+      const rr = h("span", { class: "tf-tp-rr" });
+      targetInfo.push(rr);
+      const price = numeric(tp.price, {
+        placeholder: "price",
+        disabled: tp.hit,
+        "aria-label": `TP${index + 1} price`,
+        oninput: (e) => {
+          tp.price = numberOrNull(e.target);
+          updateTargets();
+          check();
+        },
+      });
+      const pct = numeric(tp.close_pct, {
+        min: "0",
+        max: "100",
+        disabled: tp.hit,
+        "aria-label": `TP${index + 1} close percent`,
+        oninput: (e) => {
+          tp.close_pct = numberOrNull(e.target);
+          updateTargets();
+          check();
+        },
+      });
+      return h(
+        "div",
+        { class: "tf-tp-row" },
+        h("span", { class: "tf-tp-label" }, `TP${index + 1}`, tp.hit ? icon("check") : null),
+        price,
+        h("div", { class: "tf-pct" }, pct, h("span", {}, "%")),
+        rr,
+        tp.hit
+          ? h("span", { class: "badge good", title: "Hit targets are locked" }, "Hit")
+          : h("button", { type: "button", class: "btn sm icon-only ghost", "aria-label": `Remove TP${index + 1}`, onclick: () => removeTarget(index) }, icon("trash")),
+      );
+    });
+    clear(targetRows, head, rows);
+    addTargetButton.disabled = targets.length >= plan.enums.max_targets;
+    updateTargets();
+  }
+
+  /** Refresh R:R per row, the close % total and the mirrored take profit. */
+  function updateTargets() {
+    const entryPrice = num(entry);
+    const stopPrice = num(stop);
+    const risk = entryPrice !== null && stopPrice !== null ? Math.abs(entryPrice - stopPrice) : 0;
+    targets.forEach((tp, index) => {
+      targetInfo[index].textContent = risk && tp.price !== null ? fmt.rr(Math.abs(tp.price - entryPrice) / risk) : "—";
+    });
+
+    if (targets.length) {
+      const total = targets.reduce((sum, tp) => sum + (tp.close_pct || 0), 0);
+      const ok = Math.abs(total - 100) <= 0.5;
+      targetSum.className = `tf-sum ${ok ? "ok" : "warn"}`;
+      clear(targetSum, icon(ok ? "check" : "alert"), ok ? "Total 100%" : `Total ${fmt.num(total, 0)}% - must add up to 100%`);
+      const last = targets.at(-1).price;
+      target.readOnly = true;
+      target.value = inputValue(last);
+      targetHelp.textContent = `Mirrors TP${targets.length} (the last target)`;
+    } else {
+      clear(targetSum);
+      target.readOnly = false;
+      targetHelp.textContent = "Or split it into several targets below";
+    }
+  }
+
+  function targetProblem() {
+    const missing = targets.findIndex((tp) => tp.price === null || tp.close_pct === null);
+    return missing === -1 ? null : `Enter a price and close % for TP${missing + 1}, or remove it.`;
+  }
+
+  function syncManagement() {
+    beOffset.disabled = !beEnabled.checked;
+    trailDistance.disabled = !trailEnabled.checked;
+    trailTrigger.disabled = !trailEnabled.checked;
+    check();
+  }
+
   function showExit() {
-    exitSection.style.display = status.value === "closed" ? "" : "none";
+    exitSection.style.display = managed || status.value === "closed" ? "" : "none";
     saveButton.textContent = isEdit ? "Save changes" : status.value === "open" ? "Open trade" : "Log trade";
   }
 
@@ -287,17 +444,18 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
     return {
       status: status.value,
       entry_time: entryTime.value,
-      exit_time: closed && exitTime.value ? exitTime.value : null,
+      // A managed trade keeps its stored exit (the server derives it from the ledger).
+      exit_time: managed ? t.exit_time : closed && exitTime.value ? exitTime.value : null,
       symbol: symbol.value.trim().toUpperCase(),
       direction: direction.value,
       entry_price: num(entry),
       stop_loss: num(stop),
       take_profit: num(target),
-      exit_price: closed ? num(exitPrice) : null,
+      exit_price: managed ? t.exit_price : closed ? num(exitPrice) : null,
       position_size: num(size),
       risk_amount: num(riskAmount),
       fees: num(fees) ?? 0,
-      pnl: closed ? num(pnl) : null,
+      pnl: closed && !managed ? num(pnl) : null,
       strategy: strategy.value,
       timeframe: timeframe.value,
       session: session.value,
@@ -305,8 +463,28 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       emotion,
       rule_compliant: compliance.value === "auto" ? null : compliance.value === "yes",
       tags: tags.value.split(",").map((s) => s.trim()).filter(Boolean),
+      mistakes: [...mistakes],
       notes: notes.value,
+      source: isEdit ? t.source : prefill.source || "manual",
+      signal_text: isEdit ? t.signal_text : prefill.signal_text || "",
+      targets: targets.map((tp) => ({ price: tp.price, close_pct: tp.close_pct })),
+      be_enabled: beEnabled.checked,
+      be_offset_pips: num(beOffset) ?? 0,
+      trail_enabled: trailEnabled.checked,
+      trail_distance_pips: num(trailDistance) || null,
+      trail_trigger: trailTrigger.value,
     };
+  }
+
+  /** Strategy Co-Pilot first, then the remaining guardrail findings. */
+  function guardrailFindings(violations, okText) {
+    const { copilot, other } = splitCopilot(violations);
+    return h(
+      "div",
+      { class: "tf-guard" },
+      copilotPanel(violations, strategy.value),
+      violationList(other, { okText: okText && (copilot.length ? "All other guardrails pass." : okText) }),
+    );
   }
 
   function metric(label, value, cls = "") {
@@ -322,6 +500,11 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       return;
     }
     const id = ++checkId;
+    const problem = targetProblem();
+    if (problem) {
+      clear(checkPanel, h("div", { class: "violation warn" }, icon("alert"), h("div", {}, problem)));
+      return;
+    }
     try {
       const r = await api.post(`/api/trades/check${isEdit ? `?trade_id=${t.id}` : ""}`, { ...data, status: data.status === "closed" && data.exit_price === null ? "open" : data.status });
       if (id !== checkId) return;
@@ -335,7 +518,7 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       clear(
         checkPanel,
         r.blocked ? h("p", { class: "small neg", style: { marginBottom: "8px" } }, "This entry is blocked by your risk rules.") : null,
-        violationList(r.violations, { okText: "All guardrails pass." }),
+        guardrailFindings(r.violations, "All guardrails pass."),
       );
     } catch (error) {
       if (id !== checkId) return;
@@ -347,6 +530,11 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
   const saveButton = h("button", { class: "btn primary", type: "button", onclick: save });
 
   async function save() {
+    const problem = targetProblem();
+    if (problem) {
+      toast(problem, "warn");
+      return;
+    }
     saveButton.disabled = true;
     try {
       const data = payload();
@@ -369,7 +557,7 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       onSaved?.(saved);
     } catch (error) {
       if (error instanceof ApiError && error.status === 423) {
-        clear(checkPanel, h("p", { class: "small neg", style: { marginBottom: "8px" } }, "Entry refused - fix these first:"), violationList(error.payload.violations));
+        clear(checkPanel, h("p", { class: "small neg", style: { marginBottom: "8px" } }, "Entry refused - fix these first:"), guardrailFindings(error.payload.violations || []));
         checkPanel.scrollIntoView({ behavior: "smooth", block: "center" });
         toast("Trade blocked by your risk rules", "error");
       } else {
@@ -381,24 +569,77 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
   }
 
   // ----------------------------------------------------------------- layout
-  clear(
-    exitSection,
-    h("div", { class: "section-title" }, "Exit"),
+  const feesField = field(`Fees / swap (${plan.settings.currency})`, fees, { help: "Costs, deducted from P&L" });
+  if (managed) {
+    clear(
+      exitSection,
+      h("div", { class: "section-title" }, "Exit"),
+      h(
+        "div",
+        { class: "tf-managed-note" },
+        icon("layers"),
+        h(
+          "div",
+          {},
+          h("strong", {}, "Exits are recorded by the position manager - see "),
+          h("a", { href: "#/positions", onclick: () => ref.close() }, "Positions"),
+          h("p", { class: "muted small" }, "Target fills, partial closes and stop-outs come from the position's event ledger; status, exit price and P&L are derived from it."),
+        ),
+      ),
+      h("div", { class: "form-grid" }, feesField),
+    );
+  } else {
+    clear(
+      exitSection,
+      h("div", { class: "section-title" }, "Exit"),
+      h(
+        "div",
+        { class: "form-grid" },
+        field("Exit price", exitPrice),
+        field("Exit time", exitTime),
+        feesField,
+        field(`Net P&L (${plan.settings.currency})`, pnl, { help: "Leave blank to calculate from prices" }),
+      ),
+    );
+  }
+
+  const managementSection = [
+    h("div", { class: "section-title row" }, "Targets & management", h("span", { class: "spacer" }), targetSum),
+    targetRows,
     h(
       "div",
-      { class: "form-grid" },
-      field("Exit price", exitPrice),
-      field("Exit time", exitTime),
-      field(`Fees / swap (${plan.settings.currency})`, fees, { help: "Costs, deducted from P&L" }),
-      field(`Net P&L (${plan.settings.currency})`, pnl, { help: "Leave blank to calculate from prices" }),
+      { class: "tf-targets-foot", style: { marginTop: "8px" } },
+      addTargetButton,
+      h("span", { class: "muted small" }, `Up to ${plan.enums.max_targets} targets. Close % is the share of the original size closed at each target.`),
     ),
-  );
+    h(
+      "div",
+      { class: "tf-manage" },
+      h(
+        "div",
+        { class: "tf-toggle" },
+        h("label", { class: "check" }, beEnabled, "Move stop to break-even at TP1"),
+        h("div", { class: "tf-toggle-fields" }, field("Offset (pips)", beOffset, { help: "Lock in pips beyond entry" })),
+      ),
+      h(
+        "div",
+        { class: "tf-toggle" },
+        h("label", { class: "check" }, trailEnabled, "Trailing stop"),
+        h("div", { class: "tf-toggle-fields" }, field("Distance (pips)", trailDistance), field("Starts", trailTrigger)),
+      ),
+    ),
+  ];
 
   const body = h(
     "div",
     {},
     symbolList,
-    h("div", { class: "row", style: { justifyContent: "space-between", marginBottom: "14px" } }, status.el, direction.el),
+    h(
+      "div",
+      { class: "row", style: { justifyContent: "space-between", marginBottom: "14px" } },
+      managed ? h("span", { class: "badge open pm-badge" }, icon("layers"), `Managed position · ${t.status === "open" ? "open" : "closed"}`) : status.el,
+      direction.el,
+    ),
     h("div", { class: "section-title" }, "Setup"),
     h(
       "div",
@@ -415,17 +656,25 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       { class: "form-grid" },
       field("Entry price", entry),
       field("Stop loss (initial)", stop),
-      field("Take profit", target),
+      h("div", { class: "field" }, h("label", {}, "Take profit"), target, targetHelp),
       field("Position size (lots)", h("div", { class: "row", style: { flexWrap: "nowrap", gap: "6px" } }, size, sizeButton)),
       field(`Risk amount (${plan.settings.currency})`, riskAmount, { help: "Auto from size & market" }),
     ),
+    managementSection,
     live,
     checkPanel,
     exitSection,
     h("div", { class: "section-title row" }, "Confluences", h("span", { class: "spacer" }), confluenceHint),
     confluenceBox,
     h("div", { class: "section-title" }, "Psychology"),
-    h("div", { class: "stack", style: { gap: "12px" } }, field("Emotional state", emotionBox), field("Rule compliance", compliance.el, { help: "Auto = followed plan if no guardrail was violated" }), field("Tags (comma separated)", tags)),
+    h(
+      "div",
+      { class: "stack", style: { gap: "12px" } },
+      field("Emotional state", emotionBox),
+      field("Mistakes", mistakeBox, { help: "Execution or psychology mistakes on this trade" }),
+      field("Rule compliance", compliance.el, { help: "Auto = followed plan if no guardrail was violated" }),
+      field("Tags (comma separated)", tags),
+    ),
     h("div", { class: "section-title" }, "Notes & screenshots"),
     notes,
     h("div", { style: { marginTop: "12px" } }, shotsBox),
@@ -448,7 +697,9 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
 
   renderConfluences();
   renderEmotions();
+  renderMistakes();
+  renderTargets();
   renderShots();
   showExit();
-  check();
+  syncManagement();
 }
