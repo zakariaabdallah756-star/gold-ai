@@ -23,7 +23,8 @@ def create_db_engine(db_path: Path) -> Engine:
     """Create an engine for ``db_path`` with foreign keys enforced."""
     engine = create_engine(
         f"sqlite:///{db_path}",
-        connect_args={"check_same_thread": False},
+        # The background scheduler writes from its own thread: wait for a busy database instead of failing.
+        connect_args={"check_same_thread": False, "timeout": 15},
     )
 
     @event.listens_for(engine, "connect")
