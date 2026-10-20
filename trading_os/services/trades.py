@@ -20,6 +20,7 @@ from .guardrails import (
     is_blocking,
     trade_rule_violations,
 )
+from .position_engine import outcome_for
 from .sessions import classify_session, in_trading_window
 from .sizing import blended_rr, conversion_hint, executed_rr, gross_pnl, planned_rr, risk_for_lots
 
@@ -72,15 +73,6 @@ def normalize_time(value: datetime | None, tz_name: str) -> datetime | None:
     if value.tzinfo is not None:
         value = value.astimezone(ZoneInfo(tz_name)).replace(tzinfo=None)
     return value.replace(microsecond=0)
-
-
-def outcome_for(pnl: float) -> str:
-    rounded = round(pnl, 2)
-    if rounded > 0:
-        return "win"
-    if rounded < 0:
-        return "loss"
-    return "breakeven"
 
 
 def evaluate(
@@ -158,15 +150,18 @@ def evaluate(
 
 
 def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSettings) -> None:
-    trade.status = data.status
+    # A managed trade (with fills) derives status, exit and P&L from its ledger.
+    managed = positions.has_fills(trade)
+    if not managed:
+        trade.status = data.status
+        trade.exit_time = ev.exit_time if data.status == "closed" else None
+        trade.exit_price = data.exit_price if data.status == "closed" else None
     trade.entry_time = ev.entry_time
-    trade.exit_time = ev.exit_time if data.status == "closed" else None
     trade.symbol = data.symbol
     trade.direction = data.direction
     trade.entry_price = data.entry_price
     trade.stop_loss = data.stop_loss
     trade.take_profit = data.take_profit
-    trade.exit_price = data.exit_price if data.status == "closed" else None
     trade.position_size = data.position_size
     trade.risk_amount = ev.risk_amount
     trade.fees = data.fees
@@ -194,10 +189,13 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
         else not any(v.code not in NON_COMPLIANCE_EXEMPT for v in ev.violations)
     )
 
+    if managed:
+        _recompute(trade, ev.market, settings)
+        return
     if data.status != "closed":
         trade.pnl = trade.executed_rr = trade.r_multiple = trade.outcome = None
         trade.pnl_manual = False
-        positions.recompute(trade, ev.market, settings)
+        _recompute(trade, ev.market, settings)
         return
 
     if data.pnl is not None:
@@ -221,7 +219,14 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
     r_multiple = trade.pnl / ev.risk_amount if ev.risk_amount else rr
     trade.r_multiple = round(r_multiple, 4) if r_multiple is not None else None
     trade.outcome = outcome_for(trade.pnl)
-    positions.recompute(trade, ev.market, settings)
+    _recompute(trade, ev.market, settings)
+
+
+def _recompute(trade: Trade, market: Market | None, settings: AccountSettings) -> None:
+    try:
+        positions.recompute(trade, market, settings)
+    except positions.PositionError as exc:
+        raise TradeError(str(exc)) from exc
 
 
 def _sync_targets(trade: Trade, data: TradeIn) -> None:
@@ -245,7 +250,21 @@ def create_trade(db: Session, settings: AccountSettings, data: TradeIn) -> tuple
 
 
 def update_trade(db: Session, settings: AccountSettings, trade: Trade, data: TradeIn) -> tuple[Trade, list[Violation]]:
+    """Save edits. Never blocked; a managed trade ignores status/exit/P&L from ``data``."""
     ev = evaluate(db, settings, data, existing=trade)
+    try:
+        positions.validate_edit(
+            trade,
+            ev.market,
+            settings,
+            entry_time=ev.entry_time,
+            symbol=data.symbol,
+            direction=data.direction,
+            entry_price=data.entry_price,
+            position_size=data.position_size,
+        )
+    except positions.PositionError as exc:
+        raise TradeError(str(exc)) from exc
     _apply(trade, data, ev, settings)
     db.commit()
     return get_trade(db, trade.id), ev.violations

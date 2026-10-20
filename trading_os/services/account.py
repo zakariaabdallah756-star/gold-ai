@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from ..models import AccountSettings, Trade
+from ..models import AccountSettings, Trade, TradeEvent
 from . import checklist
 from .guardrails import DayState, daily_state, daily_violations
 
@@ -39,13 +39,37 @@ def day_bounds(day: date) -> tuple[datetime, datetime]:
 
 
 def realized_pnl(db: Session, *, before: datetime | None = None, since: datetime | None = None) -> float:
-    """Sum of net P&L of closed trades, optionally within a close-time range."""
-    stmt = select(func.coalesce(func.sum(Trade.pnl), 0.0)).where(Trade.status == "closed")
-    if before is not None:
-        stmt = stmt.where(CLOSE_TIME < before)
-    if since is not None:
-        stmt = stmt.where(CLOSE_TIME >= since)
-    return float(db.scalar(stmt) or 0.0)
+    """Net realised P&L, attributed to the moment it was realised, within ``[since, before)``.
+
+    Follows the position ledger: closed *unmanaged* trades count their net P&L
+    at their close time; *managed* trades (open or closed) count each fill's
+    P&L at the fill time - so partial profits hit equity and the daily loss
+    limit immediately - and their fees when the trade closes.
+    """
+
+    def window(stmt, column):
+        if before is not None:
+            stmt = stmt.where(column < before)
+        if since is not None:
+            stmt = stmt.where(column >= since)
+        return stmt
+
+    legacy = window(
+        select(func.coalesce(func.sum(Trade.pnl), 0.0)).where(Trade.status == "closed", Trade.managed.is_(False)),
+        CLOSE_TIME,
+    )
+    fills = window(
+        select(func.coalesce(func.sum(TradeEvent.pnl), 0.0))
+        .join(Trade, TradeEvent.trade_id == Trade.id)
+        .where(Trade.managed.is_(True), TradeEvent.lots > 0),
+        TradeEvent.time,
+    )
+    fees = window(
+        select(func.coalesce(func.sum(Trade.fees), 0.0)).where(Trade.status == "closed", Trade.managed.is_(True)),
+        CLOSE_TIME,
+    )
+    total = db.scalar(select(legacy.scalar_subquery() + fills.scalar_subquery() - fees.scalar_subquery()))
+    return round(float(total or 0.0), 2)
 
 
 def equity_at(db: Session, settings: AccountSettings, when: datetime) -> float:
@@ -61,8 +85,11 @@ def compute_day_state(db: Session, settings: AccountSettings, today: date | None
     start, end = day_bounds(today)
     start_equity = equity_at(db, settings, start)
 
+    # Money at risk on open positions: what the remainders lose at their current stops
+    # (``risk_amount`` for rows that predate position management).
+    risk = func.coalesce(Trade.remaining_risk, Trade.risk_amount, 0.0)
     open_risk, open_trades = db.execute(
-        select(func.coalesce(func.sum(Trade.risk_amount), 0.0), func.count(Trade.id)).where(Trade.status == "open")
+        select(func.coalesce(func.sum(risk), 0.0), func.count(Trade.id)).where(Trade.status == "open")
     ).one()
     trades_today = db.scalar(select(func.count(Trade.id)).where(Trade.entry_time >= start, Trade.entry_time < end))
 
