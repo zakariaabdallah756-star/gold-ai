@@ -4,6 +4,8 @@ import struct
 import zipfile
 import zlib
 
+from trading_os.services.backup import SCHEMA_VERSION
+
 from .conftest import complete_checklist, trade_payload, update_settings, yesterday_iso
 
 
@@ -284,7 +286,7 @@ def test_export_and_restore_roundtrip(client):
     assert "'=SUM(A1)" in csv_text  # formula injection neutralised
 
     backup_json = client.get("/api/export/backup.json").json()
-    assert backup_json["schema_version"] == 2
+    assert backup_json["schema_version"] == SCHEMA_VERSION
     assert len(backup_json["tables"]["trades"]) == 1
 
     archive = zipfile.ZipFile(io.BytesIO(client.get("/api/export/backup.zip").content))
@@ -331,3 +333,24 @@ def test_v1_backup_still_restores(client):
     assert restored.status_code == 200, restored.text
     trade = client.get("/api/trades").json()["items"][0]
     assert trade["mistakes"] == [] and trade["source"] == "manual" and trade["realized_pnl"] == 0
+
+
+def test_ai_key_is_never_exported_and_survives_restore(client):
+    db = client.app.state.session_factory()
+    try:
+        from trading_os.models import AccountSettings
+
+        db.get(AccountSettings, 1).ai_api_key = "sk-ant-secret"
+        db.commit()
+    finally:
+        db.close()
+    exported = client.get("/api/export/backup.json")
+    assert "sk-ant-secret" not in exported.text and "ai_api_key" not in exported.text
+    assert (
+        client.post("/api/import", files={"file": ("b.json", exported.content, "application/json")}).status_code == 200
+    )
+    db = client.app.state.session_factory()
+    try:
+        assert db.get(AccountSettings, 1).ai_api_key == "sk-ant-secret"
+    finally:
+        db.close()

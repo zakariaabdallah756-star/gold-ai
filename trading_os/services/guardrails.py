@@ -29,6 +29,11 @@ DAILY_CODES = frozenset(
         "DAILY_RISK_BUDGET",
         "NEWS_WINDOW",
         "KILL_SWITCH",
+        "PROP_DAILY_LOSS",
+        "PROP_MAX_DRAWDOWN",
+        "PROP_RISK_BUDGET",
+        "PROP_TARGET_REACHED",
+        "PROP_CHALLENGE_ENDED",
     }
 )
 EPSILON = 1e-9

@@ -5,6 +5,10 @@ import { setCurrency } from "./format.js";
 
 const listeners = new Set();
 
+// One-shot hand-offs between pages (e.g. Vision AI -> Signals). The receiving
+// view reads and clears its key on render.
+export const handoff = { signalText: null };
+
 export const state = {
   plan: null,
   status: null,

@@ -15,6 +15,7 @@ from .models import (
     Strategy,
     TradingSession,
 )
+from .services.partners import seed_partners
 
 DEFAULT_MARKETS = [
     # symbol, name, class, base, quote, contract, pip size, min lot, step, max lot
@@ -135,4 +136,5 @@ def seed_defaults(session: Session) -> None:
         for name, description in DEFAULT_MISTAKES:
             session.add(MistakeType(name=name, description=description))
 
+    seed_partners(session)
     session.commit()

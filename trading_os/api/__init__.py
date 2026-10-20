@@ -1,6 +1,21 @@
 """REST API routers."""
 
-from . import analytics, backup, checklist, news, positions, reviews, risk, signals, trades
+from . import (
+    analytics,
+    backtest,
+    backup,
+    checklist,
+    news,
+    partners,
+    positions,
+    prop,
+    reports,
+    reviews,
+    risk,
+    signals,
+    trades,
+    vision,
+)
 from .plan import plan_routers
 
 routers = [
@@ -13,5 +28,10 @@ routers = [
     news.router,
     reviews.router,
     analytics.router,
+    vision.router,
+    backtest.router,
+    prop.router,
+    partners.router,
+    reports.router,
     backup.router,
 ]

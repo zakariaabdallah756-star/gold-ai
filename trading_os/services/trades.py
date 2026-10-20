@@ -9,10 +9,11 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Select, String, cast, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models import AccountSettings, Market, Strategy, Trade, TradeTarget, TradingSession
+from ..models import AccountSettings, ChecklistDay, Market, Strategy, Trade, TradeTarget, TradingSession
 from ..schemas import TradeIn
-from . import context_rules, positions, uploads
+from . import context_rules, positions, prop_rules, uploads
 from .account import CLOSE_TIME, compute_day_state, equity_at, local_now, local_today
+from .copilot import TradeContext, strategy_violations
 from .guardrails import (
     DAILY_CODES,
     Violation,
@@ -119,12 +120,30 @@ def evaluate(
         strategy_min_confluences=strategy.min_confluences if strategy else 0,
         in_trading_window=in_trading_window(entry_time, tz, windows),
     )
+    # Strategy Co-Pilot: every parameter of the chosen strategy must be met.
+    checklist_day = db.get(ChecklistDay, entry_time.date())
+    violations += strategy_violations(
+        settings,
+        strategy,
+        TradeContext(
+            direction=data.direction,
+            session=session_name,
+            timeframe=data.timeframe,
+            confluences=list(data.confluences),
+            planned_rr=rr,
+            bias=checklist_day.bias if checklist_day else "",
+        ),
+    )
 
     today = local_today(settings)
     if existing is None:
         if entry_time.date() >= today:
             day = compute_day_state(db, settings, today)
             violations += daily_violations(settings, day, risk_amount)
+            # Prop-firm challenge rules ("prop mode", services.prop_rules).
+            violations += prop_rules.entry_violations(
+                db, settings, risk_amount=risk_amount, entry_time=entry_time, now=local_now(settings)
+            )
         # Economic-calendar window and kill switch (services.context_rules).
         violations += context_rules.entry_violations(
             db, settings, symbol=data.symbol, entry_time=entry_time, now=local_now(settings)

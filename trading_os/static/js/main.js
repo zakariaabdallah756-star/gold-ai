@@ -2,29 +2,38 @@
 
 import { clear, h, icon } from "./dom.js";
 import { fmt, pnlClass } from "./format.js";
+import { mountDisclaimer } from "./disclaimer.js";
 import { loadPlan, loadStatus, onStatus, state } from "./state.js";
 import * as backup from "./views/backup.js";
 import * as calculator from "./views/calculator.js";
 import * as checklist from "./views/checklist.js";
 import * as dashboard from "./views/dashboard.js";
+import * as incubator from "./views/incubator.js";
 import * as journal from "./views/journal.js";
+import * as partners from "./views/partners.js";
 import * as plan from "./views/plan.js";
 import * as positions from "./views/positions.js";
+import * as prop from "./views/prop.js";
 import * as review from "./views/review.js";
 import * as signals from "./views/signals.js";
 import * as timeCalendar from "./views/calendar.js";
+import * as vision from "./views/vision.js";
 
 const ROUTES = [
-  { path: "dashboard", label: "Dashboard", icon: "dashboard", view: dashboard },
-  { path: "premarket", label: "Pre-Market", icon: "checklist", view: checklist },
-  { path: "signals", label: "Signals", icon: "signal", view: signals },
-  { path: "calculator", label: "Risk Calculator", icon: "calculator", view: calculator },
-  { path: "positions", label: "Positions", icon: "layers", view: positions },
-  { path: "journal", label: "Journal", icon: "journal", view: journal },
-  { path: "calendar", label: "Calendar", icon: "calendar", view: timeCalendar },
-  { path: "review", label: "Review", icon: "review", view: review },
-  { path: "plan", label: "Trading Plan", icon: "plan", view: plan },
-  { path: "backup", label: "Backup & Export", icon: "backup", view: backup },
+  { path: "dashboard", label: "Dashboard", icon: "dashboard", view: dashboard, group: "Trade" },
+  { path: "premarket", label: "Pre-Market", icon: "checklist", view: checklist, group: "Trade" },
+  { path: "signals", label: "Signals", icon: "signal", view: signals, group: "Trade" },
+  { path: "vision", label: "Vision AI", icon: "brain", view: vision, group: "Trade" },
+  { path: "calculator", label: "Risk Calculator", icon: "calculator", view: calculator, group: "Trade" },
+  { path: "positions", label: "Positions", icon: "layers", view: positions, group: "Trade" },
+  { path: "journal", label: "Journal", icon: "journal", view: journal, group: "Trade" },
+  { path: "calendar", label: "Calendar", icon: "calendar", view: timeCalendar, group: "Improve" },
+  { path: "review", label: "Review", icon: "review", view: review, group: "Improve" },
+  { path: "incubator", label: "Incubator", icon: "flame", view: incubator, group: "Improve" },
+  { path: "prop", label: "Prop Firm", icon: "shield", view: prop, group: "Improve" },
+  { path: "plan", label: "Trading Plan", icon: "plan", view: plan, group: "Setup" },
+  { path: "partners", label: "Partners", icon: "star", view: partners, group: "Setup" },
+  { path: "backup", label: "Backup & Export", icon: "backup", view: backup, group: "Setup" },
 ];
 
 const STATE_CHIPS = {
@@ -42,7 +51,10 @@ function buildNav() {
   const nav = document.getElementById("nav");
   clear(
     nav,
-    ROUTES.map((route) => h("a", { href: `#/${route.path}`, dataset: { path: route.path } }, icon(route.icon), h("span", {}, route.label))),
+    ROUTES.map((route, index) => [
+      index === 0 || ROUTES[index - 1].group !== route.group ? h("div", { class: "nav-group" }, route.group) : null,
+      h("a", { href: `#/${route.path}`, dataset: { path: route.path } }, icon(route.icon), h("span", {}, route.label)),
+    ]),
   );
 }
 
@@ -161,6 +173,7 @@ async function boot() {
   }
   onStatus(renderStatus);
   renderStatus(state.status);
+  await mountDisclaimer();
   window.addEventListener("hashchange", route);
   route();
   setInterval(() => loadStatus().catch(() => {}), 60_000);

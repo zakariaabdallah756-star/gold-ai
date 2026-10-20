@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from .models import Base
 
 # Bump when the models change; ``migrate`` brings older files up to date.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def create_db_engine(db_path: Path) -> Engine:

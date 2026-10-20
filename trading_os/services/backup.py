@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from .. import __version__
 from ..models import (
     AccountSettings,
+    BacktestTrade,
     ChecklistDay,
     ChecklistItem,
     Confluence,
@@ -30,18 +31,24 @@ from ..models import (
     Market,
     MistakeType,
     NewsEvent,
+    Partner,
+    PropChallenge,
     Screenshot,
     Strategy,
     Trade,
     TradeEvent,
     TradeTarget,
     TradingSession,
+    VisionAnalysis,
+    VisionMessage,
 )
 from . import uploads
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 # Older backups restore fine: missing tables/columns fall back to defaults.
-SUPPORTED_SCHEMA_VERSIONS = (1, 2)
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3)
+# Secrets that stay on this machine: never exported, kept as-is on restore.
+PRIVATE_COLUMNS = {"account_settings": ("ai_api_key",)}
 BACKUP_JSON_NAME = "backup.json"
 
 # Insert order respects foreign keys; deletion runs in reverse.
@@ -56,10 +63,15 @@ MODELS = (
     MistakeType,
     NewsEvent,
     DailyReview,
+    Partner,
+    PropChallenge,
+    BacktestTrade,
     Trade,
     TradeTarget,
     TradeEvent,
     Screenshot,
+    VisionAnalysis,
+    VisionMessage,
 )
 
 CSV_COLUMNS = (
@@ -108,7 +120,12 @@ def _jsonable(value):
 
 
 def _row(obj) -> dict:
-    return {column.key: _jsonable(getattr(obj, column.key)) for column in obj.__mapper__.columns}
+    private = PRIVATE_COLUMNS.get(obj.__tablename__, ())
+    return {
+        column.key: _jsonable(getattr(obj, column.key))
+        for column in obj.__mapper__.columns
+        if column.key not in private
+    }
 
 
 def export_data(db: Session) -> dict:
@@ -168,8 +185,9 @@ def export_zip_bytes(db: Session, uploads_dir: Path) -> bytes:
 
 def _coerce(model, row: dict) -> dict:
     values = {}
+    private = PRIVATE_COLUMNS.get(model.__tablename__, ())
     for column in model.__mapper__.columns:
-        if column.key not in row:
+        if column.key not in row or column.key in private:
             continue
         value = row[column.key]
         if value is not None and isinstance(column.type, DateTime):
@@ -191,6 +209,8 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
         raise BackupError("Backup file has no tables")
 
     counts: dict[str, int] = {}
+    current = db.get(AccountSettings, 1)
+    kept_secrets = {key: getattr(current, key) for key in PRIVATE_COLUMNS["account_settings"]} if current else {}
     try:
         for model in reversed(MODELS):
             db.execute(delete(model))
@@ -202,8 +222,12 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
                 db.add(model(**_coerce(model, row)))
             db.flush()
             counts[model.__tablename__] = len(rows)
-        if db.get(AccountSettings, 1) is None:
-            db.add(AccountSettings(id=1))
+        settings = db.get(AccountSettings, 1)
+        if settings is None:
+            settings = AccountSettings(id=1)
+            db.add(settings)
+        for key, value in kept_secrets.items():
+            setattr(settings, key, value)
         db.commit()
     except BackupError:
         db.rollback()

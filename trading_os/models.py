@@ -82,6 +82,16 @@ class AccountSettings(TimestampMixin, Base):
     default_auto_be: Mapped[bool] = mapped_column(Boolean, default=True)
     default_trail_pips: Mapped[float] = mapped_column(Float, default=0.0)  # 0 = no trailing
 
+    # Risk disclaimer acceptance (first-launch agreement)
+    disclaimer_accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    disclaimer_version: Mapped[str] = mapped_column(String(20), default="")
+
+    # AI assistant (Vision AI). The key never leaves this machine and is not exported in backups;
+    # ANTHROPIC_API_KEY (or an ``ant auth login`` profile) is used when it is empty.
+    ai_model: Mapped[str] = mapped_column(String(40), default="claude-opus-5-5")
+    ai_effort: Mapped[str] = mapped_column(String(8), default="high")  # low | medium | high | xhigh | max
+    ai_api_key: Mapped[str] = mapped_column(String(200), default="")
+
 
 class Market(TimestampMixin, Base):
     """A tradable instrument and the contract specification used for sizing."""
@@ -125,6 +135,19 @@ class Strategy(TimestampMixin, Base):
     rules: Mapped[str] = mapped_column(Text, default="")
     min_confluences: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # live | incubator (in test - backtest before trading it live) | retired
+    status: Mapped[str] = mapped_column(String(10), default="live")
+
+    # Strategy Co-Pilot parameters (services.copilot); empty lists mean "any".
+    required_confluences: Mapped[list[str]] = mapped_column(JSON, default=list)
+    allowed_sessions: Mapped[list[str]] = mapped_column(JSON, default=list)
+    allowed_timeframes: Mapped[list[str]] = mapped_column(JSON, default=list)
+    allowed_directions: Mapped[str] = mapped_column(String(5), default="both")  # both | long | short
+    min_rr: Mapped[float | None] = mapped_column(Float, nullable=True)  # stricter than the account minimum
+    require_bias_alignment: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    # Backtests: money per 1R used to express R-multiples in currency (None = account default risk).
+    backtest_risk_per_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class Confluence(TimestampMixin, Base):
@@ -362,3 +385,110 @@ class MistakeType(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(60), unique=True)
     description: Mapped[str] = mapped_column(Text, default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class BacktestTrade(TimestampMixin, Base):
+    """A historical (backtest / forward-test) trade of a strategy - never part of the live journal."""
+
+    __tablename__ = "backtest_trades"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(ForeignKey("strategies.id", ondelete="CASCADE"), index=True)
+    trade_time: Mapped[datetime] = mapped_column(DateTime, index=True)
+    symbol: Mapped[str] = mapped_column(String(20), default="")
+    direction: Mapped[str] = mapped_column(String(5))  # long | short
+    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    take_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    exit_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    r_multiple: Mapped[float | None] = mapped_column(Float, nullable=True)  # from prices, or entered directly
+    planned_rr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pnl: Mapped[float | None] = mapped_column(Float, nullable=True)  # optional money result
+    outcome: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    session: Mapped[str] = mapped_column(String(40), default="")
+    timeframe: Mapped[str] = mapped_column(String(10), default="")
+    tags: Mapped[list[str]] = mapped_column(JSON, default=list)
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class PropChallenge(TimestampMixin, Base):
+    """A prop-firm challenge / funded account tracked against the firm's risk rules."""
+
+    __tablename__ = "prop_challenges"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    firm: Mapped[str] = mapped_column(String(60), default="")
+    preset: Mapped[str] = mapped_column(String(40), default="custom")
+    phase: Mapped[str] = mapped_column(String(12), default="phase1")  # phase1 | phase2 | funded | custom
+    account_size: Mapped[float] = mapped_column(Float)
+    profit_target_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # None for funded accounts
+    max_daily_loss_pct: Mapped[float] = mapped_column(Float, default=5.0)
+    max_total_drawdown_pct: Mapped[float] = mapped_column(Float, default=10.0)
+    drawdown_mode: Mapped[str] = mapped_column(String(10), default="static")  # static | trailing
+    min_trading_days: Mapped[int] = mapped_column(Integer, default=0)
+    max_calendar_days: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None = no time limit
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active | passed | failed | archived
+    active: Mapped[bool] = mapped_column(Boolean, default=False)  # the one challenge driving "prop mode"
+    enforce: Mapped[bool] = mapped_column(Boolean, default=True)  # block live entries that break the rules
+    notes: Mapped[str] = mapped_column(Text, default="")
+
+
+class Partner(TimestampMixin, Base):
+    """A broker or prop firm shown on the Recommended Partners page."""
+
+    __tablename__ = "partners"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    kind: Mapped[str] = mapped_column(String(10), default="broker")  # broker | prop_firm
+    website_url: Mapped[str] = mapped_column(String(300), default="")
+    referral_url: Mapped[str] = mapped_column(String(500), default="")  # owner's affiliate / IB link
+    description: Mapped[str] = mapped_column(Text, default="")
+    highlights: Mapped[list[str]] = mapped_column(JSON, default=list)
+    featured: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class VisionAnalysis(TimestampMixin, Base):
+    """An AI analysis of a chart screenshot (image stored in the uploads folder)."""
+
+    __tablename__ = "vision_analyses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    filename: Mapped[str] = mapped_column(String(80))
+    image_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    symbol: Mapped[str] = mapped_column(String(20), default="")
+    timeframe: Mapped[str] = mapped_column(String(10), default="")
+    strategy: Mapped[str] = mapped_column(String(60), default="")
+    user_notes: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending | done | error
+    model: Mapped[str] = mapped_column(String(40), default="")
+    analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error: Mapped[str] = mapped_column(Text, default="")
+    trade_id: Mapped[int | None] = mapped_column(ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
+
+    messages: Mapped[list[VisionMessage]] = relationship(
+        back_populates="analysis_record",
+        cascade="all, delete-orphan",
+        order_by="VisionMessage.id",
+    )
+
+
+class VisionMessage(Base):
+    """One Q&A turn about an analysed chart. ``content`` holds the API content blocks (replayed unchanged)."""
+
+    __tablename__ = "vision_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    analysis_id: Mapped[int] = mapped_column(ForeignKey("vision_analyses.id", ondelete="CASCADE"), index=True)
+    role: Mapped[str] = mapped_column(String(10))  # user | assistant
+    text: Mapped[str] = mapped_column(Text, default="")  # display text
+    content: Mapped[list[dict]] = mapped_column(JSON, default=list)  # raw blocks incl. thinking (assistant)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    analysis_record: Mapped[VisionAnalysis] = relationship(back_populates="messages")

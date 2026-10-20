@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from trading_os.app import create_app
 from trading_os.config import load_config
+from trading_os.database import SCHEMA_VERSION
 
 V1_SCHEMA = """
 CREATE TABLE account_settings (
@@ -58,6 +59,6 @@ def test_v1_database_is_upgraded_in_place(tmp_path):
         assert client.get("/api/analytics").json()["summary"]["net_pnl"] == 200
 
     with sqlite3.connect(data_dir / "journal.db") as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert {"trade_targets", "trade_events", "news_events", "daily_reviews", "mistake_types"} <= tables

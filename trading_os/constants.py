@@ -71,3 +71,11 @@ NEWS_PRESETS = (
     ("BoE Rate Decision", "GBP"),
     ("BoJ Rate Decision", "JPY"),
 )
+
+STRATEGY_STATUSES = ("live", "incubator", "retired")
+
+# Claude models selectable for Vision AI (first = default). Server-side refusal
+# fallbacks are only requested for the models in AI_FALLBACK_MODELS.
+AI_MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1")
+AI_FALLBACK_MODELS = frozenset({"claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"})
+AI_EFFORTS = ("low", "medium", "high", "xhigh", "max")

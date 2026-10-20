@@ -76,6 +76,8 @@ class SettingsIn(BaseModel):
 class SettingsOut(SettingsIn, ORMModel):
     cooloff_until: datetime | None = None
     cooloff_reason: str = ""
+    disclaimer_accepted_at: datetime | None = None
+    disclaimer_version: str = ""
 
 
 # --------------------------------------------------------------------------- trading plan
@@ -135,6 +137,30 @@ class StrategyIn(BaseModel):
     rules: LongText = ""
     min_confluences: int = Field(0, ge=0, le=20)
     active: bool = True
+    status: Literal["live", "incubator", "retired"] = "live"
+    required_confluences: list[Annotated[str, StringConstraints(max_length=80, strip_whitespace=True)]] = Field(
+        default_factory=list, max_length=50
+    )
+    allowed_sessions: list[Annotated[str, StringConstraints(max_length=40, strip_whitespace=True)]] = Field(
+        default_factory=list, max_length=20
+    )
+    allowed_timeframes: list[Annotated[str, StringConstraints(max_length=10, strip_whitespace=True)]] = Field(
+        default_factory=list, max_length=20
+    )
+    allowed_directions: Literal["both", "long", "short"] = "both"
+    min_rr: float | None = Field(None, ge=0, le=50)
+    require_bias_alignment: bool = False
+    backtest_risk_per_trade: float | None = Field(None, gt=0)
+
+    @model_validator(mode="after")
+    def _clean_lists(self) -> StrategyIn:
+        self.required_confluences = _dedupe(self.required_confluences)
+        self.allowed_sessions = _dedupe(self.allowed_sessions)
+        self.allowed_timeframes = _dedupe(self.allowed_timeframes)
+        if self.min_confluences < len(self.required_confluences):
+            # Required confluences always count towards the minimum.
+            self.min_confluences = len(self.required_confluences)
+        return self
 
 
 class StrategyOut(StrategyIn, ORMModel):
@@ -275,6 +301,8 @@ class DailyStatusOut(BaseModel):
     cooloff_until: datetime | None = None
     cooloff_reason: str = ""
     upcoming_news: list[dict] = Field(default_factory=list)
+    # Filled by services.prop_rules when a prop-firm challenge is active ("prop mode").
+    prop: dict | None = None
 
 
 # --------------------------------------------------------------------------- trades
