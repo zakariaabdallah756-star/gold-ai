@@ -249,3 +249,102 @@ export function distributionChart(canvas, bins) {
     },
   });
 }
+
+// Labelled hairlines at several values (e.g. a prop challenge's profit target and starting balance).
+const referenceLines = {
+  id: "referenceLines",
+  beforeDatasetsDraw(chart, _args, options) {
+    const { ctx, chartArea, scales } = chart;
+    for (const line of options.lines || []) {
+      if (line.value === undefined || line.value === null) continue;
+      const y = scales.y.getPixelForValue(line.value);
+      if (y < chartArea.top || y > chartArea.bottom) continue;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = line.color || C.axis;
+      ctx.stroke();
+      ctx.fillStyle = line.color || C.muted;
+      ctx.font = `11px ${window.Chart.defaults.font.family}`;
+      ctx.textAlign = "right";
+      ctx.fillText(line.label, chartArea.right - 6, y - 6);
+      ctx.restore();
+    }
+  },
+};
+
+// Daily closing balance of a prop challenge with its (possibly trailing) drawdown floor.
+export function balanceChart(canvas, days, { start, target }) {
+  applyDefaults();
+  const balances = days.map((d) => d.balance);
+  const floors = days.map((d) => d.drawdown_floor);
+  const last = days.length - 1;
+  return new window.Chart(canvas, {
+    type: "line",
+    data: {
+      labels: days.map((d) => d.date),
+      datasets: [
+        {
+          label: "Balance",
+          data: balances,
+          borderColor: C.accent,
+          borderWidth: 2,
+          borderCapStyle: "round",
+          borderJoinStyle: "round",
+          tension: 0,
+          fill: { target: { value: start }, above: C.accentWash, below: C.lossWash },
+          pointRadius: (ctx) => (ctx.dataIndex === last ? 4 : 0),
+          pointBackgroundColor: C.accent,
+          pointBorderColor: C.surface,
+          pointBorderWidth: 2,
+          pointHoverRadius: 5,
+          pointHitRadius: 12,
+        },
+        {
+          label: "Drawdown floor",
+          data: floors,
+          borderColor: C.loss,
+          borderWidth: 1,
+          stepped: true,
+          pointRadius: 0,
+          pointHoverRadius: 0,
+          fill: false,
+        },
+      ],
+    },
+    options: {
+      interaction: { mode: "index", intersect: false },
+      layout: { padding: { top: 16 } }, // room for the reference-line labels at the top of the scale
+      scales: {
+        x: {
+          grid: { display: false },
+          border: { color: C.axis },
+          ticks: { maxTicksLimit: 8, maxRotation: 0, callback: (_v, i) => fmt.shortDate(days[i]?.date) },
+        },
+        y: {
+          ...moneyAxis(),
+          suggestedMin: Math.min(...floors, ...balances),
+          suggestedMax: Math.max(target ?? start, ...balances),
+        },
+      },
+      plugins: {
+        referenceLines: {
+          lines: [
+            { value: target, label: "Profit target", color: C.profit },
+            { value: start, label: "Starting balance" },
+          ],
+        },
+        tooltip: {
+          callbacks: {
+            title: (items) => fmt.date(days[items[0].dataIndex].date),
+            label: (item) => `${item.dataset.label} ${fmt.money(item.parsed.y)}`,
+            footer: (items) => `Day P&L ${fmt.signedMoney(days[items[0].dataIndex].pnl)}`,
+          },
+        },
+      },
+    },
+    plugins: [crosshair, referenceLines],
+  });
+}

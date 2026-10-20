@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from .. import __version__
 from ..models import (
     AccountSettings,
+    AlertRule,
     BacktestTrade,
     ChecklistDay,
     ChecklistItem,
@@ -31,10 +32,12 @@ from ..models import (
     Market,
     MistakeType,
     NewsEvent,
+    NotificationLog,
     Partner,
     PropChallenge,
     Screenshot,
     Strategy,
+    StrategyAlert,
     Trade,
     TradeEvent,
     TradeTarget,
@@ -44,11 +47,16 @@ from ..models import (
 )
 from . import uploads
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 # Older backups restore fine: missing tables/columns fall back to defaults.
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3)
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4)
 # Secrets that stay on this machine: never exported, kept as-is on restore.
-PRIVATE_COLUMNS = {"account_settings": ("ai_api_key",)}
+# (Notification channels and pushed candles are not part of backups at all.)
+PRIVATE_COLUMNS = {
+    "account_settings": ("ai_api_key", "vapid_public_key", "vapid_private_key", "market_api_keys"),
+}
+# Columns renamed since older backups were written: {table: {old key: new key}}.
+LEGACY_KEYS = {"partners": {"referral_url": "link_url"}}
 BACKUP_JSON_NAME = "backup.json"
 
 # Insert order respects foreign keys; deletion runs in reverse.
@@ -57,6 +65,7 @@ MODELS = (
     Market,
     TradingSession,
     Strategy,
+    AlertRule,
     Confluence,
     ChecklistItem,
     ChecklistDay,
@@ -72,6 +81,8 @@ MODELS = (
     Screenshot,
     VisionAnalysis,
     VisionMessage,
+    NotificationLog,
+    StrategyAlert,
 )
 
 CSV_COLUMNS = (
@@ -186,6 +197,9 @@ def export_zip_bytes(db: Session, uploads_dir: Path) -> bytes:
 def _coerce(model, row: dict) -> dict:
     values = {}
     private = PRIVATE_COLUMNS.get(model.__tablename__, ())
+    for old, new in LEGACY_KEYS.get(model.__tablename__, {}).items():
+        if old in row and new not in row:
+            row = {**row, new: row[old]}
     for column in model.__mapper__.columns:
         if column.key not in row or column.key in private:
             continue

@@ -1,5 +1,6 @@
 """Opening a v1.0 journal must add the new columns/tables without losing data."""
 
+import dataclasses
 import sqlite3
 
 from fastapi.testclient import TestClient
@@ -43,7 +44,7 @@ def test_v1_database_is_upgraded_in_place(tmp_path):
     with sqlite3.connect(data_dir / "journal.db") as connection:
         connection.executescript(V1_SCHEMA)
 
-    app = create_app(load_config(data_dir))
+    app = create_app(dataclasses.replace(load_config(data_dir), background_jobs=False))
     with TestClient(app) as client:
         settings = client.get("/api/settings").json()
         assert settings["account_name"] == "Old" and settings["starting_balance"] == 5000

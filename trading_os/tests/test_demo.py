@@ -27,6 +27,8 @@ def test_demo_journal_showcases_every_module(client):
 
     positions = client.get("/api/positions").json()
     assert len(positions["positions"]) == 2
+    prop = client.get("/api/risk/status").json()["prop"]
+    assert prop is not None and prop["status"] == "active"
     smc = next(s for s in client.get("/api/backtest/strategies").json() if s["name"] == "SMC")
     report = client.get(f"/api/backtest/strategies/{smc['id']}/report").json()
     assert report["comparison"]["verdict"]["status"] != "insufficient"

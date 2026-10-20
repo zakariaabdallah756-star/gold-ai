@@ -1,11 +1,13 @@
 """REST API routers."""
 
 from . import (
+    alerts,
     analytics,
     backtest,
     backup,
     checklist,
     news,
+    notifications,
     partners,
     positions,
     prop,
@@ -25,7 +27,9 @@ routers = [
     trades.router,
     positions.router,
     signals.router,
+    alerts.router,
     news.router,
+    notifications.router,
     reviews.router,
     analytics.router,
     vision.router,

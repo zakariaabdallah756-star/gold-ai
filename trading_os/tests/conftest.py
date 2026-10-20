@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -9,7 +10,8 @@ from trading_os.config import load_config
 
 @pytest.fixture
 def client(tmp_path):
-    app = create_app(load_config(tmp_path / "data"))
+    # Background jobs stay off: tests run them on demand with app.state.scheduler.run_now(...).
+    app = create_app(dataclasses.replace(load_config(tmp_path / "data"), background_jobs=False))
     with TestClient(app) as test_client:
         yield test_client
 

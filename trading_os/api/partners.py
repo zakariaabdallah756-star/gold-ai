@@ -1,4 +1,4 @@
-"""Recommended partners, referral links and the risk disclaimer."""
+"""Recommended partners (brokers, prop firms) and the risk disclaimer."""
 
 from typing import Annotated, Literal
 
@@ -28,7 +28,7 @@ class PartnerIn(BaseModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=80, strip_whitespace=True)]
     kind: Literal["broker", "prop_firm"] = "broker"
     website_url: Url = ""
-    referral_url: Url = ""
+    link_url: Url = ""
     description: Annotated[str, StringConstraints(max_length=2000)] = ""
     highlights: list[Annotated[str, StringConstraints(max_length=120, strip_whitespace=True)]] = Field(
         default_factory=list, max_length=8
@@ -37,7 +37,7 @@ class PartnerIn(BaseModel):
     sort_order: int = 0
     active: bool = True
 
-    @field_validator("website_url", "referral_url")
+    @field_validator("website_url", "link_url")
     @classmethod
     def _http_only(cls, value: str) -> str:
         return _http_url(value)
@@ -52,10 +52,10 @@ class PartnerOut(PartnerIn):
     id: int
 
 
-class ReferralIn(BaseModel):
-    referral_url: Url = ""
+class LinkIn(BaseModel):
+    link_url: Url = ""
 
-    @field_validator("referral_url")
+    @field_validator("link_url")
     @classmethod
     def _http_only(cls, value: str) -> str:
         return _http_url(value)
@@ -86,7 +86,6 @@ def list_partners(db: DbDep):
             "featured": p.featured,
             "website_url": p.website_url,
             "link": partner_link(p),
-            "is_referral": bool(p.referral_url),
         }
         for p in db.scalars(_ordered().where(Partner.active.is_(True)))
     ]
@@ -94,7 +93,7 @@ def list_partners(db: DbDep):
 
 @router.get("/partners/all", response_model=list[PartnerOut])
 def list_all_partners(db: DbDep):
-    """Every partner including inactive ones and referral links (settings)."""
+    """Every partner including inactive ones and custom links (settings)."""
     return db.scalars(_ordered()).all()
 
 
@@ -115,10 +114,10 @@ def update_partner(partner_id: int, payload: PartnerIn, db: DbDep):
     return partner
 
 
-@router.put("/partners/{partner_id}/referral", response_model=PartnerOut)
-def set_referral(partner_id: int, payload: ReferralIn, db: DbDep):
+@router.put("/partners/{partner_id}/link", response_model=PartnerOut)
+def set_link(partner_id: int, payload: LinkIn, db: DbDep):
     partner = get_or_404(db, Partner, partner_id)
-    partner.referral_url = payload.referral_url
+    partner.link_url = payload.link_url
     db.commit()
     return partner
 

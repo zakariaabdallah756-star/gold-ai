@@ -30,17 +30,18 @@ from ..models import (
     DailyReview,
     Market,
     NewsEvent,
+    PropChallenge,
     Strategy,
     Trade,
 )
 from ..schemas import TargetIn, TradeIn
-from . import positions
+from . import positions, prop
 from .account import local_now
 from .backtest import derive
 from .sizing import round_lots
 from .trades import create_trade
 
-# symbol: (weight, start price, typical stop range in pips/points, commission per lot)
+# symbol: (weight, start price, typical stop range in pips/points, fee per lot)
 INSTRUMENTS = {
     "XAUUSD": (45, 2350.0, (25, 70), 7.0),
     "EURUSD": (14, 1.0850, (8, 22), 7.0),
@@ -230,7 +231,7 @@ def seed_demo(db: Session, today: date, trading_days: int = 80, seed: int = 11, 
         for index in range(trades_today):
             symbol = "XAUUSD" if is_today and index == 0 else _weighted(rng, INSTRUMENTS)
             market = markets[symbol]
-            _, _, stop_range, commission = INSTRUMENTS[symbol]
+            _, _, stop_range, fee_per_lot = INSTRUMENTS[symbol]
             prices[symbol] *= 1 + rng.gauss(0, 0.006)
             entry = round(prices[symbol], 5 if market.pip_size < 0.01 else 2)
 
@@ -274,7 +275,7 @@ def seed_demo(db: Session, today: date, trading_days: int = 80, seed: int = 11, 
                 entry_price=round(entry, digits),
                 stop_loss=round(stop, digits),
                 position_size=lots,
-                fees=round(commission * lots, 2),
+                fees=round(fee_per_lot * lots, 2),
                 strategy=strategy,
                 timeframe=rng.choice(["M5", "M15", "H1"]),
                 session=session,
@@ -341,6 +342,7 @@ def seed_demo(db: Session, today: date, trading_days: int = 80, seed: int = 11, 
     _seed_news(db, today)
     _seed_backtests(db, rng, days[0])
     db.commit()
+    _seed_prop_challenge(db, settings, today)
     return created
 
 
@@ -432,3 +434,42 @@ def _seed_backtests(db: Session, rng: random.Random, journal_start: date) -> Non
                     **values,
                 )
             )
+
+
+def _seed_prop_challenge(db: Session, settings: AccountSettings, today: date) -> None:
+    """An active FTMO-style challenge whose start date shows a running challenge with some progress."""
+    preset = next(p for p in prop.PRESETS if p["key"] == "ftmo_challenge")
+    rules = {
+        k: preset[k]
+        for k in (
+            "firm",
+            "phase",
+            "profit_target_pct",
+            "max_daily_loss_pct",
+            "max_total_drawdown_pct",
+            "drawdown_mode",
+            "min_trading_days",
+            "max_calendar_days",
+        )
+    }
+    best: tuple[float, date] | None = None
+    for days_back in range(5, 61):
+        start = today - timedelta(days=days_back)
+        candidate = PropChallenge(name="", account_size=10_000.0, start_date=start, preset="ftmo_challenge", **rules)
+        metrics = prop.compute(db, settings, candidate, today)
+        progress = metrics.progress_pct or 0.0
+        if metrics.evaluation.status == "active" and 0 < progress < 100 and (best is None or progress > best[0]):
+            best = (progress, start)
+    start = best[1] if best else today - timedelta(days=10)
+    challenge = PropChallenge(
+        name="FTMO 10k Challenge",
+        account_size=10_000.0,
+        start_date=start,
+        preset="ftmo_challenge",
+        notes="Demo challenge - verify the current rules on the firm's website.",
+        **rules,
+    )
+    db.add(challenge)
+    db.commit()
+    prop.activate(db, challenge)
+    prop.refresh(db, settings, challenge)

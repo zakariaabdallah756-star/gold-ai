@@ -8,13 +8,12 @@ from __future__ import annotations
 
 from ..models import AccountSettings
 
-DISCLAIMER_VERSION = "2026-10"
+DISCLAIMER_VERSION = "2026-10-20"
 
 FOOTER_TEXT = (
-    "Risk warning: trading forex, CFDs, futures and crypto, especially with leverage, carries a high risk of "
-    "losing money and is not suitable for everyone. Statistics, backtests, AI analysis and signals in this app "
-    "are for education and record-keeping only - they are not financial advice. Past performance does not "
-    "guarantee future results."
+    "Risk warning: Trading involves substantial risk of loss and is not suitable for everyone. Content and tools "
+    "in this app are for organizational and educational purposes only and do not constitute financial advice. "
+    "Past performance does not guarantee future results."
 )
 
 SECTIONS = (
@@ -26,15 +25,16 @@ SECTIONS = (
     ),
     (
         "Not financial advice",
-        "Trading OS is a journaling and analytics tool. Nothing in it - including statistics, the risk calculator, "
-        "signal parsing, the Strategy Co-Pilot, Vision AI analysis, prop-firm tracking or partner listings - is "
-        "investment, financial, legal or tax advice, or a recommendation to buy or sell any instrument.",
+        "Trading OS is a tool for organising and reviewing your trading. Nothing in it - including statistics, the "
+        "risk calculator, signal parsing, the Strategy Co-Pilot, strategy alerts and notifications, Vision AI "
+        "analysis, prop-firm tracking or partner listings - is investment, financial, legal or tax advice, or a "
+        "recommendation to buy or sell any instrument.",
     ),
     (
         "Past and hypothetical performance",
         "Past performance, journal statistics and backtest results are not indicative of future results. "
         "Hypothetical or backtested results have inherent limitations: they are prepared with hindsight, do not "
-        "reflect real execution (slippage, spreads, commissions, liquidity) and do not capture the psychological "
+        "reflect real execution (slippage, spreads, fees, liquidity) and do not capture the psychological "
         "pressure of trading real money.",
     ),
     (
@@ -44,10 +44,16 @@ SECTIONS = (
         "processing.",
     ),
     (
+        "Strategy alerts",
+        "Strategy alerts are automated pattern matches on market data that can be delayed, incomplete or wrong. "
+        "They are not trade recommendations: nothing is ever executed automatically, and every decision to trade "
+        "is yours alone.",
+    ),
+    (
         "Third parties",
-        "Broker and prop-firm information may be outdated; terms, rules, regulation and fees change and differ by "
-        "country. Some partner links may be referral links that pay the app owner a commission. Do your own due "
-        "diligence before opening any account.",
+        "Broker and prop-firm information is for reference only and may be outdated; terms, rules, regulation and "
+        "fees change and differ by country. A listing is not a recommendation. Do your own due diligence before "
+        "opening any account.",
     ),
     (
         "Your responsibility",

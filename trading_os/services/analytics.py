@@ -12,6 +12,8 @@ Definitions
   executed R:R when no risk amount was recorded).
 * **Max drawdown** = largest peak-to-trough decline of the closed-trade
   equity curve, in money and in % of the peak.
+* **Mistake cost** = net P&L of the trades tagged with a mistake. A trade
+  tagged with several mistakes counts towards each of them.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", 
 R_BIN_WIDTH = 0.5
 R_BIN_MIN = -3.0
 R_BIN_MAX = 5.0
+NO_MISTAKES = "No mistakes"
 
 
 class ClosedTrade(Protocol):
@@ -36,6 +39,7 @@ class ClosedTrade(Protocol):
     emotion: str
     timeframe: str
     confluences: list[str]
+    mistakes: list[str]
     pnl: float
     fees: float
     r_multiple: float | None
@@ -52,6 +56,11 @@ class ClosedTrade(Protocol):
 
 def _round(value: float | None, digits: int = 2) -> float | None:
     return None if value is None else round(value, digits)
+
+
+def _mistakes(trade: ClosedTrade) -> list[str]:
+    """Mistakes tagged on a trade; adapters without the attribute count as mistake-free."""
+    return getattr(trade, "mistakes", None) or []
 
 
 def core_stats(trades: Sequence[ClosedTrade]) -> dict:
@@ -128,6 +137,7 @@ def summarize(trades: Sequence[ClosedTrade], base_equity: float) -> dict:
     followed = [t for t in trades if t.rule_compliant is True]
     broken = [t for t in trades if t.rule_compliant is False]
     rated = len(followed) + len(broken)
+    flawed = [t for t in trades if _mistakes(t)]
 
     stats.update(
         {
@@ -151,9 +161,30 @@ def summarize(trades: Sequence[ClosedTrade], base_equity: float) -> dict:
             "compliance_rate": _round(len(followed) / rated * 100) if rated else None,
             "followed_plan": core_stats(followed),
             "broke_rules": core_stats(broken),
+            "mistake_free": core_stats([t for t in trades if not _mistakes(t)]),
+            "with_mistakes": core_stats(flawed),
+            "mistake_cost": mistake_cost(trades),
         }
     )
     return stats
+
+
+def mistake_cost(trades: Sequence[ClosedTrade]) -> list[dict]:
+    """Per tagged mistake: trades, net / average P&L and win rate, most expensive first."""
+    rows = []
+    for name, group in _overlapping_groups(trades, _mistakes, None).items():
+        stats = core_stats(group)
+        rows.append(
+            {
+                "mistake": name,
+                "trades": stats["trades"],
+                "net_pnl": stats["net_pnl"],
+                "avg_pnl": stats["expectancy"],
+                "win_rate": stats["win_rate"],
+            }
+        )
+    rows.sort(key=lambda row: (row["net_pnl"], row["mistake"]))
+    return rows
 
 
 def equity_curve(trades: Sequence[ClosedTrade], base_equity: float) -> list[dict]:
@@ -249,11 +280,14 @@ BREAKDOWN_KEYS: dict[str, Callable[[ClosedTrade], str]] = {
 }
 
 
-def _confluence_groups(trades: Sequence[ClosedTrade]) -> dict[str, list]:
-    """A trade belongs to every confluence it lists, so groups overlap."""
+def _overlapping_groups(
+    trades: Sequence[ClosedTrade], names: Callable[[ClosedTrade], list[str]], fallback: str | None
+) -> dict[str, list]:
+    """A trade belongs to every name it lists (so groups overlap); unlabelled trades go to ``fallback``."""
     groups: dict[str, list] = defaultdict(list)
     for trade in trades:
-        for name in trade.confluences or ["None recorded"]:
+        labels = names(trade) or ([fallback] if fallback else [])
+        for name in labels:
             groups[name].append(trade)
     return groups
 
@@ -261,7 +295,8 @@ def _confluence_groups(trades: Sequence[ClosedTrade]) -> dict[str, list]:
 def breakdowns(trades: Sequence[ClosedTrade]) -> dict[str, list[dict]]:
     out = {}
     grouped = {dimension: _group(trades, key) for dimension, key in BREAKDOWN_KEYS.items()}
-    grouped["confluence"] = _confluence_groups(trades)
+    grouped["confluence"] = _overlapping_groups(trades, lambda t: t.confluences, "None recorded")
+    grouped["mistake"] = _overlapping_groups(trades, _mistakes, NO_MISTAKES)
     for dimension, groups in grouped.items():
         rows = [{"key": name, **core_stats(group)} for name, group in groups.items()]
         if dimension == "weekday":

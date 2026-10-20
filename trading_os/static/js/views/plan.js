@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
 import { loadPlan, loadStatus, state } from "../state.js";
+import { renderNotificationSettings } from "./notifications.js";
 import { renderPartnerSettings } from "./partners.js";
 import { renderAiSettings } from "./settings-ai.js";
 
@@ -15,11 +16,12 @@ const TABS = [
   ["confluences", "Confluences"],
   ["checklist", "Checklist"],
   ["mistakes", "Mistakes"],
+  ["notifications", "Notifications"],
   ["ai", "AI assistant"],
-  ["partners", "Partners & referrals"],
+  ["partners", "Partners"],
 ];
 // Tabs rendered by other modules into their own container.
-const MOUNTED_TABS = { ai: renderAiSettings, partners: renderPartnerSettings };
+const MOUNTED_TABS = { notifications: renderNotificationSettings, ai: renderAiSettings, partners: renderPartnerSettings };
 const STRATEGY_STATUS = {
   live: { cls: "good", icon: "play", label: "Live" },
   incubator: { cls: "warn", icon: "flame", label: "Incubator" },

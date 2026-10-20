@@ -33,6 +33,8 @@ class AppConfig:
 
     data_dir: Path
     max_upload_mb: int = DEFAULT_MAX_UPLOAD_MB
+    # Background thread (strategy alert scanner, notification watchers). Off in tests.
+    background_jobs: bool = True
 
     @property
     def db_path(self) -> Path:
@@ -71,6 +73,16 @@ def load_config(data_dir: str | Path | None = None) -> AppConfig:
     """Build the config, giving precedence to an explicit ``data_dir``."""
     resolved = data_dir or os.environ.get("TRADING_OS_DATA_DIR") or DEFAULT_DATA_DIR
     max_upload_mb = int(os.environ.get("TRADING_OS_MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB))
-    config = AppConfig(data_dir=Path(resolved).expanduser().resolve(), max_upload_mb=max_upload_mb)
+    background_jobs = os.environ.get("TRADING_OS_BACKGROUND_JOBS", "1").strip().lower() not in (
+        "0",
+        "false",
+        "no",
+        "off",
+    )
+    config = AppConfig(
+        data_dir=Path(resolved).expanduser().resolve(),
+        max_upload_mb=max_upload_mb,
+        background_jobs=background_jobs,
+    )
     config.ensure_dirs()
     return config

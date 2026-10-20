@@ -27,6 +27,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -91,6 +92,21 @@ class AccountSettings(TimestampMixin, Base):
     ai_model: Mapped[str] = mapped_column(String(40), default="claude-opus-5-5")
     ai_effort: Mapped[str] = mapped_column(String(8), default="high")  # low | medium | high | xhigh | max
     ai_api_key: Mapped[str] = mapped_column(String(200), default="")
+
+    # Notifications (push to phone / browser). Channel secrets live in NotificationChannel.config.
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    notify_events: Mapped[list[str]] = mapped_column(JSON, default=lambda: ["strategy_alert", "risk", "news"])
+    news_reminder_min: Mapped[int] = mapped_column(Integer, default=15)  # minutes before a high-impact release
+    app_url: Mapped[str] = mapped_column(String(200), default="")  # link opened from a notification
+    # Web Push (VAPID) key pair, generated on first use. Both stay on this machine (not in backups).
+    vapid_public_key: Mapped[str] = mapped_column(String(200), default="")
+    vapid_private_key: Mapped[str] = mapped_column(Text, default="")
+    vapid_contact: Mapped[str] = mapped_column(String(120), default="mailto:trading-os@example.com")
+
+    # Strategy alert engine (background scanner). Provider API keys are local secrets (not in backups).
+    scanner_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    scanner_interval_sec: Mapped[int] = mapped_column(Integer, default=60)
+    market_api_keys: Mapped[dict] = mapped_column(JSON, default=dict)  # provider -> API key
 
 
 class Market(TimestampMixin, Base):
@@ -445,7 +461,7 @@ class Partner(TimestampMixin, Base):
     name: Mapped[str] = mapped_column(String(80), unique=True)
     kind: Mapped[str] = mapped_column(String(10), default="broker")  # broker | prop_firm
     website_url: Mapped[str] = mapped_column(String(300), default="")
-    referral_url: Mapped[str] = mapped_column(String(500), default="")  # owner's affiliate / IB link
+    link_url: Mapped[str] = mapped_column(String(500), default="")  # custom link shown instead of the website
     description: Mapped[str] = mapped_column(Text, default="")
     highlights: Mapped[list[str]] = mapped_column(JSON, default=list)
     featured: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -492,3 +508,119 @@ class VisionMessage(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     analysis_record: Mapped[VisionAnalysis] = relationship(back_populates="messages")
+
+
+class NotificationChannel(TimestampMixin, Base):
+    """A delivery target: a browser/phone Web Push subscription or a push service / webhook.
+
+    ``config`` holds the channel's secrets (bot tokens, topics, webhook URLs, push
+    subscription keys). It is never returned in full by the API and is not exported
+    in backups.
+    """
+
+    __tablename__ = "notification_channels"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(12))  # webpush | ntfy | telegram | discord | slack | pushover | webhook
+    name: Mapped[str] = mapped_column(String(80), default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    config: Mapped[dict] = mapped_column(JSON, default=dict)
+    events: Mapped[list[str]] = mapped_column(JSON, default=list)  # empty = every enabled event type
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(String(300), default="")
+
+
+class NotificationLog(Base):
+    """One notification and its delivery result per channel."""
+
+    __tablename__ = "notification_log"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)  # account-local
+    event: Mapped[str] = mapped_column(String(30))  # strategy_alert | risk | news | test
+    title: Mapped[str] = mapped_column(String(200), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    data: Mapped[dict] = mapped_column(JSON, default=dict)
+    url: Mapped[str] = mapped_column(String(300), default="")
+    status: Mapped[str] = mapped_column(String(10), default="sent")  # sent | partial | failed | skipped
+    results: Mapped[list[dict]] = mapped_column(JSON, default=list)  # [{channel_id, kind, name, ok, error}]
+
+
+class AlertRule(TimestampMixin, Base):
+    """A scanner rule: watch symbols on a timeframe and alert when a strategy's conditions line up."""
+
+    __tablename__ = "alert_rules"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    strategy_id: Mapped[int | None] = mapped_column(
+        ForeignKey("strategies.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    symbols: Mapped[list[str]] = mapped_column(JSON, default=list)
+    timeframe: Mapped[str] = mapped_column(String(4), default="M15")  # M1 M5 M15 M30 H1 H4 D1
+    provider: Mapped[str] = mapped_column(String(16), default="yahoo")  # market data source
+    provider_symbols: Mapped[dict] = mapped_column(JSON, default=dict)  # journal symbol -> provider symbol
+    direction: Mapped[str] = mapped_column(String(5), default="both")  # both | long | short
+    # [{"type": "liquidity_sweep", "params": {...}, "confluence": "Liquidity sweep"}, ...]
+    conditions: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    min_conditions: Mapped[int] = mapped_column(Integer, default=0)  # 0 = every condition must hold
+    stop_method: Mapped[str] = mapped_column(String(10), default="swing")  # swing | atr | signal
+    stop_buffer_pips: Mapped[float] = mapped_column(Float, default=0.0)
+    atr_multiple: Mapped[float] = mapped_column(Float, default=1.5)
+    targets_rr: Mapped[list[float]] = mapped_column(JSON, default=list)  # empty = one target at the minimum R:R
+    risk_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # None = account default
+    cooldown_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    notify: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_candle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_alert_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(String(300), default="")
+
+
+class StrategyAlert(Base):
+    """A setup found by the scanner. Informational only - nothing is ever executed automatically."""
+
+    __tablename__ = "strategy_alerts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    rule_id: Mapped[int | None] = mapped_column(
+        ForeignKey("alert_rules.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, index=True)  # account-local
+    candle_time: Mapped[datetime] = mapped_column(DateTime)  # close time of the signal candle
+    strategy: Mapped[str] = mapped_column(String(60), default="")
+    symbol: Mapped[str] = mapped_column(String(20))
+    timeframe: Mapped[str] = mapped_column(String(4), default="")
+    direction: Mapped[str] = mapped_column(String(5))  # long | short
+    entry_price: Mapped[float] = mapped_column(Float)
+    stop_loss: Mapped[float] = mapped_column(Float)
+    take_profits: Mapped[list[float]] = mapped_column(JSON, default=list)
+    planned_rr: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lots: Mapped[float | None] = mapped_column(Float, nullable=True)
+    risk_amount: Mapped[float | None] = mapped_column(Float, nullable=True)
+    confluences: Mapped[list[str]] = mapped_column(JSON, default=list)
+    details: Mapped[dict] = mapped_column(JSON, default=dict)  # condition results, guardrail pre-check
+    signal_text: Mapped[str] = mapped_column(Text, default="")  # parseable by the Signals page
+    status: Mapped[str] = mapped_column(String(10), default="new")  # new | seen | dismissed | taken
+    trade_id: Mapped[int | None] = mapped_column(ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
+    notification_id: Mapped[int | None] = mapped_column(
+        ForeignKey("notification_log.id", ondelete="SET NULL"), nullable=True
+    )
+
+
+class Candle(Base):
+    """OHLC bars pushed by an external feed (MT4/MT5 script, TradingView webhook) for the ``push`` provider."""
+
+    __tablename__ = "candles"
+    __table_args__ = (UniqueConstraint("symbol", "timeframe", "time", name="uq_candle"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    symbol: Mapped[str] = mapped_column(String(20))
+    timeframe: Mapped[str] = mapped_column(String(4))
+    time: Mapped[datetime] = mapped_column(DateTime)  # bar open time, account-local
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float | None] = mapped_column(Float, nullable=True)

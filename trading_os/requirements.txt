@@ -7,6 +7,7 @@ pydantic>=2.6
 tzdata  # IANA time zones (required on Windows)
 anthropic>=1.15  # Vision AI (Claude)
 reportlab>=4.0  # PDF performance reports
+cryptography>=42  # Web Push notifications (VAPID signing, payload encryption)
 
 # Tests
 httpx>=0.27

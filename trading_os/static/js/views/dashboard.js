@@ -1,4 +1,4 @@
-// Statistical dashboard: KPIs, equity curve, daily P&L, R distribution, breakdowns.
+// Statistical dashboard: KPIs, equity curve, daily P&L, R distribution, breakdowns, cost of mistakes.
 
 import { api, query } from "../api.js";
 import { chartsAvailable, dailyPnlChart, distributionChart, equityChart } from "../charts.js";
@@ -25,7 +25,13 @@ const BREAKDOWNS = [
   ["confluence", "Confluence"],
   ["weekday", "Weekday"],
   ["compliance", "Rule compliance"],
+  ["mistake", "Mistake"],
 ];
+
+const OVERLAP_NOTES = {
+  confluence: "A trade counts once for every confluence it lists, so rows overlap.",
+  mistake: "A trade counts once for every mistake tagged on it, so rows overlap.",
+};
 
 // Kept at module level so filters survive navigating away and back.
 const filters = { preset: "all", date_from: "", date_to: "", symbol: "", strategy: "", session: "", direction: "" };
@@ -97,29 +103,31 @@ function legend(items) {
   return h("div", { class: "chart-legend" }, items.map(([color, label]) => h("span", {}, h("i", { style: { background: color } }), label)));
 }
 
+function compareColumn(title, iconName, stats, cls) {
+  return h(
+    "div",
+    {},
+    h("div", { class: `head ${cls}` }, icon(iconName), title),
+    h(
+      "dl",
+      {},
+      h("dt", {}, "Trades"),
+      h("dd", {}, stats.trades),
+      h("dt", {}, "Win rate"),
+      h("dd", {}, fmt.pct(stats.win_rate)),
+      h("dt", {}, "Net P&L"),
+      h("dd", { class: pnlClass(stats.net_pnl) }, fmt.signedMoney(stats.net_pnl)),
+      h("dt", {}, "Expectancy"),
+      h("dd", { class: pnlClass(stats.expectancy) }, fmt.signedMoney(stats.expectancy)),
+      h("dt", {}, "Profit factor"),
+      h("dd", {}, profitFactor(stats)),
+    ),
+  );
+}
+
 function compareCard(summary) {
   const followed = summary.followed_plan;
   const broke = summary.broke_rules;
-  const column = (title, iconName, stats, cls) =>
-    h(
-      "div",
-      {},
-      h("div", { class: `head ${cls}` }, icon(iconName), title),
-      h(
-        "dl",
-        {},
-        h("dt", {}, "Trades"),
-        h("dd", {}, stats.trades),
-        h("dt", {}, "Win rate"),
-        h("dd", {}, fmt.pct(stats.win_rate)),
-        h("dt", {}, "Net P&L"),
-        h("dd", { class: pnlClass(stats.net_pnl) }, fmt.signedMoney(stats.net_pnl)),
-        h("dt", {}, "Expectancy"),
-        h("dd", { class: pnlClass(stats.expectancy) }, fmt.signedMoney(stats.expectancy)),
-        h("dt", {}, "Profit factor"),
-        h("dd", {}, profitFactor(stats)),
-      ),
-    );
   let verdict = "Rate your trades (rule compliance) to measure the cost of indiscipline.";
   if (followed.trades && broke.trades) {
     const diff = (followed.expectancy ?? 0) - (broke.expectancy ?? 0);
@@ -134,8 +142,75 @@ function compareCard(summary) {
     "div",
     { class: "card" },
     h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Discipline"), h("p", {}, `Rule compliance ${fmt.pct(summary.compliance_rate)}`))),
-    h("div", { class: "compare" }, column("Followed plan", "checkCircle", followed, "pos"), column("Broke rules", "xCircle", broke, "neg")),
+    h("div", { class: "compare" }, compareColumn("Followed plan", "checkCircle", followed, "pos"), compareColumn("Broke rules", "xCircle", broke, "neg")),
     h("p", { class: "muted small", style: { marginTop: "12px" } }, verdict),
+  );
+}
+
+function mistakeCard(summary) {
+  const clean = summary.mistake_free;
+  const flawed = summary.with_mistakes;
+  const rows = summary.mistake_cost;
+  const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.net_pnl || 0)));
+  let verdict = "No mistakes tagged in this range. Tag mistakes on your trades to see what they cost you.";
+  if (flawed.trades && clean.trades) {
+    const diff = (clean.expectancy ?? 0) - (flawed.expectancy ?? 0);
+    verdict =
+      diff >= 0
+        ? `Mistake-free trades earn ${fmt.money(diff)} more per trade than trades with a mistake.`
+        : `Trades with a mistake currently out-earn mistake-free trades by ${fmt.money(-diff)} per trade - check how you tag them.`;
+  } else if (flawed.trades) {
+    verdict = "Every trade in this range has a mistake tagged. Pick one to eliminate first.";
+  }
+  const table = rows.length
+    ? h(
+        "div",
+        { class: "table-wrap" },
+        h(
+          "table",
+          {},
+          h("thead", {}, h("tr", {}, ["Mistake", "Trades", "Net P&L", "Avg P&L", "Win rate"].map((c, i) => h("th", { class: i ? "num" : "" }, c)))),
+          h(
+            "tbody",
+            {},
+            rows.map((r) =>
+              h(
+                "tr",
+                {},
+                h("td", {}, r.mistake),
+                h("td", { class: "num" }, r.trades),
+                h(
+                  "td",
+                  { class: "num" },
+                  h("span", { class: pnlClass(r.net_pnl) }, fmt.signedMoney(r.net_pnl)),
+                  h("span", {
+                    class: "inline-bar",
+                    style: { width: `${Math.max(2, (Math.abs(r.net_pnl) / maxAbs) * 56)}px`, background: r.net_pnl >= 0 ? "var(--profit)" : "var(--loss)" },
+                  }),
+                ),
+                h("td", { class: `num ${pnlClass(r.avg_pnl)}` }, fmt.signedMoney(r.avg_pnl)),
+                h("td", { class: "num" }, fmt.pct(r.win_rate)),
+              ),
+            ),
+          ),
+        ),
+      )
+    : h("div", { class: "empty" }, "No mistakes tagged");
+  return h(
+    "div",
+    { class: "card" },
+    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Cost of mistakes"), h("p", {}, "Most expensive first · a trade counts towards every mistake tagged on it"))),
+    h(
+      "div",
+      { class: "grid split" },
+      h(
+        "div",
+        {},
+        h("div", { class: "compare" }, compareColumn("Mistake-free", "checkCircle", clean, "pos"), compareColumn("With mistakes", "xCircle", flawed, "neg")),
+        h("p", { class: "muted small", style: { marginTop: "12px" } }, verdict),
+      ),
+      table,
+    ),
   );
 }
 
@@ -154,7 +229,7 @@ function breakdownCard(breakdowns) {
     const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.net_pnl || 0)));
     clear(
       body,
-      activeTab === "confluence" ? h("p", { class: "muted small", style: { marginBottom: "8px" } }, "A trade counts once for every confluence it lists, so rows overlap.") : null,
+      OVERLAP_NOTES[activeTab] ? h("p", { class: "muted small", style: { marginBottom: "8px" } }, OVERLAP_NOTES[activeTab]) : null,
       rows.length
         ? h(
             "div",
@@ -301,6 +376,7 @@ function renderReport(data, charts) {
     equity.card,
     h("div", { class: "grid cols-2" }, daily.card, distribution.card),
     h("div", { class: "grid wide-left" }, breakdownCard(data.breakdowns), detailCard(s)),
+    mistakeCard(s),
   ];
 }
 
@@ -345,12 +421,20 @@ export async function render(root) {
   const charts = [];
   const destroy = () => charts.splice(0).forEach((c) => c.destroy());
   const body = h("div", { class: "stack" });
+  const exportLink = h(
+    "a",
+    { class: "btn", href: "/api/reports/performance.pdf", download: "", title: "Download a PDF performance report for the current filters" },
+    icon("download"),
+    "Export PDF",
+  );
 
   async function load() {
     body.classList.add("refreshing");
     const { preset, date_from, date_to, ...rest } = filters;
+    const params = query({ ...rest, ...dateRange() });
+    exportLink.href = `/api/reports/performance.pdf${params}`;
     try {
-      const data = await api.get(`/api/analytics${query({ ...rest, ...dateRange() })}`);
+      const data = await api.get(`/api/analytics${params}`);
       destroy();
       clear(body, renderReport(data, charts));
     } catch (error) {
@@ -362,7 +446,7 @@ export async function render(root) {
 
   clear(
     root,
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Performance"), h("p", {}, "Statistics over closed trades, filtered by close date"))),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Performance"), h("p", {}, "Statistics over closed trades, filtered by close date")), exportLink),
     buildFilters(load),
     body,
   );

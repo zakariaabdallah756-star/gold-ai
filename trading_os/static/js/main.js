@@ -5,6 +5,7 @@ import { clear, field, h, icon, modal, segmented, toast } from "./dom.js";
 import { fmt, pnlClass, toInputDateTime } from "./format.js";
 import { mountDisclaimer } from "./disclaimer.js";
 import { accountNow, loadPlan, loadStatus, onStatus, state } from "./state.js";
+import * as alerts from "./views/alerts.js";
 import * as backup from "./views/backup.js";
 import * as calculator from "./views/calculator.js";
 import * as checklist from "./views/checklist.js";
@@ -24,6 +25,7 @@ const ROUTES = [
   { path: "dashboard", label: "Dashboard", icon: "dashboard", view: dashboard, group: "Trade" },
   { path: "premarket", label: "Pre-Market", icon: "checklist", view: checklist, group: "Trade" },
   { path: "signals", label: "Signals", icon: "signal", view: signals, group: "Trade" },
+  { path: "alerts", label: "Strategy Alerts", icon: "bell", view: alerts, group: "Trade" },
   { path: "vision", label: "Vision AI", icon: "brain", view: vision, group: "Trade" },
   { path: "calculator", label: "Risk Calculator", icon: "calculator", view: calculator, group: "Trade" },
   { path: "positions", label: "Positions", icon: "layers", view: positions, group: "Trade" },
@@ -102,6 +104,27 @@ function newsChip(status) {
     h("span", { class: "chip-label" }, shortTitle(next.title)),
     h("strong", { class: "num" }, fmt.time(next.time)),
     ` · ${when}`,
+  );
+}
+
+// Prop mode: the active challenge's remaining room (the tighter of daily loss and max drawdown).
+function propChip(status) {
+  const prop = status.prop;
+  if (!prop) return null;
+  const room = Math.min(prop.daily_remaining, prop.total_remaining);
+  const ended = prop.status !== "active";
+  const cls = ended || room <= 0 ? "bad" : room < prop.daily_limit * 0.25 ? "warn" : "";
+  const title = [
+    `${prop.name}${prop.firm ? ` (${prop.firm})` : ""} · ${prop.enforce ? "rules enforced" : "warnings only"}`,
+    `Daily loss ${fmt.money(prop.daily_loss_used)} of ${fmt.money(prop.daily_limit)}`,
+    `Balance ${fmt.money(prop.balance)} · floor ${fmt.money(prop.drawdown_floor)}`,
+  ].join("\n");
+  return h(
+    "a",
+    { class: `chip prop-chip ${cls}`, href: "#/prop", title },
+    icon("target"),
+    h("span", { class: "chip-label" }, prop.firm || "Prop"),
+    ended ? h("strong", {}, prop.status === "passed" ? "Passed" : prop.status === "failed" ? "Failed" : "Ended") : [" room ", h("strong", { class: "num" }, fmt.money(Math.max(room, 0)))],
   );
 }
 
@@ -317,6 +340,7 @@ function renderStatus(status) {
           )
         : null,
       newsChip(status),
+      propChip(status),
     ),
     h(
       "button",
@@ -342,6 +366,7 @@ function renderStatus(status) {
     const link = (reason) => {
       if (reason.code === "CHECKLIST_INCOMPLETE") return h("a", { href: "#/premarket" }, "Open checklist →");
       if (reason.code === "NEWS_WINDOW" && currentRoute.path !== "premarket") return h("a", { href: "#/premarket" }, "Open calendar →");
+      if (reason.code.startsWith("PROP_") && currentRoute.path !== "prop") return h("a", { href: "#/prop" }, "Open Prop Firm →");
       return null;
     };
     clear(

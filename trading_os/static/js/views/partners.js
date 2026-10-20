@@ -1,4 +1,4 @@
-// Recommended partners page + the owner's referral-link settings (Trading plan -> Partners & referrals).
+// Recommended partners page + the partner list settings (Trading plan -> Partners).
 
 import { api } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, select, toast } from "../dom.js";
@@ -6,7 +6,7 @@ import { clear, confirmDialog, field, h, icon, modal, select, toast } from "../d
 const KIND_LABEL = { prop_firm: "Prop firm", broker: "Broker" };
 
 function partnerCard(partner) {
-  const external = { href: partner.link, target: "_blank", rel: partner.is_referral ? "sponsored noopener noreferrer" : "noopener noreferrer" };
+  const external = { href: partner.link, target: "_blank", rel: "noopener noreferrer" };
   return h(
     "article",
     { class: `partner-card${partner.featured ? " featured" : ""}` },
@@ -21,7 +21,6 @@ function partnerCard(partner) {
       "div",
       { class: "row partner-actions" },
       h("a", { class: "btn primary", ...external }, `Visit ${partner.name}`, icon("arrowRight")),
-      partner.is_referral ? h("span", { class: "muted small", title: "The app owner may earn a commission from this link" }, "Referral link") : null,
     ),
   );
 }
@@ -39,18 +38,18 @@ export async function render(root) {
     h(
       "div",
       { class: "page-head" },
-      h("div", {}, h("h1", {}, "Recommended partners"), h("p", {}, "Brokers and prop firms curated by the app owner")),
+      h("div", {}, h("h1", {}, "Recommended partners"), h("p", {}, "Brokers and prop firms for quick reference")),
       h("a", { class: "btn", href: "#/plan?tab=partners" }, icon("edit"), "Manage partners"),
     ),
     h(
       "div",
-      { class: "banner warn partner-disclosure", role: "note" },
-      icon("info"),
+      { class: "banner warn partner-risk", role: "note" },
+      icon("alert"),
       h(
         "div",
         {},
-        h("strong", {}, "Affiliate disclosure"),
-        "Some links on this page may be referral or affiliate links: the app owner may earn a commission if you open an account. Listings are not investment advice or an endorsement. Trading involves substantial risk - compare terms, fees and regulation for your country and do your own due diligence.",
+        h("strong", {}, "Risk disclaimer"),
+        "Trading involves substantial risk of loss and is not suitable for everyone. Content and tools are for organizational and educational purposes only and do not constitute financial advice.",
       ),
     ),
     partners.length
@@ -60,7 +59,7 @@ export async function render(root) {
           section("prop_firm", "Prop firms", "Trade the firm's capital after passing an evaluation. Track your challenge in Prop Firm."),
           section("broker", "Brokers", "Where you hold your own trading account."),
         )
-      : h("div", { class: "card empty", style: { marginTop: "18px" } }, h("strong", {}, "No partners listed"), "Add brokers and prop firms in Trading plan → Partners & referrals."),
+      : h("div", { class: "card empty", style: { marginTop: "18px" } }, h("strong", {}, "No partners listed"), "Add brokers and prop firms in Trading plan → Partners."),
   );
 }
 
@@ -71,7 +70,7 @@ function partnerEditor(partner, onSaved) {
   const name = h("input", { value: p.name || "", maxlength: "80" });
   const kind = select([["broker", "Broker"], ["prop_firm", "Prop firm"]], p.kind);
   const website = h("input", { type: "url", value: p.website_url || "", placeholder: "https://" });
-  const referral = h("input", { type: "url", value: p.referral_url || "", placeholder: "https://… (your affiliate / IB link)" });
+  const customLink = h("input", { type: "url", value: p.link_url || "", placeholder: "https://… (optional)" });
   const description = h("textarea", { rows: 2, value: p.description || "" });
   const highlights = h("input", { value: (p.highlights || []).join(", "), placeholder: "Comma separated" });
   const order = h("input", { type: "number", step: "1", value: p.sort_order ?? 0 });
@@ -87,7 +86,7 @@ function partnerEditor(partner, onSaved) {
           name: name.value,
           kind: kind.value,
           website_url: website.value.trim(),
-          referral_url: referral.value.trim(),
+          link_url: customLink.value.trim(),
           description: description.value,
           highlights: highlights.value.split(",").map((s) => s.trim()).filter(Boolean),
           sort_order: Number(order.value) || 0,
@@ -117,7 +116,7 @@ function partnerEditor(partner, onSaved) {
       field("Type", kind),
       field("Display order", order),
       field("Official website", website, { full: true }),
-      field("Referral link", referral, { full: true, help: "Shown instead of the website when set" }),
+      field("Custom link", customLink, { full: true, help: "Opened by the Visit button instead of the official website" }),
       field("Description", description, { full: true }),
       field("Highlights", highlights, { full: true }),
       h("label", { class: "check" }, featured, "Featured"),
@@ -131,7 +130,7 @@ export async function renderPartnerSettings(container) {
   async function draw() {
     const partners = await api.get("/api/partners/all");
     const rows = partners.map((partner) => {
-      const input = h("input", { type: "url", value: partner.referral_url, placeholder: partner.website_url || "https://", "aria-label": `Referral link for ${partner.name}` });
+      const input = h("input", { type: "url", value: partner.link_url, placeholder: partner.website_url || "https://", "aria-label": `Custom link for ${partner.name}` });
       const saveLink = h(
         "button",
         {
@@ -139,8 +138,8 @@ export async function renderPartnerSettings(container) {
           type: "button",
           onclick: async () => {
             try {
-              await api.put(`/api/partners/${partner.id}/referral`, { referral_url: input.value.trim() });
-              toast(`Referral link for ${partner.name} saved`, "success");
+              await api.put(`/api/partners/${partner.id}/link`, { link_url: input.value.trim() });
+              toast(`Link for ${partner.name} saved`, "success");
             } catch (error) {
               toast(error.message, "error");
             }
@@ -180,8 +179,8 @@ export async function renderPartnerSettings(container) {
       h(
         "div",
         { class: "card" },
-        h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Partners & referral links"), h("p", {}, "Your affiliate / IB links replace the official website on the Partners page.")), h("button", { class: "btn primary", type: "button", onclick: () => partnerEditor(null, draw) }, icon("plus"), "Add partner")),
-        partners.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Partner"), h("th", {}, "Referral link"), h("th", {}))), h("tbody", {}, rows))) : h("div", { class: "empty" }, "No partners yet."),
+        h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Partners"), h("p", {}, "Brokers and prop firms shown on the Partners page. A custom link replaces the official website link.")), h("button", { class: "btn primary", type: "button", onclick: () => partnerEditor(null, draw) }, icon("plus"), "Add partner")),
+        partners.length ? h("div", { class: "table-wrap" }, h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Partner"), h("th", {}, "Custom link"), h("th", {}))), h("tbody", {}, rows))) : h("div", { class: "empty" }, "No partners yet."),
       ),
     );
   }

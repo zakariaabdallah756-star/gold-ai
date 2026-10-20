@@ -5,8 +5,9 @@ and only inserts the curated defaults when the table is empty.
 
 The defaults deliberately contain only names, official websites and neutral
 descriptions - no claims about spreads, regulation or payouts, which change and
-differ by country. The app owner edits the list and adds referral links in
-Trading plan -> Partners & referrals.
+differ by country. The list is edited in Trading plan -> Partners, where each
+partner can also get a custom link that the Visit button opens instead of the
+official website.
 """
 
 from __future__ import annotations
@@ -71,5 +72,5 @@ def seed_partners(session: Session) -> None:
 
 
 def partner_link(partner: Partner) -> str:
-    """The URL the Visit button opens: the owner's referral link when configured."""
-    return partner.referral_url or partner.website_url
+    """The URL the Visit button opens: the custom link when one is set, else the official website."""
+    return partner.link_url or partner.website_url

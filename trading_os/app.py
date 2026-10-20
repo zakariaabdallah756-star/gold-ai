@@ -13,7 +13,9 @@ from .api import routers
 from .config import STATIC_DIR, AppConfig, load_config
 from .database import create_db_engine, init_db
 from .seed import seed_defaults
+from .services import alerts, notify
 from .services.backup import BackupError
+from .services.scheduler import Scheduler
 from .services.sizing import SizingError
 from .services.trades import TradeBlocked, TradeError
 from .services.uploads import UploadError
@@ -25,11 +27,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     session_factory = init_db(engine)
     with session_factory() as db:
         seed_defaults(db)
+    scheduler = Scheduler(session_factory)
+    notify.register_jobs(scheduler, config)
+    alerts.register_jobs(scheduler, config)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
-        yield
-        engine.dispose()
+        if config.background_jobs:
+            scheduler.start()
+        try:
+            yield
+        finally:
+            scheduler.stop()
+            engine.dispose()
 
     app = FastAPI(
         title=APP_NAME,
@@ -43,6 +53,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.state.config = config
     app.state.engine = engine
     app.state.session_factory = session_factory
+    app.state.scheduler = scheduler
 
     for router in routers:
         app.include_router(router)
@@ -63,6 +74,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
+
+    # The Web Push service worker must be served from the root to control the whole app.
+    @app.get("/sw.js", include_in_schema=False)
+    def service_worker() -> FileResponse:
+        return FileResponse(STATIC_DIR / "sw.js", media_type="text/javascript", headers={"Service-Worker-Allowed": "/"})
 
     return app
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -12,7 +13,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from .models import Base
 
 # Bump when the models change; ``migrate`` brings older files up to date.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
+
+# Columns renamed between versions: (table, old name, new name).
+RENAMED_COLUMNS = (("partners", "referral_url", "link_url"),)
 
 
 def create_db_engine(db_path: Path) -> Engine:
@@ -44,7 +48,10 @@ def _default_sql(column: Column) -> str | None:
     if default is None:
         return None
     if default.is_callable:
-        return "'[]'" if isinstance(column.type, JSON) else None
+        if not isinstance(column.type, JSON):
+            return None
+        value = default.arg(None)  # SQLAlchemy wraps zero-argument callables to accept a context
+        return "'" + json.dumps(value).replace("'", "''") + "'"
     value = default.arg
     if isinstance(value, bool):
         return "1" if value else "0"
@@ -56,15 +63,21 @@ def _default_sql(column: Column) -> str | None:
 
 
 def migrate(engine: Engine) -> list[str]:
-    """Add columns that the models define but an older database file lacks.
+    """Rename columns listed in ``RENAMED_COLUMNS`` and add columns an older database file lacks.
 
-    SQLite can only *add* columns, which is all this app's schema evolution
-    needs. Existing rows receive the column's default (or NULL). Returns the
+    Existing rows receive the column's default (or NULL). Returns the
     ``table.column`` names that were added.
     """
     inspector = inspect(engine)
     added: list[str] = []
     with engine.begin() as connection:
+        for table_name, old_name, new_name in RENAMED_COLUMNS:
+            if not inspector.has_table(table_name):
+                continue
+            names = {column["name"] for column in inspector.get_columns(table_name)}
+            if old_name in names and new_name not in names:
+                connection.execute(text(f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" TO "{new_name}"'))
+        inspector = inspect(connection)
         for table in Base.metadata.sorted_tables:
             if not inspector.has_table(table.name):
                 continue

@@ -1,1 +1,57 @@
-/* Post-market review page (track D). Uses the tokens defined in app.css. */
+/* Post-market review page. Uses the tokens defined in app.css. */
+
+.review-layout { align-items: start; }
+.review-form { display: flex; flex-direction: column; gap: 20px; }
+.review-form .card-head { margin-bottom: 0; flex-wrap: wrap; }
+.review-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.review-label { display: flex; flex-direction: column; gap: 1px; }
+.review-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; }
+.review-notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px 16px; }
+.review-form .chip-toggle { display: inline-flex; align-items: center; gap: 6px; }
+.review-form .chip-toggle svg { width: 14px; height: 14px; }
+.chip-count { font-size: 11px; color: var(--warning); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ rating */
+
+.rating { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.stars { display: inline-flex; gap: 2px; }
+.star {
+  display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px;
+  border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--muted); cursor: pointer;
+}
+.star:hover { background: var(--surface-2); color: var(--text-2); }
+.star svg { width: 24px; height: 24px; }
+.star.on { color: var(--warning); }
+.star.on svg { fill: currentColor; }
+.rating-label { color: var(--text-2); font-size: 13px; font-variant-numeric: tabular-nums; }
+
+/* -------------------------------------------------------------- save state */
+
+.save-state { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); min-height: 28px; }
+.save-state svg { width: 14px; height: 14px; }
+.save-state.saved { color: var(--profit); }
+.save-state.error { color: var(--critical-text); }
+
+/* ----------------------------------------------------------------- history */
+
+.review-list { display: flex; flex-direction: column; max-height: 640px; overflow-y: auto; margin: 0 -8px; }
+.review-row {
+  display: grid; grid-template-columns: 92px minmax(0, 1fr) auto; align-items: center; gap: 10px;
+  padding: 8px; border-radius: var(--radius-sm); color: var(--text); border-bottom: 1px solid var(--border);
+}
+.review-row:hover { background: var(--surface-2); text-decoration: none; }
+.review-row.current { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+.review-row-date { font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.review-row-state { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.review-row-state svg { width: 13px; height: 13px; }
+.review-row-pnl { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; line-height: 1.3; }
+.mini-stars { display: inline-flex; gap: 1px; color: var(--muted); }
+.mini-stars svg { width: 12px; height: 12px; }
+.mini-stars .on { color: var(--warning); }
+.mini-stars .on svg { fill: currentColor; }
+
+@media (max-width: 640px) {
+  .star { width: 40px; height: 40px; }
+  .review-row { grid-template-columns: 80px minmax(0, 1fr) auto; gap: 8px; }
+  .review-list { max-height: none; }
+}

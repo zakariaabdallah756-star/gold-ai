@@ -1,1 +1,46 @@
-/* Prop firm challenge tracker (track P). Uses the tokens defined in app.css. */
+/* Prop firm challenge tracker. Uses the tokens defined in app.css. */
+
+.prop-hero { display: flex; flex-direction: column; gap: 10px; }
+.prop-hero > p { margin: 0; max-width: 760px; }
+
+.prop-presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin-top: 6px; }
+.prop-preset {
+  display: flex; flex-direction: column; gap: 10px; padding: 16px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.prop-preset h3 { font-size: 14.5px; }
+.prop-preset .btn { margin-top: auto; align-self: flex-start; }
+
+.prop-rules { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; margin: 0; font-size: 13px; }
+.prop-rules dt { color: var(--muted); }
+.prop-rules dd { margin: 0; text-align: right; font-weight: 600; color: var(--text); }
+
+.prop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.prop-meter, .prop-target { display: flex; flex-direction: column; gap: 10px; }
+.prop-meter-head { gap: 8px; flex-wrap: nowrap; }
+.prop-meter-head h2 { font-size: 14px; flex: 1; }
+.prop-meter-head > svg { color: var(--muted); }
+.prop-meter-value { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+.prop-level { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--profit); white-space: nowrap; }
+.prop-level.warn { color: var(--warning); }
+.prop-level.bad { color: var(--critical-text); }
+.prop-progress.warn > span { background: var(--warning); }
+.prop-progress.bad > span { background: var(--critical); }
+.prop-meter.bad { border-color: rgba(239, 83, 80, 0.45); }
+.prop-meter.warn { border-color: rgba(250, 178, 25, 0.35); }
+
+.banner.prop-passed { background: var(--profit-wash); border-color: rgba(38, 166, 154, 0.45); }
+.banner.prop-passed svg { color: var(--profit); }
+.card > .banner { margin-top: 14px; }
+
+.chart-legend .legend-swatch { display: inline-block; width: 12px; height: 2px; border-radius: 1px; vertical-align: middle; margin-right: 6px; }
+.legend-swatch.accent { background: var(--accent); height: 3px; }
+.legend-swatch.loss { background: var(--loss); }
+.legend-swatch.profit { background: var(--profit); }
+
+.prop-mode-note { display: flex; gap: 6px; align-items: flex-start; margin-top: 12px; line-height: 1.5; }
+.prop-mode-note svg { flex: none; margin-top: 2px; color: var(--accent); }
+
+@media (max-width: 720px) {
+  .prop-meter-value { font-size: 18px; }
+}
