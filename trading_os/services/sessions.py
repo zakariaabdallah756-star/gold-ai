@@ -61,6 +61,12 @@ def classify_session(
     return best_name
 
 
+def open_sessions(local_time: datetime, tz_name: str, windows: Iterable[SessionWindow]) -> list[str]:
+    """Names of every session open at ``local_time`` (overlaps included)."""
+    utc_minutes = to_utc_minutes(local_time, tz_name)
+    return [window.name for window in windows if minutes_since_open(window, utc_minutes) is not None]
+
+
 def in_trading_window(local_time: datetime, tz_name: str, windows: Iterable[SessionWindow]) -> bool | None:
     """Whether ``local_time`` falls in an *active* session; ``None`` if none are active."""
     active = [window for window in windows if window.active]

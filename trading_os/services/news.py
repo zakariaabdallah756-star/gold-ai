@@ -158,6 +158,17 @@ def cooloff_active(settings, now: datetime) -> bool:
     return settings.cooloff_until is not None and now < settings.cooloff_until
 
 
+def cooloff_covers(settings, entry_time: datetime, now: datetime) -> bool:
+    """Whether an entry at ``entry_time`` falls inside the running cool-off.
+
+    Trades logged after the fact from before the cool-off started are not covered.
+    """
+    if not cooloff_active(settings, now):
+        return False
+    started = settings.cooloff_started_at
+    return started is None or entry_time >= started
+
+
 def cooloff_violation(settings) -> Violation:
     reason = f" ({settings.cooloff_reason})" if settings.cooloff_reason else ""
     return Violation(

@@ -33,11 +33,12 @@ class TradeContext:
     """The parts of a trade draft the Co-Pilot validates."""
 
     direction: str
-    session: str = ""
+    session: str = ""  # the session the trade is filed under
     timeframe: str = ""
     confluences: list[str] = field(default_factory=list)
     planned_rr: float | None = None
     bias: str = ""  # today's pre-market bias: bullish | bearish | neutral | ""
+    open_sessions: list[str] = field(default_factory=list)  # every session open at entry (overlaps)
 
 
 def _join(items: list[str]) -> str:
@@ -93,7 +94,7 @@ def strategy_violations(settings, strategy, ctx: TradeContext) -> list[Violation
         )
 
     sessions = list(strategy.allowed_sessions or [])
-    if sessions and ctx.session not in sessions:
+    if sessions and ctx.session not in sessions and not set(ctx.open_sessions) & set(sessions):
         where = f"in {ctx.session}" if ctx.session else "outside every session"
         violations.append(
             Violation(

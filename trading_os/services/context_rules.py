@@ -51,7 +51,7 @@ def entry_violations(
             violations += news.entry_news_violations(
                 events, settings, symbol=symbol, market=market, entry_time=entry_time
             )
-    if news.cooloff_active(settings, now):
+    if news.cooloff_covers(settings, entry_time, now):
         violations.append(news.cooloff_violation(settings))
     return violations
 

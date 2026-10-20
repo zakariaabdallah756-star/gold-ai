@@ -1,5 +1,8 @@
 """Trading plan: account settings, markets, sessions, strategies, confluences, checklist."""
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from fastapi import APIRouter
 from sqlalchemy import select
 
@@ -18,7 +21,7 @@ from ..constants import (
     TIMEFRAMES,
     TRAIL_TRIGGERS,
 )
-from ..models import ChecklistItem, Confluence, Market, MistakeType, Strategy, TradingSession
+from ..models import ChecklistItem, Confluence, Market, MistakeType, NewsEvent, Strategy, TradingSession
 from ..schemas import (
     ChecklistItemIn,
     ChecklistItemOut,
@@ -50,10 +53,30 @@ def read_settings(settings: SettingsDep):
 @router.put("/settings", response_model=SettingsOut)
 def update_settings(payload: SettingsIn, settings: SettingsDep, db: DbDep):
     # Only fields the client sent are changed, so partial forms can't reset others.
-    for key, value in payload.model_dump(exclude_unset=True).items():
+    changes = payload.model_dump(exclude_unset=True)
+    if changes.get("timezone") and changes["timezone"] != settings.timezone:
+        _move_absolute_times(db, settings, settings.timezone, changes["timezone"])
+    for key, value in changes.items():
         setattr(settings, key, value)
     db.commit()
     return settings
+
+
+def _move_absolute_times(db, settings, old_tz: str, new_tz: str) -> None:
+    """Re-express real moments (the cool-off, scheduled news releases) in the new account time zone.
+
+    Journal entry/exit times stay as recorded: they are the wall-clock times the trader saw.
+    """
+
+    def convert(value: datetime | None) -> datetime | None:
+        if value is None:
+            return None
+        return value.replace(tzinfo=ZoneInfo(old_tz)).astimezone(ZoneInfo(new_tz)).replace(tzinfo=None)
+
+    settings.cooloff_until = convert(settings.cooloff_until)
+    settings.cooloff_started_at = convert(settings.cooloff_started_at)
+    for event in db.scalars(select(NewsEvent)):
+        event.time = convert(event.time)
 
 
 @router.get("/plan")

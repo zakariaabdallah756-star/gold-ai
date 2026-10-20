@@ -12,21 +12,39 @@ from sqlalchemy.orm import Session, selectinload
 from ..models import AccountSettings, ChecklistDay, Market, Strategy, Trade, TradeTarget, TradingSession
 from ..schemas import TradeIn
 from . import context_rules, positions, prop_rules, uploads
-from .account import CLOSE_TIME, compute_day_state, equity_at, local_now, local_today
+from .account import CLOSE_TIME, compute_day_state, day_bounds, equity_at, local_now, local_today, realized_pnl
 from .copilot import TradeContext, strategy_violations
 from .guardrails import (
     DAILY_CODES,
+    DayState,
     Violation,
     daily_violations,
     is_blocking,
     trade_rule_violations,
 )
 from .position_engine import outcome_for
-from .sessions import classify_session, in_trading_window
+from .sessions import classify_session, in_trading_window, open_sessions
 from .sizing import blended_rr, conversion_hint, executed_rr, gross_pnl, planned_rr, risk_for_lots
 
-# Warnings that should not, on their own, mark a trade as "rules broken".
-NON_COMPLIANCE_EXEMPT = frozenset({"NO_TAKE_PROFIT"})
+# Warnings that should not, on their own, mark a trade as "rules broken" (informational notices).
+NON_COMPLIANCE_EXEMPT = frozenset(
+    {"NO_TAKE_PROFIT", "STRATEGY_INCUBATOR", "PROP_TARGET_REACHED", "PROP_CHALLENGE_ENDED"}
+)
+# Fields that define a trade for the guardrails: editing only other fields (notes, tags, emotion,
+# mistakes, screenshots...) keeps the violations recorded when the trade was logged.
+MATERIAL_FIELDS = (
+    "entry_time",
+    "symbol",
+    "direction",
+    "entry_price",
+    "stop_loss",
+    "take_profit",
+    "position_size",
+    "strategy",
+    "timeframe",
+    "session",
+    "status",
+)
 
 SORTABLE = {
     "entry_time": Trade.entry_time,
@@ -84,9 +102,13 @@ def evaluate(
 ) -> Evaluation:
     """Compute derived inputs and every guardrail violation for ``data``.
 
-    A trade is *live* when it is a new open position dated today or later;
-    only live trades can be blocked. Daily rules are evaluated for new trades
-    dated today; on updates the originally recorded daily violations are kept.
+    A trade is *live* when it is an open position dated today or later that is
+    new, reopened by the edit, or had its risk raised by the edit; only live
+    trades can be blocked. Daily rules judge live entries against the current
+    day and trades logged after the fact against the day as it stood at their
+    entry time. Other edits keep the daily violations recorded at logging time
+    (the news window follows a corrected entry time), and edits that change no
+    trade-defining field keep every recorded violation.
     """
     tz = settings.timezone
     entry_time = normalize_time(data.entry_time, tz)
@@ -102,6 +124,9 @@ def evaluate(
 
     windows = list(db.scalars(select(TradingSession)))
     session_name = data.session or classify_session(entry_time, tz, windows)
+    if existing is not None and entry_time != existing.entry_time and data.session == existing.session:
+        # The form sends the stored session back: a corrected entry time is re-classified.
+        session_name = classify_session(entry_time, tz, windows)
     if data.targets:
         rr = blended_rr(data.entry_price, data.stop_loss, [(t.price, t.close_pct) for t in data.targets])
     else:
@@ -132,26 +157,52 @@ def evaluate(
             confluences=list(data.confluences),
             planned_rr=rr,
             bias=checklist_day.bias if checklist_day else "",
+            open_sessions=open_sessions(entry_time, tz, windows),
         ),
     )
 
     today = local_today(settings)
-    if existing is None:
-        if entry_time.date() >= today:
-            day = compute_day_state(db, settings, today)
-            violations += daily_violations(settings, day, risk_amount)
-            # Prop-firm challenge rules ("prop mode", services.prop_rules).
-            violations += prop_rules.entry_violations(
-                db, settings, risk_amount=risk_amount, entry_time=entry_time, now=local_now(settings)
-            )
-        # Economic-calendar window and kill switch (services.context_rules).
-        violations += context_rules.entry_violations(
-            db, settings, symbol=data.symbol, entry_time=entry_time, now=local_now(settings)
-        )
-    else:
-        violations += [Violation(**v) for v in existing.violations or [] if v.get("code") in DAILY_CODES]
+    now = local_now(settings)
+    managed = existing is not None and positions.has_fills(existing)
+    # An edit that reopens a trade, or raises the risk of an open one, is judged like a new entry.
+    reopening = existing is not None and not managed and existing.status != "open" and data.status == "open"
+    risk_raised = (
+        existing is not None
+        and not managed
+        and existing.status == "open"
+        and (risk_amount or 0.0) > (existing.risk_amount or 0.0) + 0.005
+    )
+    entry_like = existing is None or reopening or risk_raised
+    live = entry_like and data.status == "open" and entry_time.date() >= today
 
-    live = existing is None and data.status == "open" and entry_time.date() >= today
+    if live:
+        day, own_risk = _live_day_state(db, settings, today, existing)
+        new_risk = max((risk_amount or 0.0) - own_risk, 0.0) if risk_amount is not None else None
+        violations += daily_violations(settings, day, new_risk)
+        # Prop-firm challenge rules ("prop mode", services.prop_rules).
+        violations += prop_rules.entry_violations(db, settings, risk_amount=new_risk, entry_time=entry_time, now=now)
+    elif entry_like and entry_time.date() == today:
+        # Logged after the fact: judge the day as it stood when the trade was entered.
+        violations += daily_violations(settings, _day_state_at(db, settings, entry_time, existing))
+    if entry_like:
+        # Economic-calendar window and kill switch (services.context_rules).
+        violations += context_rules.entry_violations(db, settings, symbol=data.symbol, entry_time=entry_time, now=now)
+    else:
+        # Keep what was recorded when the trade was logged, except the news window, which follows
+        # the (possibly corrected) entry time and symbol.
+        violations += [
+            Violation(**v)
+            for v in existing.violations or []
+            if v.get("code") in DAILY_CODES and v.get("code") != "NEWS_WINDOW"
+        ]
+        violations += [
+            v
+            for v in context_rules.entry_violations(db, settings, symbol=data.symbol, entry_time=entry_time, now=now)
+            if v.code == "NEWS_WINDOW"
+        ]
+        if not _material_change(existing, data, entry_time, session_name):
+            violations = [Violation(**v) for v in existing.violations or []]
+
     if not live:
         violations = [violation.as_warning() for violation in violations]
 
@@ -166,6 +217,50 @@ def evaluate(
         live=live,
         violations=violations,
     )
+
+
+def _live_day_state(
+    db: Session, settings: AccountSettings, today: date, existing: Trade | None
+) -> tuple[DayState, float]:
+    """Today's state for a live entry, without the edited trade's own count and open risk."""
+    day = compute_day_state(db, settings, today)
+    own_risk = 0.0
+    if existing is not None:
+        if existing.entry_time.date() == today:
+            day = replace(day, trades_today=max(day.trades_today - 1, 0))
+        if existing.status == "open":
+            own_risk = existing.remaining_risk if existing.remaining_risk is not None else existing.risk_amount or 0.0
+            day = replace(day, open_risk=max(day.open_risk - own_risk, 0.0))
+    return day, own_risk
+
+
+def _day_state_at(db: Session, settings: AccountSettings, when: datetime, existing: Trade | None) -> DayState:
+    """The day as it stood at ``when``: trades entered before it and P&L realised before it.
+
+    Open risk at that moment is unknown, so the daily risk budget is not judged.
+    """
+    start, _ = day_bounds(when.date())
+    # Inclusive of the same second: a loss closed as this trade was entered came first.
+    earlier = select(func.count(Trade.id)).where(Trade.entry_time >= start, Trade.entry_time <= when)
+    if existing is not None:
+        earlier = earlier.where(Trade.id != existing.id)
+    day = compute_day_state(db, settings, when.date())
+    return replace(
+        day,
+        realized_pnl_today=realized_pnl(db, since=start, before=when + timedelta(seconds=1)),
+        trades_today=int(db.scalar(earlier) or 0),
+        open_risk=0.0,
+    )
+
+
+def _material_change(existing: Trade, data: TradeIn, entry_time: datetime, session: str) -> bool:
+    """Whether an edit touches a field the guardrails judge (see ``MATERIAL_FIELDS``)."""
+    proposed = {**data.model_dump(include=set(MATERIAL_FIELDS)), "entry_time": entry_time, "session": session}
+    if any(getattr(existing, key) != proposed[key] for key in MATERIAL_FIELDS):
+        return True
+    if sorted(existing.confluences or []) != sorted(data.confluences):
+        return True
+    return [(t.price, t.close_pct) for t in existing.targets] != [(t.price, t.close_pct) for t in data.targets]
 
 
 def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSettings) -> None:
@@ -269,8 +364,14 @@ def create_trade(db: Session, settings: AccountSettings, data: TradeIn) -> tuple
 
 
 def update_trade(db: Session, settings: AccountSettings, trade: Trade, data: TradeIn) -> tuple[Trade, list[Violation]]:
-    """Save edits. Never blocked; a managed trade ignores status/exit/P&L from ``data``."""
+    """Save edits; a managed trade ignores status/exit/P&L from ``data``.
+
+    Edits are only blocked when they act like a new live entry: reopening a trade
+    dated today, or raising the risk of today's open trade.
+    """
     ev = evaluate(db, settings, data, existing=trade)
+    if ev.blocked:
+        raise TradeBlocked(ev.violations)
     try:
         positions.validate_edit(
             trade,

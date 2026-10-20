@@ -226,13 +226,24 @@ def test_kill_switch_blocks_live_entries_and_warns_on_logged_trades(client):
     assert blocked.status_code == 423
     assert "KILL_SWITCH" in {v["code"] for v in blocked.json()["violations"]}
 
+    # A trade taken during the cool-off and logged after the fact is recorded, with a warning.
+    during = (now_utc() + timedelta(seconds=1)).isoformat()
     logged = client.post(
         "/api/trades",
-        json=trade_payload(status="closed", entry_time=yesterday_iso(), exit_time=yesterday_iso(), exit_price=2660.0),
+        json=trade_payload(status="closed", entry_time=during, exit_time=during, exit_price=2660.0),
     )
     assert logged.status_code == 201, logged.text
     warning = next(v for v in logged.json()["trade"]["violations"] if v["code"] == "KILL_SWITCH")
     assert warning["severity"] == "warn" and "(Tilt)" in warning["message"]
+
+    # A trade from before the cool-off started is not judged by it.
+    earlier = client.post(
+        "/api/trades",
+        json=trade_payload(status="closed", entry_time=yesterday_iso(), exit_time=yesterday_iso(), exit_price=2660.0),
+    )
+    assert earlier.status_code == 201, earlier.text
+    assert "KILL_SWITCH" not in {v["code"] for v in earlier.json()["trade"]["violations"]}
+    assert earlier.json()["trade"]["rule_compliant"] is True
 
 
 def test_kill_switch_extends_but_never_shortens_and_release_needs_unlock(client):

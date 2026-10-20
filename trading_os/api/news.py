@@ -215,6 +215,8 @@ def activate_killswitch(payload: KillSwitchIn, settings: SettingsDep, db: DbDep)
     now = account.local_now(settings)
     active = news_rules.cooloff_active(settings, now)
     settings.cooloff_until = news_rules.extended_cooloff(settings.cooloff_until if active else None, now, payload.hours)
+    if not active:
+        settings.cooloff_started_at = now
     if payload.reason or not active:
         settings.cooloff_reason = payload.reason
     db.commit()
@@ -227,6 +229,7 @@ def release_killswitch(payload: ReleaseIn, settings: SettingsDep, db: DbDep):
     if payload.confirm.strip() != UNLOCK_PHRASE:
         raise HTTPException(status_code=400, detail=f'Type "{UNLOCK_PHRASE}" to end the cool-off early')
     settings.cooloff_until = None
+    settings.cooloff_started_at = None
     settings.cooloff_reason = ""
     db.commit()
     return account.daily_status(db, settings)
