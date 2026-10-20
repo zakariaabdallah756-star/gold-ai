@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from ..constants import DEFAULT_TP_SPLITS
 from ..models import (
     AccountSettings,
+    AlertRule,
     BacktestTrade,
     ChecklistDay,
     ChecklistItem,
@@ -35,7 +36,7 @@ from ..models import (
     Trade,
 )
 from ..schemas import TargetIn, TradeIn
-from . import positions, prop
+from . import alerts, market_data, positions, prop
 from .account import local_now
 from .backtest import derive
 from .sizing import round_lots
@@ -343,6 +344,7 @@ def seed_demo(db: Session, today: date, trading_days: int = 80, seed: int = 11, 
     _seed_backtests(db, rng, days[0])
     db.commit()
     _seed_prop_challenge(db, settings, today)
+    _seed_alerts(db, settings, now)
     return created
 
 
@@ -473,3 +475,52 @@ def _seed_prop_challenge(db: Session, settings: AccountSettings, today: date) ->
     db.commit()
     prop.activate(db, challenge)
     prop.refresh(db, settings, challenge)
+
+
+DEMO_ALERT_SYMBOLS = ("XAUUSD", "EURUSD", "NAS100")
+
+
+def _seed_alerts(db: Session, settings: AccountSettings, now: datetime) -> None:
+    """A strategy-linked alert rule on synthetic demo candles, with the setups the engine found in the last two days.
+
+    The history is produced by the real engine (``alerts.evaluate`` on each past closed candle), so the
+    feed shows what the scanner would have sent. The scanner itself stays off until the user turns it on.
+    """
+    strategy = db.scalar(select(Strategy).where(Strategy.name == "Price Action"))
+    rule = AlertRule(
+        name="Trend breakout (demo data)",
+        strategy_id=strategy.id if strategy else None,
+        symbols=list(DEMO_ALERT_SYMBOLS),
+        timeframe="H1",
+        provider="demo",
+        conditions=[
+            {"type": "ema_trend", "params": {"fast": 20, "slow": 50}, "confluence": "HTF trend alignment"},
+            {"type": "range_breakout", "params": {"bars": 20}, "confluence": "Momentum / volume"},
+            {"type": "atr_filter", "params": {"period": 14, "min_atr_pct": 0.05}, "confluence": "Volatility (ATR)"},
+        ],
+        stop_method="atr",
+        atr_multiple=1.5,
+        targets_rr=[1.5, 3.0],
+        cooldown_minutes=240,
+        notify=True,
+    )
+    db.add(rule)
+    db.flush()
+    cooldown = timedelta(minutes=rule.cooldown_minutes)
+    for symbol in DEMO_ALERT_SYMBOLS:
+        bars = market_data.fetch_candles(db, settings, "demo", symbol, rule.timeframe, now=now)
+        last_alert: datetime | None = None
+        for end in range(len(bars) - 48, len(bars)):
+            window = bars[: end + 1]
+            closed_at = window[-1].time + market_data.timeframe_delta(rule.timeframe)
+            if last_alert is not None and closed_at - last_alert < cooldown:
+                continue
+            ev = alerts.evaluate(db, settings, rule, symbol, window, closed_at)
+            if not ev.found:
+                continue
+            alert = alerts.record_alert(db, settings, rule, ev, closed_at)
+            alert.status = "new" if now - closed_at < timedelta(hours=12) else "seen"
+            rule.last_alert_at = max(rule.last_alert_at or closed_at, closed_at)
+            last_alert = closed_at
+    rule.last_checked_at = now
+    db.commit()

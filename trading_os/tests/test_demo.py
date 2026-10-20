@@ -2,9 +2,19 @@ from datetime import datetime, time
 
 from sqlalchemy import func, select
 
-from trading_os.models import BacktestTrade, DailyReview, NewsEvent, Strategy, Trade, TradeEvent
+from trading_os.models import (
+    AlertRule,
+    BacktestTrade,
+    DailyReview,
+    NewsEvent,
+    Strategy,
+    StrategyAlert,
+    Trade,
+    TradeEvent,
+)
 from trading_os.services.account import get_settings, local_today
 from trading_os.services.demo import seed_demo
+from trading_os.services.signal_parser import parse_signal
 
 
 def test_demo_journal_showcases_every_module(client):
@@ -24,6 +34,15 @@ def test_demo_journal_showcases_every_module(client):
         incubator = db.scalar(select(Strategy).where(Strategy.status == "incubator"))
         assert incubator is not None
         assert db.scalar(select(func.count()).where(BacktestTrade.strategy_id == incubator.id)) > 30
+
+        # Alert history comes from the real engine on synthetic candles (how many depends on the date);
+        # alerts never create trades.
+        rule = db.scalar(select(AlertRule))
+        assert rule is not None and rule.provider == "demo" and rule.strategy_id is not None
+        assert db.scalar(select(func.count()).select_from(Trade)) == created
+        for alert in db.scalars(select(StrategyAlert)):
+            parsed = parse_signal(alert.signal_text, [alert.symbol])
+            assert parsed.symbol == alert.symbol and parsed.stop_loss == alert.stop_loss
 
     positions = client.get("/api/positions").json()
     assert len(positions["positions"]) == 2
