@@ -16,12 +16,12 @@ from datetime import date, datetime, time, timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from pydantic import BaseModel, BeforeValidator, Field, StringConstraints
+from pydantic import BeforeValidator, Field, StringConstraints
 from sqlalchemy import select
 
 from .. import APP_NAME, __version__
 from ..models import AccountSettings, NewsEvent
-from ..schemas import DailyStatusOut
+from ..schemas import DailyStatusOut, FiniteModel
 from ..services import account
 from ..services import news as news_rules
 from ..services.trades import normalize_time
@@ -46,7 +46,7 @@ WindowMinutes = Annotated[int | None, Field(ge=0, le=news_rules.MAX_WINDOW_MIN)]
 # --------------------------------------------------------------------------- schemas
 
 
-class NewsIn(BaseModel):
+class NewsIn(FiniteModel):
     time: datetime
     title: Annotated[str, StringConstraints(min_length=1, max_length=news_rules.TITLE_MAX, strip_whitespace=True)]
     currency: NewsCurrency = Field("USD", description='ISO currency code, or "ALL" for every market')
@@ -56,7 +56,7 @@ class NewsIn(BaseModel):
     notes: Annotated[str, StringConstraints(max_length=news_rules.NOTES_MAX, strip_whitespace=True)] = ""
 
 
-class NewsOut(BaseModel):
+class NewsOut(FiniteModel):
     id: int
     time: datetime
     title: str
@@ -73,23 +73,23 @@ class NewsOut(BaseModel):
     meets_threshold: bool  # impact >= the account's minimum impact
 
 
-class ImportIn(BaseModel):
+class ImportIn(FiniteModel):
     min_impact: Impact | None = Field(None, description="Lowest impact to import (default: the account minimum)")
 
 
-class ImportOut(BaseModel):
+class ImportOut(FiniteModel):
     fetched: int
     imported: int
     duplicates: int
     below_threshold: int
 
 
-class KillSwitchIn(BaseModel):
+class KillSwitchIn(FiniteModel):
     hours: int = Field(24, ge=1, le=72)
     reason: Annotated[str, StringConstraints(max_length=200, strip_whitespace=True)] = ""
 
 
-class ReleaseIn(BaseModel):
+class ReleaseIn(FiniteModel):
     confirm: str = ""
 
 

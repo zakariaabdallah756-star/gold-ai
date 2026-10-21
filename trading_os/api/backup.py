@@ -52,5 +52,5 @@ async def import_backup(db: DbDep, config: ConfigDep, file: Annotated[UploadFile
     if len(raw) > MAX_RESTORE_BYTES:
         raise backup.BackupError("Backup file is too large")
     snapshot = backup.write_safety_snapshot(db, config.backups_dir)
-    counts = backup.restore_upload(db, raw, file.filename or "", config.uploads_dir)
+    counts = backup.restore_upload(db, raw, file.filename or "", config.uploads_dir, config.max_upload_bytes)
     return {"restored": counts, "safety_snapshot": snapshot.name}

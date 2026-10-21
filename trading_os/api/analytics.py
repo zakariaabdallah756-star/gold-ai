@@ -4,11 +4,10 @@ from datetime import date, datetime, time
 from typing import Annotated
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from ..models import DailyReview, Trade
-from ..schemas import TradeOut
+from ..schemas import FiniteModel, TradeOut
 from ..services import analytics, reviews, time_analytics
 from ..services import trades as trade_service
 from ..services.account import local_today, realized_pnl
@@ -20,7 +19,7 @@ router = APIRouter(prefix="/api", tags=["analytics"])
 MonthParam = Annotated[str | None, Query(pattern=r"^[12]\d{3}-(0[1-9]|1[0-2])$", description="YYYY-MM")]
 
 
-class DayDetailOut(BaseModel):
+class DayDetailOut(FiniteModel):
     date: str
     trades: list[TradeOut]
     pnl: float

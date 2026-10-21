@@ -4,10 +4,11 @@ from datetime import date
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import Field, StringConstraints
 from sqlalchemy import select
 
 from ..models import PropChallenge
+from ..schemas import FiniteModel
 from ..services import prop
 from ..services.account import local_today
 from .deps import DbDep, SettingsDep, get_or_404
@@ -17,7 +18,7 @@ router = APIRouter(prefix="/api/prop", tags=["prop"])
 Percent = Annotated[float, Field(gt=0, le=100)]
 
 
-class ChallengeIn(BaseModel):
+class ChallengeIn(FiniteModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=80, strip_whitespace=True)]
     firm: Annotated[str, StringConstraints(max_length=60, strip_whitespace=True)] = ""
     preset: Literal[prop.PRESET_KEYS] = "custom"

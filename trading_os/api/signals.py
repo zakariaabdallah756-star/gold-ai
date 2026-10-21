@@ -16,13 +16,13 @@ This module intentionally does not use ``from __future__ import annotations``
 from typing import Annotated, Literal
 
 from fastapi import APIRouter
-from pydantic import BaseModel, Field, StringConstraints, ValidationError
+from pydantic import Field, StringConstraints, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..constants import MAX_TARGETS
 from ..models import AccountSettings, Market
-from ..schemas import MarketOut, TradeCheckOut, TradeIn
+from ..schemas import FiniteModel, MarketOut, TradeCheckOut, TradeIn
 from ..services import account
 from ..services import trades as trade_service
 from ..services.signal_parser import ParsedSignal, parse_signal, resolve_close_pcts, split_lots
@@ -43,7 +43,7 @@ NOTHING_RECOGNISED = "No trade signal recognised - paste a message with a symbol
 # --------------------------------------------------------------------------- request / response models
 
 
-class ParseIn(BaseModel):
+class ParseIn(FiniteModel):
     text: SignalText = ""
     risk_pct: Number | None = None
     account_equity: Number | None = None
@@ -53,13 +53,13 @@ class ParseIn(BaseModel):
     confluences: Confluences = []
 
 
-class TargetDraft(BaseModel):
+class TargetDraft(FiniteModel):
     price: Number | None = None
     pips: Number | None = None  # relative target, used while ``price`` is empty
     close_pct: Number | None = None  # blank = default split / share of the rest
 
 
-class TicketDraft(BaseModel):
+class TicketDraft(FiniteModel):
     """The editable signal ticket (body of ``/signals/preview``)."""
 
     symbol: Annotated[str, StringConstraints(max_length=20, strip_whitespace=True, to_upper=True)] = ""
@@ -83,7 +83,7 @@ class TicketDraft(BaseModel):
     signal_text: SignalText = ""
 
 
-class ParsedOut(BaseModel):
+class ParsedOut(FiniteModel):
     symbol: str | None
     symbol_raw: str | None
     direction: Literal["long", "short"] | None
@@ -98,7 +98,7 @@ class ParsedOut(BaseModel):
     warnings: list[str]
 
 
-class SizingOut(BaseModel):
+class SizingOut(FiniteModel):
     lots: float  # size used by the ticket (manual override when given)
     auto_lots: float  # size from the risk rules
     manual: bool
@@ -113,7 +113,7 @@ class SizingOut(BaseModel):
     notes: list[str]
 
 
-class TargetPlanOut(BaseModel):
+class TargetPlanOut(FiniteModel):
     level: int
     price: float
     close_pct: float
@@ -123,7 +123,7 @@ class TargetPlanOut(BaseModel):
     profit: float | None
 
 
-class SignalPreviewOut(BaseModel):
+class SignalPreviewOut(FiniteModel):
     parsed: ParsedOut | None = None  # /signals/parse only
     draft: TicketDraft | None = None  # /signals/parse only: the ticket fields to edit
     market: MarketOut | None

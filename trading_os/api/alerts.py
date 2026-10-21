@@ -12,11 +12,12 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Request, Response
-from pydantic import BaseModel, Field, StringConstraints, field_validator, model_validator
+from pydantic import Field, StringConstraints, field_validator, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from ..models import AlertRule, Candle, Market, Strategy, StrategyAlert, Trade
+from ..schemas import FiniteModel
 from ..services import alerts, detectors, market_data
 from ..services.account import local_now
 from ..services.trades import normalize_time
@@ -52,7 +53,7 @@ def _check_symbol(value: str) -> str:
     return value
 
 
-class ConditionIn(BaseModel):
+class ConditionIn(FiniteModel):
     type: Annotated[str, StringConstraints(max_length=40)]
     params: dict[str, Any] = Field(default_factory=dict)
     confluence: Annotated[str, StringConstraints(max_length=80, strip_whitespace=True)] = ""
@@ -63,7 +64,7 @@ class ConditionIn(BaseModel):
         return self
 
 
-class RuleIn(BaseModel):
+class RuleIn(FiniteModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=80, strip_whitespace=True)]
     enabled: bool = True
     strategy_id: int | None = None
@@ -115,17 +116,17 @@ class RuleIn(BaseModel):
         return self
 
 
-class ScannerIn(BaseModel):
+class ScannerIn(FiniteModel):
     enabled: bool
     interval_sec: int = Field(ge=alerts.MIN_INTERVAL, le=alerts.MAX_INTERVAL)
 
 
-class AlertStatusIn(BaseModel):
+class AlertStatusIn(FiniteModel):
     status: Literal[alerts.ALERT_STATUSES]
     trade_id: int | None = None
 
 
-class BarIn(BaseModel):
+class BarIn(FiniteModel):
     time: datetime
     open: float = Field(gt=0, allow_inf_nan=False)
     high: float = Field(gt=0, allow_inf_nan=False)
@@ -140,7 +141,7 @@ class BarIn(BaseModel):
         return self
 
 
-class CandlesIn(BaseModel):
+class CandlesIn(FiniteModel):
     symbol: Symbol
     timeframe: Literal[market_data.TIMEFRAMES]
     bars: list[BarIn] = Field(min_length=1, max_length=MAX_PUSH_BARS)
@@ -152,7 +153,7 @@ class CandlesIn(BaseModel):
         return _check_symbol(value)
 
 
-class ProviderKeyIn(BaseModel):
+class ProviderKeyIn(FiniteModel):
     api_key: Annotated[str, StringConstraints(strip_whitespace=True, max_length=200)] = ""
 
 

@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import ipaddress
+import math
 from contextlib import asynccontextmanager
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -59,6 +64,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         app.include_router(router)
     _register_error_handlers(app)
 
+    allowed_hosts = {"localhost", *config.allowed_hosts}
+
+    @app.middleware("http")
+    async def _same_origin_only(request: Request, call_next):
+        # The API has no login: only answer to local names / IP addresses (no DNS rebinding) and refuse
+        # state-changing requests sent by other websites (a form or fetch from another origin).
+        host = request.headers.get("host", "")
+        if not _host_allowed(host, allowed_hosts):
+            return JSONResponse(
+                status_code=400,
+                content={"detail": "Unknown host name. Add it to TRADING_OS_ALLOWED_HOSTS to allow it."},
+            )
+        if request.method not in ("GET", "HEAD", "OPTIONS") and _cross_origin(request, host, config.allowed_hosts):
+            return JSONResponse(status_code=403, content={"detail": "Cross-origin requests are not allowed"})
+        return await call_next(request)
+
     @app.middleware("http")
     async def _headers(request: Request, call_next):
         response = await call_next(request)
@@ -83,7 +104,53 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     return app
 
 
+def _hostname(host: str) -> str:
+    """The name part of a Host header (``[::1]:8765`` -> ``::1``, ``Localhost:80`` -> ``localhost``)."""
+    host = host.strip().lower()
+    if host.startswith("["):
+        return host[1 : host.find("]")] if "]" in host else host
+    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
+
+
+def _host_allowed(host: str, allowed: set[str]) -> bool:
+    name = _hostname(host)
+    if name in allowed:
+        return True
+    try:
+        ipaddress.ip_address(name)  # LAN access by IP; rebinding attacks need a DNS name
+    except ValueError:
+        return False
+    return True
+
+
+def _cross_origin(request: Request, host: str, trusted: tuple[str, ...] = ()) -> bool:
+    """A write sent by another website. ``trusted`` host names (a reverse proxy or tunnel) count as this app."""
+    origin = request.headers.get("origin")
+    if origin is not None and urlsplit(origin).hostname in trusted:
+        return False
+    if request.headers.get("sec-fetch-site") == "cross-site":
+        return True
+    if origin is None:  # scripts, curl, platform webhooks
+        return False
+    return urlsplit(origin).netloc.lower() != host.strip().lower()
+
+
+def _json_safe(value):
+    """Validation errors echo the rejected input; Infinity/NaN must be text to be valid JSON."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _register_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(RequestValidationError)
+    async def _invalid(_request: Request, exc: RequestValidationError):
+        return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})
+
     @app.exception_handler(TradeBlocked)
     async def _blocked(_request: Request, exc: TradeBlocked):
         return JSONResponse(

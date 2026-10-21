@@ -4,9 +4,10 @@ from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, field_validator
 
 from ..constants import MOODS
+from ..schemas import FiniteModel
 from ..services import reviews
 from ..services.account import local_today
 from .deps import DbDep, SettingsDep
@@ -17,7 +18,7 @@ ReviewText = Annotated[str, StringConstraints(max_length=10_000)]
 MistakeName = Annotated[str, StringConstraints(max_length=60, strip_whitespace=True)]
 
 
-class ReviewIn(BaseModel):
+class ReviewIn(FiniteModel):
     discipline_rating: int | None = Field(None, ge=1, le=5)
     mood: str = ""
     followed_plan: bool | None = None
@@ -41,12 +42,12 @@ class ReviewIn(BaseModel):
         return list(dict.fromkeys(value for value in values if value))
 
 
-class NameCount(BaseModel):
+class NameCount(FiniteModel):
     name: str
     count: int
 
 
-class ReviewStats(BaseModel):
+class ReviewStats(FiniteModel):
     trades: int
     net_pnl: float
     wins: int
@@ -64,7 +65,7 @@ class ReviewOut(ReviewIn):
     stats: ReviewStats
 
 
-class ReviewHistoryRow(BaseModel):
+class ReviewHistoryRow(FiniteModel):
     day: date
     exists: bool
     discipline_rating: int | None

@@ -5,11 +5,12 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..models import BacktestTrade, Strategy
+from ..schemas import FiniteModel
 from ..services import backtest
 from .deps import DbDep, SettingsDep, get_or_404
 
@@ -18,7 +19,7 @@ router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 STATUS = Literal["live", "incubator", "retired"]
 
 
-class BacktestTradeIn(BaseModel):
+class BacktestTradeIn(FiniteModel):
     trade_time: datetime
     symbol: Annotated[str, StringConstraints(max_length=20, strip_whitespace=True, to_upper=True)] = ""
     direction: Literal["long", "short"]
@@ -48,22 +49,22 @@ class BacktestTradeOut(BacktestTradeIn):
     outcome: str | None
 
 
-class IncubatorStrategyIn(BaseModel):
+class IncubatorStrategyIn(FiniteModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=60, strip_whitespace=True)]
     description: Annotated[str, StringConstraints(max_length=5000)] = ""
     rules: Annotated[str, StringConstraints(max_length=20000)] = ""
     timeframes: Annotated[str, StringConstraints(max_length=60, strip_whitespace=True)] = ""
 
 
-class StatusIn(BaseModel):
+class StatusIn(FiniteModel):
     status: STATUS
 
 
-class BacktestSettingsIn(BaseModel):
+class BacktestSettingsIn(FiniteModel):
     backtest_risk_per_trade: float | None = Field(None, gt=0)
 
 
-class ImportIn(BaseModel):
+class ImportIn(FiniteModel):
     csv: Annotated[str, StringConstraints(max_length=2_000_000)]
     dry_run: bool = False
 

@@ -11,7 +11,8 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, StringConstraints, field_validator, model_validator
+from pydantic import BaseModel as _PydanticModel
+from pydantic import BeforeValidator, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 
 def _upper(value):
@@ -26,6 +27,15 @@ ShortText = Annotated[str, StringConstraints(max_length=200, strip_whitespace=Tr
 LongText = Annotated[str, StringConstraints(max_length=20_000)]
 Name = Annotated[str, StringConstraints(min_length=1, max_length=80, strip_whitespace=True)]
 Severity = Literal["block", "warn"]
+
+
+class FiniteModel(_PydanticModel):
+    """Base of every request/response model: Infinity and NaN are refused (they would poison P&L and stats)."""
+
+    model_config = ConfigDict(allow_inf_nan=False)
+
+
+BaseModel = FiniteModel
 
 
 class ORMModel(BaseModel):

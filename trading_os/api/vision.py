@@ -5,13 +5,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, StringConstraints, field_validator, model_validator
+from pydantic import ConfigDict, StringConstraints, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import AppConfig
 from ..constants import AI_EFFORTS, AI_MODELS, TIMEFRAMES
 from ..models import AccountSettings, VisionAnalysis
+from ..schemas import FiniteModel
 from ..services import ai_client, uploads, vision
 from ..services.account import local_now
 from .deps import ConfigDep, DbDep, SettingsDep, get_or_404
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["vision"])
 SUMMARY_PREVIEW_CHARS = 240
 
 
-class VisionMessageOut(BaseModel):
+class VisionMessageOut(FiniteModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
@@ -30,7 +31,7 @@ class VisionMessageOut(BaseModel):
     created_at: datetime
 
 
-class VisionSummaryOut(BaseModel):
+class VisionSummaryOut(FiniteModel):
     id: int
     created_at: datetime
     symbol: str
@@ -53,16 +54,16 @@ class VisionAnalysisOut(VisionSummaryOut):
     messages: list[VisionMessageOut]
 
 
-class QuestionIn(BaseModel):
+class QuestionIn(FiniteModel):
     question: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)]
 
 
-class QuestionOut(BaseModel):
+class QuestionOut(FiniteModel):
     question: VisionMessageOut
     answer: VisionMessageOut
 
 
-class AISettingsOut(BaseModel):
+class AISettingsOut(FiniteModel):
     model: str
     effort: str
     models: list[dict[str, Any]]
@@ -71,7 +72,7 @@ class AISettingsOut(BaseModel):
     package_installed: bool
 
 
-class AISettingsIn(BaseModel):
+class AISettingsIn(FiniteModel):
     model: str | None = None
     effort: str | None = None
     api_key: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)] | None = None

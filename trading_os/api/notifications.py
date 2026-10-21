@@ -8,10 +8,11 @@ import re
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, field_validator
 from sqlalchemy import delete, func, select
 
 from ..models import AccountSettings, NotificationChannel, NotificationLog
+from ..schemas import FiniteModel
 from ..services import notify, notify_channels, webpush
 from .deps import DbDep, SettingsDep, get_or_404
 
@@ -26,7 +27,7 @@ WEBPUSH_FROM_DEVICE = (
 )
 
 
-class SettingsIn(BaseModel):
+class SettingsIn(FiniteModel):
     enabled: bool | None = None
     events: list[UserEvent] | None = None
     news_reminder_min: int | None = Field(None, ge=0, le=120)
@@ -51,7 +52,7 @@ class SettingsIn(BaseModel):
         return value
 
 
-class ChannelIn(BaseModel):
+class ChannelIn(FiniteModel):
     kind: Annotated[str, StringConstraints(max_length=12)]
     name: Name = ""
     enabled: bool = True
@@ -59,30 +60,30 @@ class ChannelIn(BaseModel):
     config: dict = {}
 
 
-class ChannelUpdate(BaseModel):
+class ChannelUpdate(FiniteModel):
     name: Name | None = None
     enabled: bool | None = None
     events: list[UserEvent] | None = None
     config: dict | None = None
 
 
-class PushKeys(BaseModel):
+class PushKeys(FiniteModel):
     p256dh: Annotated[str, StringConstraints(max_length=200)]
     auth: Annotated[str, StringConstraints(max_length=100)]
 
 
-class PushSubscription(BaseModel):
+class PushSubscription(FiniteModel):
     endpoint: Annotated[str, StringConstraints(max_length=1000)]
     keys: PushKeys
 
 
-class SubscribeIn(BaseModel):
+class SubscribeIn(FiniteModel):
     subscription: PushSubscription
     name: Name = ""
     old_endpoint: Annotated[str, StringConstraints(max_length=1000)] = ""  # set when the browser rotated it
 
 
-class UnsubscribeIn(BaseModel):
+class UnsubscribeIn(FiniteModel):
     endpoint: Annotated[str, StringConstraints(max_length=1000)]
 
 

@@ -216,7 +216,7 @@ _LABEL_RE = re.compile(
             rf"(?P<sl>(?:{_B}(?:stop[\s_-]*loss|stoploss|s\s*/\s*l|s\.\s?l\.?|sl){_E}|🛑|⛔){_AT})",
             rf"(?P<tp>(?:{_B}(?:take[\s_-]*profit|takeprofit|t\s*/\s*p|t\.\s?p\.?|tp|targets?|tgt){_E}|🎯){_TP_INDEX}{_AT})",
             rf"(?P<entry>{_B}(?:entry(?:[\s_-]*(?:zone|price|point|area|level))?|enter|zone|area|between|price"
-            rf"|@|at(?=\s*[:=-]?\s*\d)){_E}{_AT})",
+            rf"|@|at(?=\s*(?:[:=-]\s*)?\d)){_E}{_AT})",
             rf"(?P<dir>{_B}(?:buy|sell)(?:ing)?{_E}|{_B}(?:long|short|bullish|bearish){_E})",
             rf"(?P<market>{_B}(?:now|market|instant|immediately|cmp){_E})",
             rf"(?P<limit>{_B}limit{_E})",

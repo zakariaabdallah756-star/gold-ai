@@ -31,7 +31,7 @@ def test_partners_seeded_once_and_custom_links(client, tmp_path):
 
     # Restarting the app on the same data dir does not duplicate the defaults.
     again = create_app(dataclasses.replace(load_config(tmp_path / "data"), background_jobs=False))
-    with TestClient(again) as second:
+    with TestClient(again, base_url="http://localhost") as second:
         assert len(second.get("/api/partners/all").json()) == len(client.get("/api/partners/all").json())
 
 
@@ -113,7 +113,7 @@ def test_partner_referral_column_is_renamed_on_upgrade(tmp_path):
     """A v3 database stored the custom link as partners.referral_url; it is kept as link_url."""
     data = tmp_path / "data"
     first = create_app(dataclasses.replace(load_config(data), background_jobs=False))
-    with TestClient(first):
+    with TestClient(first, base_url="http://localhost"):
         pass
     first.state.engine.dispose()
     con = sqlite3.connect(data / "journal.db")
@@ -124,7 +124,7 @@ def test_partner_referral_column_is_renamed_on_upgrade(tmp_path):
     con.close()
 
     upgraded = create_app(dataclasses.replace(load_config(data), background_jobs=False))
-    with TestClient(upgraded) as client:
+    with TestClient(upgraded, base_url="http://localhost") as client:
         ftmo = next(p for p in client.get("/api/partners").json() if p["name"] == "FTMO")
         assert ftmo["link"] == "https://ftmo.com/en/"
     con = sqlite3.connect(data / "journal.db")

@@ -13,11 +13,11 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import Field
 from sqlalchemy import select
 
 from ..models import Market, Trade, TradeEvent
-from ..schemas import ShortText, Symbol, TradeEventOut, TradeOut
+from ..schemas import FiniteModel, ShortText, Symbol, TradeEventOut, TradeOut
 from ..services import positions as position_service
 from ..services import trades as trade_service
 from ..services.position_engine import PositionConflict, PositionError
@@ -29,7 +29,7 @@ router = APIRouter(prefix="/api", tags=["positions"])
 # --------------------------------------------------------------------------- schemas
 
 
-class PriceIn(BaseModel):
+class PriceIn(FiniteModel):
     price: float | None = Field(
         None, gt=0, description="Last/current price (also the high and low when they are omitted)"
     )
@@ -42,7 +42,7 @@ class SymbolPriceIn(PriceIn):
     symbol: Symbol
 
 
-class PartialCloseIn(BaseModel):
+class PartialCloseIn(FiniteModel):
     lots: float = Field(gt=0, description="Lots to close (floored to the lot step)")
     price: float = Field(gt=0)
     time: datetime | None = None
@@ -50,20 +50,20 @@ class PartialCloseIn(BaseModel):
     note: ShortText = ""
 
 
-class CloseIn(BaseModel):
+class CloseIn(FiniteModel):
     price: float = Field(gt=0)
     time: datetime | None = None
     pnl: float | None = Field(None, description="Gross fill P&L; overrides the calculated value")
     note: ShortText = ""
 
 
-class MoveStopIn(BaseModel):
+class MoveStopIn(FiniteModel):
     stop: float = Field(gt=0)
     time: datetime | None = None
     note: ShortText = ""
 
 
-class NextTargetOut(BaseModel):
+class NextTargetOut(FiniteModel):
     level: int
     price: float
     close_pct: float
@@ -75,7 +75,7 @@ class PositionOut(TradeOut):
     stop_kind: Literal["initial", "breakeven", "trail", "manual"]
 
 
-class PositionTotalsOut(BaseModel):
+class PositionTotalsOut(FiniteModel):
     open_positions: int
     remaining_risk: float
     unrealized_pnl: float | None
@@ -83,27 +83,27 @@ class PositionTotalsOut(BaseModel):
     risk_free_count: int
 
 
-class PositionListOut(BaseModel):
+class PositionListOut(FiniteModel):
     positions: list[PositionOut]
     totals: PositionTotalsOut
 
 
-class TradeEventsOut(BaseModel):
+class TradeEventsOut(FiniteModel):
     trade: TradeOut
     events: list[TradeEventOut]
 
 
-class TradeOnlyOut(BaseModel):
+class TradeOnlyOut(FiniteModel):
     trade: TradeOut
 
 
-class SymbolPriceResult(BaseModel):
+class SymbolPriceResult(FiniteModel):
     trade_id: int
     events: list[TradeEventOut]
     skipped: str | None
 
 
-class SymbolPriceOut(BaseModel):
+class SymbolPriceOut(FiniteModel):
     results: list[SymbolPriceResult]
     trades: list[TradeOut]
 

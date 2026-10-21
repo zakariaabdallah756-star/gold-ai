@@ -396,6 +396,11 @@ def parse_csv(text: str) -> tuple[list[dict], list[dict]]:
     return rows, errors
 
 
+def _csv_text(value: str) -> str:
+    """Neutralise spreadsheet formula injection in a text cell."""
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
+
+
 def export_csv(trades: list[BacktestTrade]) -> str:
     buffer = io.StringIO()
     writer = csv.writer(buffer)
@@ -416,19 +421,17 @@ def export_csv(trades: list[BacktestTrade]) -> str:
         ]
     )
     for t in trades:
-        notes = t.notes or ""
-        if notes[:1] in ("=", "+", "-", "@"):
-            notes = "'" + notes  # neutralise spreadsheet formulas
+        notes = _csv_text(t.notes or "")
         writer.writerow(
             [
                 t.trade_time.isoformat(sep=" ", timespec="minutes"),
-                t.symbol,
+                _csv_text(t.symbol or ""),
                 t.direction,
                 *("" if v is None else v for v in (t.entry_price, t.stop_loss, t.take_profit, t.exit_price)),
                 "" if t.r_multiple is None else t.r_multiple,
                 "" if t.pnl is None else t.pnl,
-                t.session,
-                t.timeframe,
+                _csv_text(t.session or ""),
+                _csv_text(t.timeframe or ""),
                 notes,
             ]
         )

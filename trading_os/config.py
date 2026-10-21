@@ -35,6 +35,8 @@ class AppConfig:
     max_upload_mb: int = DEFAULT_MAX_UPLOAD_MB
     # Background thread (strategy alert scanner, notification watchers). Off in tests.
     background_jobs: bool = True
+    # Host names (besides localhost and IP addresses) the server answers to, e.g. a LAN name or a tunnel.
+    allowed_hosts: tuple[str, ...] = ()
 
     @property
     def db_path(self) -> Path:
@@ -79,10 +81,14 @@ def load_config(data_dir: str | Path | None = None) -> AppConfig:
         "no",
         "off",
     )
+    allowed_hosts = tuple(
+        name.strip().lower() for name in os.environ.get("TRADING_OS_ALLOWED_HOSTS", "").split(",") if name.strip()
+    )
     config = AppConfig(
         data_dir=Path(resolved).expanduser().resolve(),
         max_upload_mb=max_upload_mb,
         background_jobs=background_jobs,
+        allowed_hosts=allowed_hosts,
     )
     config.ensure_dirs()
     return config

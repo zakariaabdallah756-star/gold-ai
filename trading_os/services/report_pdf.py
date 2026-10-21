@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 from datetime import datetime
+from xml.sax.saxutils import escape as xml_escape
 
 from .disclaimer import FOOTER_TEXT
 
@@ -89,6 +90,11 @@ def profit_factor(stats: dict) -> str:
     return num(stats.get("profit_factor"))
 
 
+def _markup_safe(text) -> str:
+    """Paragraph text: reportlab parses it as XML-like markup, so user text (names, filters) is escaped."""
+    return xml_escape(_ascii(text))
+
+
 def _ascii(text) -> str:
     return (
         str(text)
@@ -124,16 +130,16 @@ class _Builder:
             "small": ps("small", parent=base["Normal"], fontSize=7, leading=9, textColor=MUTED),
         }
         self.story = [
-            rl["Paragraph"](_ascii(title), self.styles["title"]),
-            rl["Paragraph"](_ascii(subtitle), self.styles["subtitle"]),
+            rl["Paragraph"](_markup_safe(title), self.styles["title"]),
+            rl["Paragraph"](_markup_safe(subtitle), self.styles["subtitle"]),
         ]
         self.width = rl["A4"][0] - 36 * rl["mm"]
 
     def heading(self, text: str) -> None:
-        self.story.append(self.rl["Paragraph"](_ascii(text), self.styles["h2"]))
+        self.story.append(self.rl["Paragraph"](_markup_safe(text), self.styles["h2"]))
 
     def paragraph(self, text: str, style: str = "body") -> None:
-        self.story.append(self.rl["Paragraph"](_ascii(text), self.styles[style]))
+        self.story.append(self.rl["Paragraph"](_markup_safe(text), self.styles[style]))
 
     def table(
         self, header: list[str], rows: list[list], col_widths=None, numeric_from: int = 1, signs: dict | None = None

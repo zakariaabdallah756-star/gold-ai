@@ -3,11 +3,12 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Response
-from pydantic import BaseModel, Field, StringConstraints, field_validator
+from pydantic import Field, StringConstraints, field_validator
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ..models import Partner
+from ..schemas import FiniteModel
 from ..services import disclaimer
 from ..services.account import local_now
 from ..services.partners import partner_link
@@ -24,7 +25,7 @@ def _http_url(value: str) -> str:
     return value
 
 
-class PartnerIn(BaseModel):
+class PartnerIn(FiniteModel):
     name: Annotated[str, StringConstraints(min_length=1, max_length=80, strip_whitespace=True)]
     kind: Literal["broker", "prop_firm"] = "broker"
     website_url: Url = ""
@@ -52,7 +53,7 @@ class PartnerOut(PartnerIn):
     id: int
 
 
-class LinkIn(BaseModel):
+class LinkIn(FiniteModel):
     link_url: Url = ""
 
     @field_validator("link_url")
