@@ -363,3 +363,14 @@ def test_forexfactory_import_dedupes_and_reports_network_errors(client, monkeypa
     response = client.post("/api/news/import-forexfactory")
     assert response.status_code == 502
     assert "network unreachable" in response.json()["detail"]
+
+
+def test_status_ignores_releases_for_currencies_no_active_market_trades(client):
+    complete_checklist(client)
+    update_settings(client, news_mode="block", news_match_currency=True)
+    for market in client.get("/api/markets").json():
+        if market["symbol"] != "XAUUSD":
+            assert client.put(f"/api/markets/{market['id']}", json={**market, "active": False}).status_code == 200
+    add_event(client, minutes=10, title="BoJ Rate Decision", currency="JPY")
+    status = client.get("/api/risk/status").json()
+    assert "NEWS_WINDOW" not in {r["code"] for r in status["reasons"]} and status["can_trade"] is True

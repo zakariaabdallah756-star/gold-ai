@@ -212,6 +212,8 @@ def compute(db: Session, settings: AccountSettings, challenge: PropChallenge, to
     """Metrics and daily history of ``challenge`` up to today (or its end date)."""
     today = today or local_today(settings)
     until = min(today, challenge.end_date) if challenge.end_date else today
+    if challenge.max_calendar_days:  # nothing realised after the last allowed day counts
+        until = min(until, challenge.start_date + timedelta(days=challenge.max_calendar_days - 1))
     until = max(until, challenge.start_date)
     since = datetime.combine(challenge.start_date, time.min)
     pnl_by_day = daily_realized(db, since, datetime.combine(until + timedelta(days=1), time.min))

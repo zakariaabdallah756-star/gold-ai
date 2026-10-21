@@ -56,12 +56,37 @@ def entry_violations(
     return violations
 
 
+def _open_windows(db: Session, settings: AccountSettings, events: list[NewsEvent], now: datetime) -> list[Violation]:
+    """NEWS_WINDOW status reasons, judged against the markets the account actually trades.
+
+    With currency matching on, a release that affects none of the active markets is left out, and one
+    that affects only some of them names those markets (entries in the others are not restricted).
+    """
+    if settings.news_mode == "off":
+        return []
+    markets = list(db.scalars(select(Market).where(Market.active.is_(True))))
+    severity = news.severity_for(settings.news_mode)
+    reasons = []
+    for event in events:
+        if not news.impact_meets(event.impact, settings.news_min_impact) or not news.in_window(event, settings, now):
+            continue
+        message = news.window_message(event, settings)
+        if settings.news_match_currency and event.currency != news.ALL_CURRENCIES and markets:
+            affected = [m.symbol for m in markets if news.affects_symbol(event.currency, m.symbol, m)]
+            if not affected:
+                continue
+            if len(affected) < len(markets):
+                message = f"{message} Affects {', '.join(affected)}."
+        reasons.append(Violation("NEWS_WINDOW", message, severity))
+    return reasons
+
+
 def status_extras(db: Session, settings: AccountSettings, now: datetime) -> dict:
     """Status fields: ``reasons`` (list[Violation]), ``cooloff_until``, ``cooloff_reason``, ``upcoming_news``."""
     events = events_between(db, now - news.search_margin(settings), now + news.UPCOMING_HORIZON)
     active = news.cooloff_active(settings, now)
     reasons = [news.cooloff_violation(settings)] if active else []
-    reasons += news.active_window_violations(events, settings, now)
+    reasons += _open_windows(db, settings, events, now)
     return {
         "reasons": reasons,
         "cooloff_until": settings.cooloff_until if active else None,

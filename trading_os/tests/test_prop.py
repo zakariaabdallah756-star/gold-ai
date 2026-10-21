@@ -251,3 +251,12 @@ def test_target_reached_warns_and_challenge_end_is_reported(account):
     assert warning["severity"] == "warn" and "more trading day" in warning["message"]
     # Yesterday plus today: 2 of the 3 required trading days.
     assert client.get(f"/api/prop/challenges/{c['id']}").json()["metrics"]["trading_days"] == 2
+
+
+def test_profit_after_the_time_limit_does_not_pass_the_challenge(account):
+    client = account
+    closed_trade(client, -29, 500)  # day 2 of a 30-day window starting 30 days ago
+    closed_trade(client, 0, 600)  # day 31: outside the window
+    c = challenge(client, start_date=_day(-30).isoformat(), max_calendar_days=30, min_trading_days=1)
+    assert c["status"] == "failed" and c["status_reason"] == "Time limit of 30 days elapsed"
+    assert c["metrics"]["profit"] == 500
