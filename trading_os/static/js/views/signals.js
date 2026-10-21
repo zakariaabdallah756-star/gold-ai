@@ -4,6 +4,7 @@
 import { api, ApiError } from "../api.js";
 import { clear, confirmDialog, debounce, field, h, icon, numberOrNull, segmented, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
+import { N_, t, tn } from "../i18n.js";
 import { handoff, loadStatus, state, strategyByName } from "../state.js";
 import { violationList } from "./calculator.js";
 import { copilotPanel, splitCopilot } from "./copilot.js";
@@ -13,8 +14,8 @@ const EXAMPLES = [
   "Sell EUR/USD @1.0850\nStop Loss 1.0880\nTake Profit 1: 1.0820\nTake Profit 2: 1.0760",
   "NAS100 SHORT 18,550 SL: 18,620 TP: 18,400",
 ];
-const TRIGGER_LABELS = { tp1: "After TP1", immediate: "Immediately" };
-const SIDE = { long: "Buy", short: "Sell" };
+const TRIGGER_LABELS = { tp1: N_("After TP1"), immediate: N_("Immediately") };
+const SIDE = { long: N_("Buy"), short: N_("Sell") };
 
 // Kept between visits: the pasted message and the ticket being edited.
 const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, example: -1, context: null, alert: null };
@@ -22,7 +23,6 @@ const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAut
 const num = (value) => numberOrNull({ value: value ?? "" });
 const inputValue = (value) => (value === null || value === undefined ? "" : String(value));
 const filled = (target) => target.price !== null || target.pips !== null;
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 function normalizeDraft(draft) {
   return {
@@ -30,7 +30,7 @@ function normalizeDraft(draft) {
     strategy: draft.strategy || "",
     timeframe: draft.timeframe || "",
     confluences: [...(draft.confluences || [])],
-    targets: (draft.targets || []).map((t) => ({ price: t.price ?? null, pips: t.pips ?? null, close_pct: t.close_pct ?? null })),
+    targets: (draft.targets || []).map((tp) => ({ price: tp.price ?? null, pips: tp.pips ?? null, close_pct: tp.close_pct ?? null })),
   };
 }
 
@@ -66,23 +66,24 @@ function metric(label, value, cls = "") {
 function parseSummary(parsed) {
   const targets = parsed.take_profits.length + parsed.target_pips.length;
   const raw = parsed.symbol_raw && parsed.symbol_raw.replace(/^#/, "").toUpperCase() !== parsed.symbol ? ` (${parsed.symbol_raw})` : "";
-  let entry = ["warn", "No entry - add your fill price"];
-  if (parsed.entry_low !== null) entry = ["ok", `Zone ${fmt.price(parsed.entry_low)}–${fmt.price(parsed.entry_high)} → ${fmt.price(parsed.entry)}`];
-  else if (parsed.entry !== null) entry = ["ok", `Entry ${fmt.price(parsed.entry)}`];
-  let stop = ["bad", "No stop loss"];
-  if (parsed.stop_loss !== null) stop = ["ok", `SL ${fmt.price(parsed.stop_loss)}`];
-  else if (parsed.stop_pips !== null) stop = ["ok", `SL ${fmt.num(parsed.stop_pips, 0)} pips`];
+  let entry = ["warn", t("No entry - add your fill price")];
+  if (parsed.entry_low !== null) {
+    entry = ["ok", t("Zone {low}–{high} → {entry}", { low: fmt.price(parsed.entry_low), high: fmt.price(parsed.entry_high), entry: fmt.price(parsed.entry) })];
+  } else if (parsed.entry !== null) entry = ["ok", t("Entry {price}", { price: fmt.price(parsed.entry) })];
+  let stop = ["bad", t("No stop loss")];
+  if (parsed.stop_loss !== null) stop = ["ok", t("SL {price}", { price: fmt.price(parsed.stop_loss) })];
+  else if (parsed.stop_pips !== null) stop = ["ok", t("SL {pips} pips", { pips: fmt.num(parsed.stop_pips, 0) })];
   const items = [
-    parsed.symbol ? ["ok", `${parsed.symbol}${raw}`] : ["bad", "No symbol"],
-    parsed.direction ? ["ok", `${SIDE[parsed.direction]} · ${parsed.order_type}`] : ["bad", "No direction"],
+    parsed.symbol ? ["ok", `${parsed.symbol}${raw}`] : ["bad", t("No symbol")],
+    parsed.direction ? ["ok", `${t(SIDE[parsed.direction])} · ${parsed.order_type}`] : ["bad", t("No direction")],
     entry,
     stop,
-    targets ? ["ok", plural(targets, "target")] : ["warn", "No take profit"],
+    targets ? ["ok", tn(targets, "{n} target", "{n} targets")] : ["warn", t("No take profit")],
   ];
   const icons = { ok: "checkCircle", warn: "alert", bad: "xCircle" };
   return h(
     "div",
-    { class: "sig-summary", "aria-label": "What the parser found" },
+    { class: "sig-summary", "aria-label": t("What the parser found") },
     items.map(([kind, text]) => h("span", { class: `chip ${kind}` }, icon(icons[kind]), text)),
   );
 }
@@ -108,8 +109,9 @@ export async function render(root) {
     class: "sig-text",
     rows: 8,
     spellcheck: false,
-    "aria-label": "Signal message",
-    placeholder: "Paste the signal here, e.g.\nXAUUSD BUY NOW @ 2650\nSL 2640\nTP1 2660  TP2 2670  TP3 2685",
+    "aria-label": t("Signal message"),
+    // The example after the instruction is a real signal's text: it stays as signals are written.
+    placeholder: t("Paste the signal here, e.g.") + "\nXAUUSD BUY NOW @ 2650\nSL 2640\nTP1 2660  TP2 2670  TP3 2685",
     value: memory.text,
     oninput: () => {
       memory.text = textarea.value;
@@ -193,10 +195,10 @@ export async function render(root) {
       entry: d.entry,
       stop_loss: d.stop_loss,
       stop_pips: d.stop_pips,
-      targets: d.targets.filter(filled).map((t) => ({
-        price: t.price,
-        pips: t.price === null ? t.pips : null,
-        close_pct: memory.splitAuto ? null : t.close_pct,
+      targets: d.targets.filter(filled).map((target) => ({
+        price: target.price,
+        pips: target.price === null ? target.pips : null,
+        close_pct: memory.splitAuto ? null : target.close_pct,
       })),
       risk_pct: d.risk_pct,
       account_equity: d.account_equity ?? null,
@@ -233,7 +235,7 @@ export async function render(root) {
     const d = memory.draft;
     refs = {};
     if (!d) {
-      clear(ticketBox, h("div", { class: "empty" }, h("strong", {}, "No ticket yet"), "Paste a signal above - everything it contains lands here for review."));
+      clear(ticketBox, h("div", { class: "empty" }, h("strong", {}, t("No ticket yet")), t("Paste a signal above - everything it contains lands here for review.")));
       return;
     }
     const changed = () => previewSoon();
@@ -252,8 +254,8 @@ export async function render(root) {
       });
 
     const options = markets.map((m) => [m.symbol, `${m.symbol} - ${m.name}`]);
-    if (!d.symbol) options.unshift(["", "Choose instrument…"]);
-    else if (!markets.some((m) => m.symbol === d.symbol)) options.unshift([d.symbol, `${d.symbol} (not in your markets)`]);
+    if (!d.symbol) options.unshift(["", t("Choose instrument…")]);
+    else if (!markets.some((m) => m.symbol === d.symbol)) options.unshift([d.symbol, t("{symbol} (not in your markets)", { symbol: d.symbol })]);
     const symbol = select(options, d.symbol, {
       onchange: (e) => {
         d.symbol = e.target.value;
@@ -262,8 +264,8 @@ export async function render(root) {
     });
     const direction = segmented(
       [
-        ["long", "Long", "long"],
-        ["short", "Short", "short"],
+        ["long", t("Long"), "long"],
+        ["short", t("Short"), "short"],
       ],
       d.direction,
       (value) => {
@@ -271,7 +273,9 @@ export async function render(root) {
         changed();
       },
     );
-    const stopHelp = d.stop_pips ? `Signal gave ${fmt.num(d.stop_pips, 0)} pips - leave blank to keep the stop that far from your entry.` : null;
+    const stopHelp = d.stop_pips
+      ? t("Signal gave {pips} pips - leave blank to keep the stop that far from your entry.", { pips: fmt.num(d.stop_pips, 0) })
+      : null;
 
     // Targets ---------------------------------------------------------------
     const targetsBox = h("div", { class: "sig-targets" });
@@ -280,19 +284,19 @@ export async function render(root) {
 
     function renderTargets() {
       refs.closeInputs = [];
-      const rows = d.targets.map((t, i) => {
+      const rows = d.targets.map((target, i) => {
         const price = h("input", {
           type: "number",
           step: "any",
           min: "0",
           inputmode: "decimal",
-          value: inputValue(t.price),
-          placeholder: t.pips ? `+${fmt.num(t.pips, 0)} pips` : "Price",
-          "aria-label": `TP${i + 1} price`,
+          value: inputValue(target.price),
+          placeholder: target.pips ? t("+{pips} pips", { pips: fmt.num(target.pips, 0) }) : t("Price"),
+          "aria-label": t("TP{n} price", { n: i + 1 }),
           oninput: (e) => {
-            const was = filled(t);
-            t.price = num(e.target.value);
-            if (filled(t) !== was) refreshSplit();
+            const was = filled(target);
+            target.price = num(e.target.value);
+            if (filled(target) !== was) refreshSplit();
             changed();
           },
         });
@@ -302,10 +306,10 @@ export async function render(root) {
           min: "0",
           max: "100",
           inputmode: "decimal",
-          "aria-label": `TP${i + 1} close percent`,
+          "aria-label": t("TP{n} close percent", { n: i + 1 }),
           oninput: (e) => {
             if (memory.splitAuto) freezeSplit();
-            t.close_pct = num(e.target.value);
+            target.close_pct = num(e.target.value);
             changed();
           },
         });
@@ -321,7 +325,7 @@ export async function render(root) {
             {
               type: "button",
               class: "btn ghost icon-only",
-              "aria-label": `Remove TP${i + 1}`,
+              "aria-label": t("Remove TP{n}", { n: i + 1 }),
               onclick: () => {
                 d.targets.splice(i, 1);
                 renderTargets();
@@ -335,8 +339,8 @@ export async function render(root) {
       clear(
         targetsBox,
         rows.length
-          ? h("div", { class: "sig-tp-row sig-tp-head", "aria-hidden": "true" }, h("span", {}), h("span", {}, "Price"), h("span", {}, "Close"), h("span", {}))
-          : h("p", { class: "muted small" }, "No targets - the trade is logged without a take profit."),
+          ? h("div", { class: "sig-tp-row sig-tp-head", "aria-hidden": "true" }, h("span", {}), h("span", {}, t("Price")), h("span", {}, t("Close")), h("span", {}))
+          : h("p", { class: "muted small" }, t("No targets - the trade is logged without a take profit.")),
         rows,
         splitControl,
       );
@@ -358,20 +362,20 @@ export async function render(root) {
       const priced = d.targets.filter(filled);
       const defaults = defaultsFor(priced.length);
       if (memory.splitAuto) {
-        d.targets.forEach((t, i) => {
+        d.targets.forEach((target, i) => {
           const input = refs.closeInputs[i];
-          const k = priced.indexOf(t);
+          const k = priced.indexOf(target);
           input.value = k >= 0 ? String(defaults[k]) : "";
           input.placeholder = "";
         });
       }
       clear(
         splitControl,
-        d.targets.length < enums.max_targets ? h("button", { type: "button", class: "btn sm", onclick: addTarget }, icon("plus"), "Add target") : null,
+        d.targets.length < enums.max_targets ? h("button", { type: "button", class: "btn sm", onclick: addTarget }, icon("plus"), t("Add target")) : null,
         h("span", { class: "spacer" }),
         memory.splitAuto
           ? d.targets.length
-            ? h("span", { class: "muted small" }, "Default split")
+            ? h("span", { class: "muted small" }, t("Default split"))
             : null
           : h(
               "button",
@@ -380,13 +384,13 @@ export async function render(root) {
                 class: "btn ghost sm",
                 onclick: () => {
                   memory.splitAuto = true;
-                  for (const t of d.targets) t.close_pct = null;
+                  for (const target of d.targets) target.close_pct = null;
                   renderTargets();
                   changed();
                 },
               },
               icon("undo"),
-              "Default split",
+              t("Default split"),
             ),
       );
     }
@@ -394,7 +398,7 @@ export async function render(root) {
     function freezeSplit() {
       const priced = d.targets.filter(filled);
       const defaults = defaultsFor(priced.length);
-      priced.forEach((t, k) => (t.close_pct = defaults[k] ?? null));
+      priced.forEach((target, k) => (target.close_pct = defaults[k] ?? null));
       memory.splitAuto = false;
       refreshSplit();
     }
@@ -407,7 +411,7 @@ export async function render(root) {
       min: "0",
       inputmode: "decimal",
       value: inputValue(d.lots ?? lastPreview?.sizing?.auto_lots),
-      "aria-label": "Lots",
+      "aria-label": t("Lots"),
       oninput: (e) => {
         d.lots = num(e.target.value);
         renderLotsHelp();
@@ -418,9 +422,10 @@ export async function render(root) {
       clear(
         lotsHelp,
         d.lots === null
-          ? "Auto from your risk rules"
+          ? t("Auto from your risk rules")
           : [
-              "Manual size · ",
+              t("Manual size"),
+              " · ",
               h(
                 "button",
                 {
@@ -433,18 +438,18 @@ export async function render(root) {
                     changed();
                   },
                 },
-                "reset to auto",
+                t("reset to auto"),
               ),
             ],
       );
     }
     renderLotsHelp();
     refs.fx = h("div", { class: "sig-fx" });
-    const fxInput = numInput("fx_rate", { placeholder: "e.g. 1.08" });
+    const fxInput = numInput("fx_rate", { placeholder: t("e.g. 1.08") });
 
     // Strategy context, checked by the Strategy Co-Pilot ---------------------
     const strategyNames = state.plan.strategies.filter((x) => x.active || x.name === d.strategy).map((x) => x.name);
-    const strategySelect = select([["", "No strategy"], ...strategyNames], d.strategy, {
+    const strategySelect = select([["", t("No strategy")], ...strategyNames], d.strategy, {
       onchange: (e) => {
         d.strategy = e.target.value;
         renderConfluences();
@@ -483,13 +488,15 @@ export async function render(root) {
                   },
                 },
                 name,
-                required.includes(name) ? h("span", { class: "sig-req" }, "required") : null,
+                required.includes(name) ? h("span", { class: "sig-req" }, t("required")) : null,
               );
             })
-          : h("p", { class: "muted small" }, "No confluences defined yet - add them in Trading Plan."),
+          : h("p", { class: "muted small" }, t("No confluences defined yet - add them in Trading Plan.")),
       );
       const min = strategy?.min_confluences || 0;
-      confluenceHint.textContent = min ? `${d.confluences.length} / ${min} required by ${d.strategy}` : `${d.confluences.length} selected`;
+      confluenceHint.textContent = min
+        ? t("{count} / {min} required by {strategy}", { count: d.confluences.length, min, strategy: d.strategy })
+        : t("{count} selected", { count: d.confluences.length });
       confluenceHint.className = min && d.confluences.length < min ? "small neg" : "muted small";
     }
     renderConfluences();
@@ -512,13 +519,13 @@ export async function render(root) {
             changed();
           },
         }),
-        h("span", {}, h("strong", {}, "Break-even at TP1"), h("span", { class: "muted small" }, "Stop moves to entry once TP1 fills")),
+        h("span", {}, h("strong", {}, t("Break-even at TP1")), h("span", { class: "muted small" }, t("Stop moves to entry once TP1 fills"))),
       ),
-      h("div", { class: "sig-toggle-fields" }, field("Lock in (pips)", beOffset)),
+      h("div", { class: "sig-toggle-fields" }, field(t("Lock in (pips)"), beOffset)),
     );
-    const trailDistance = numInput("trail_distance_pips", { placeholder: "pips", disabled: !d.trail_enabled });
+    const trailDistance = numInput("trail_distance_pips", { placeholder: t("pips"), disabled: !d.trail_enabled });
     const trailTrigger = select(
-      enums.trail_triggers.map((value) => [value, TRIGGER_LABELS[value] || value]),
+      enums.trail_triggers.map((value) => [value, TRIGGER_LABELS[value] ? t(TRIGGER_LABELS[value]) : value]),
       d.trail_trigger || "tp1",
       {
         disabled: !d.trail_enabled,
@@ -544,32 +551,32 @@ export async function render(root) {
             changed();
           },
         }),
-        h("span", {}, h("strong", {}, "Trailing stop"), h("span", { class: "muted small" }, "Locks in profit as price moves")),
+        h("span", {}, h("strong", {}, t("Trailing stop")), h("span", { class: "muted small" }, t("Locks in profit as price moves"))),
       ),
-      h("div", { class: "sig-toggle-fields" }, field("Distance (pips)", trailDistance), field("Start", trailTrigger)),
+      h("div", { class: "sig-toggle-fields" }, field(t("Distance (pips)"), trailDistance), field(t("Start"), trailTrigger)),
     );
 
     clear(
       ticketBox,
-      h("div", { class: "form-grid" }, field("Instrument", symbol), field("Direction", direction.el)),
+      h("div", { class: "form-grid" }, field(t("Instrument"), symbol), field(t("Direction"), direction.el)),
       h(
         "div",
         { class: "form-grid" },
-        field("Entry price", numInput("entry", { placeholder: "Fill price" })),
-        field("Stop loss", numInput("stop_loss", { placeholder: d.stop_pips ? `${fmt.num(d.stop_pips, 0)} pips from entry` : "Price" }), { help: stopHelp }),
+        field(t("Entry price"), numInput("entry", { placeholder: t("Fill price") })),
+        field(t("Stop loss"), numInput("stop_loss", { placeholder: d.stop_pips ? t("{pips} pips from entry", { pips: fmt.num(d.stop_pips, 0) }) : t("Price") }), { help: stopHelp }),
       ),
-      h("div", {}, h("div", { class: "sig-label" }, "Take profits & scale-out"), targetsBox),
+      h("div", {}, h("div", { class: "sig-label" }, t("Take profits & scale-out")), targetsBox),
       h(
         "div",
         { class: "form-grid" },
-        field("Risk per trade (%)", numInput("risk_pct", { placeholder: String(settings.default_risk_pct), max: "100" }), {
-          help: `Blank = default ${settings.default_risk_pct}%`,
+        field(t("Risk per trade (%)"), numInput("risk_pct", { placeholder: String(settings.default_risk_pct), max: "100" }), {
+          help: t("Blank = default {risk}%", { risk: settings.default_risk_pct }),
         }),
-        h("div", { class: "field" }, h("label", {}, "Lots"), refs.lots, lotsHelp),
+        h("div", { class: "field" }, h("label", {}, t("Lots")), refs.lots, lotsHelp),
       ),
       refs.fx,
-      h("div", { class: "form-grid" }, field("Strategy", strategySelect), field("Timeframe", timeframeSelect)),
-      h("div", {}, h("div", { class: "row sig-label" }, "Confluences", h("span", { class: "spacer" }), confluenceHint), confluenceBox),
+      h("div", { class: "form-grid" }, field(t("Strategy"), strategySelect), field(t("Timeframe"), timeframeSelect)),
+      h("div", {}, h("div", { class: "row sig-label" }, t("Confluences"), h("span", { class: "spacer" }), confluenceHint), confluenceBox),
       h("div", { class: "sig-manage" }, beBox, trailBox),
     );
     refs.fxField = fxInput;
@@ -591,17 +598,21 @@ export async function render(root) {
       clear(
         refs.fx,
         fxKey
-          ? field(`Conversion rate: 1 ${market.quote_currency} = ? ${settings.currency}`, refs.fxField, {
-              help: `${market.symbol} is quoted in ${market.quote_currency}; needed to convert risk into ${settings.currency}.`,
+          ? field(t("Conversion rate: 1 {quote} = ? {currency}", { quote: market.quote_currency, currency: settings.currency }), refs.fxField, {
+              help: t("{symbol} is quoted in {quote}; needed to convert risk into {currency}.", {
+                symbol: market.symbol,
+                quote: market.quote_currency,
+                currency: settings.currency,
+              }),
             })
           : null,
       );
     }
     if (refs.closeInputs && d && !memory.splitAuto && r.targets.length) {
       const priced = d.targets.filter(filled);
-      d.targets.forEach((t, i) => {
-        const k = priced.indexOf(t);
-        if (t.close_pct === null && k >= 0 && r.targets[k]) refs.closeInputs[i].placeholder = fmt.num(r.targets[k].close_pct, 0);
+      d.targets.forEach((target, i) => {
+        const k = priced.indexOf(target);
+        if (target.close_pct === null && k >= 0 && r.targets[k]) refs.closeInputs[i].placeholder = fmt.num(r.targets[k].close_pct, 0);
       });
     }
     renderResult(r);
@@ -610,8 +621,8 @@ export async function render(root) {
   function showError(error) {
     clear(
       resultBox,
-      h("div", { class: "card-head" }, h("h2", {}, "Result")),
-      issueList([error instanceof ApiError ? error.message : String(error)], { kind: "block", tag: "Error", iconName: "alert" }),
+      h("div", { class: "card-head" }, h("h2", {}, t("Result"))),
+      issueList([error instanceof ApiError ? error.message : String(error)], { kind: "block", tag: t("Error"), iconName: "alert" }),
     );
   }
 
@@ -622,9 +633,12 @@ export async function render(root) {
         "div",
         { class: "empty" },
         icon("signal", "icon sig-empty-icon"),
-        h("strong", {}, "Paste a signal to start"),
-        `Symbol, direction, entry, stop and up to ${enums.max_targets} targets are extracted, sized with your ${settings.default_risk_pct}% risk rule and checked against every guardrail before you can execute.`,
-        h("div", { style: { marginTop: "14px" } }, h("button", { type: "button", class: "btn", onclick: tryExample }, icon("play"), "Try an example")),
+        h("strong", {}, t("Paste a signal to start")),
+        t(
+          "Symbol, direction, entry, stop and up to {max} targets are extracted, sized with your {risk}% risk rule and checked against every guardrail before you can execute.",
+          { max: enums.max_targets, risk: settings.default_risk_pct },
+        ),
+        h("div", { style: { marginTop: "14px" } }, h("button", { type: "button", class: "btn", onclick: tryExample }, icon("play"), t("Try an example"))),
       ),
     );
   }
@@ -632,24 +646,26 @@ export async function render(root) {
   function renderResult(r) {
     const d = memory.draft;
     const s = r.sizing;
-    const t = r.ticket;
-    const side = t?.direction || d?.direction;
-    const stopPrice = t?.stop_loss ?? d?.stop_loss;
+    const ticket = r.ticket;
+    const side = ticket?.direction || d?.direction;
+    const stopPrice = ticket?.stop_loss ?? d?.stop_loss;
     const blocks = r.check ? r.check.violations.filter((v) => v.severity === "block") : [];
 
     const hero = s
       ? h(
           "div",
           { class: "result-hero" },
-          h("div", { class: "label" }, "Position size", s.manual ? h("span", { class: "badge warn sig-badge" }, "manual") : null),
-          h("div", { class: "value num" }, fmt.lots(s.lots), h("span", { class: "unit" }, "lots")),
+          h("div", { class: "label" }, t("Position size"), s.manual ? h("span", { class: "badge warn sig-badge" }, t("manual")) : null),
+          h("div", { class: "value num" }, fmt.lots(s.lots), h("span", { class: "unit" }, t("lots"))),
           h(
             "div",
             { class: "muted small" },
             [
-              side ? `${SIDE[side]} ${r.market?.symbol || d.symbol}` : r.market?.symbol,
-              d?.entry ? `entry ${fmt.price(d.entry)}` : null,
-              stopPrice ? `stop ${fmt.price(stopPrice)} (${fmt.num(s.stop_pips, 1)} pips)` : `stop ${fmt.num(s.stop_pips, 1)} pips`,
+              side ? `${t(SIDE[side])} ${r.market?.symbol || d.symbol}` : r.market?.symbol,
+              d?.entry ? t("entry {price}", { price: fmt.price(d.entry) }) : null,
+              stopPrice
+                ? t("stop {price} ({pips} pips)", { price: fmt.price(stopPrice), pips: fmt.num(s.stop_pips, 1) })
+                : t("stop {pips} pips", { pips: fmt.num(s.stop_pips, 1) }),
             ]
               .filter(Boolean)
               .join(" · "),
@@ -661,12 +677,12 @@ export async function render(root) {
       ? h(
           "div",
           { class: "live-metrics", style: { marginTop: 0 } },
-          metric("Risk at stop", fmt.signedMoney(-s.max_loss), "neg"),
-          metric("Risk % of equity", fmt.pct(s.actual_risk_pct, 2)),
-          metric("Allowed risk", `${fmt.money(s.risk_amount)} (${fmt.pct(s.risk_pct, 2)})`),
-          metric("Pip value / lot", fmt.money(s.pip_value_per_lot)),
-          metric("Blended R:R", fmt.rr(r.blended_rr)),
-          metric("Potential profit", r.potential_profit === null ? "—" : fmt.signedMoney(r.potential_profit), r.potential_profit > 0 ? "pos" : ""),
+          metric(t("Risk at stop"), fmt.signedMoney(-s.max_loss), "neg"),
+          metric(t("Risk % of equity"), fmt.pct(s.actual_risk_pct, 2)),
+          metric(t("Allowed risk"), `${fmt.money(s.risk_amount)} (${fmt.pct(s.risk_pct, 2)})`),
+          metric(t("Pip value / lot"), fmt.money(s.pip_value_per_lot)),
+          metric(t("Blended R:R"), fmt.rr(r.blended_rr)),
+          metric(t("Potential profit"), r.potential_profit === null ? "—" : fmt.signedMoney(r.potential_profit), r.potential_profit > 0 ? "pos" : ""),
         )
       : null;
 
@@ -677,7 +693,7 @@ export async function render(root) {
           h(
             "table",
             { class: "sig-table" },
-            h("thead", {}, h("tr", {}, ["Target", "Price", "Close", "Lots", "R:R", "Profit"].map((c, i) => h("th", { class: i ? "num" : "" }, c)))),
+            h("thead", {}, h("tr", {}, [t("Target"), t("Price"), t("Close"), t("Lots"), "R:R", t("Profit")].map((c, i) => h("th", { class: i ? "num" : "" }, c)))),
             h(
               "tbody",
               {},
@@ -705,24 +721,37 @@ export async function render(root) {
             {},
             h(
               "div",
-              { class: "rr-bar", role: "img", "aria-label": `Risk ${fmt.money(s.max_loss)} versus blended reward ${fmt.money(r.potential_profit)}` },
+              { class: "rr-bar", role: "img", "aria-label": t("Risk {risk} versus blended reward {reward}", { risk: fmt.money(s.max_loss), reward: fmt.money(r.potential_profit) }) },
               h("div", { class: "risk", style: { flex: String(1 / (1 + r.blended_rr)) } }),
               h("div", { class: "reward", style: { flex: String(r.blended_rr / (1 + r.blended_rr)) } }),
             ),
-            h("div", { class: "row small muted" }, h("span", {}, `Risk ${fmt.signedMoney(-s.max_loss)}`), h("span", { class: "spacer" }), h("span", {}, `Reward ${fmt.signedMoney(r.potential_profit)}`)),
+            h("div", { class: "row small muted" }, h("span", {}, t("Risk {amount}", { amount: fmt.signedMoney(-s.max_loss) })), h("span", { class: "spacer" }), h("span", {}, t("Reward {amount}", { amount: fmt.signedMoney(r.potential_profit) }))),
           )
         : null;
 
-    const management = t
+    const management = ticket
       ? h(
           "div",
           { class: "sig-summary" },
-          h("span", { class: "chip" }, icon("shield"), t.be_enabled ? `Break-even at TP1${t.be_offset_pips ? ` +${fmt.num(t.be_offset_pips, 1)} pips` : ""}` : "No auto break-even"),
+          h(
+            "span",
+            { class: "chip" },
+            icon("shield"),
+            !ticket.be_enabled
+              ? t("No auto break-even")
+              : ticket.be_offset_pips
+                ? t("Break-even at TP1 +{pips} pips", { pips: fmt.num(ticket.be_offset_pips, 1) })
+                : t("Break-even at TP1"),
+          ),
           h(
             "span",
             { class: "chip" },
             icon("trending"),
-            t.trail_enabled ? `Trail ${fmt.num(t.trail_distance_pips, 1)} pips ${t.trail_trigger === "immediate" ? "from entry" : "after TP1"}` : "No trailing stop",
+            !ticket.trail_enabled
+              ? t("No trailing stop")
+              : ticket.trail_trigger === "immediate"
+                ? t("Trail {pips} pips from entry", { pips: fmt.num(ticket.trail_distance_pips, 1) })
+                : t("Trail {pips} pips after TP1", { pips: fmt.num(ticket.trail_distance_pips, 1) }),
           ),
         )
       : null;
@@ -730,26 +759,35 @@ export async function render(root) {
     const guardBox = h(
       "div",
       { class: "sig-section stack" },
-      h("h3", {}, icon("shield"), "Guardrails"),
+      h("h3", {}, icon("shield"), t("Guardrails")),
       r.check
-        ? guardrailFindings(r.check.violations, t.strategy, "All guardrails pass - ready to execute.")
-        : h("p", { class: "muted small" }, "Checked as soon as the ticket is complete."),
+        ? guardrailFindings(r.check.violations, ticket.strategy, t("All guardrails pass - ready to execute."))
+        : h("p", { class: "muted small" }, t("Checked as soon as the ticket is complete.")),
     );
 
     let reason = null;
-    if (!t) reason = r.errors[0] || "Complete the ticket to execute.";
-    else if (r.check.blocked) reason = `Blocked by ${plural(blocks.length, "guardrail")} - see above.`;
-    const button = h("button", { type: "button", class: "btn primary sig-execute", disabled: Boolean(reason), onclick: () => execute(button, guardBox) }, icon("zap"), "Execute & log trade");
+    if (!ticket) reason = r.errors[0] || t("Complete the ticket to execute.");
+    else if (r.check.blocked) reason = tn(blocks.length, "Blocked by {n} guardrail - see above.", "Blocked by {n} guardrails - see above.");
+    const button = h("button", { type: "button", class: "btn primary sig-execute", disabled: Boolean(reason), onclick: () => execute(button, guardBox) }, icon("zap"), t("Execute & log trade"));
 
     clear(
       resultBox,
-      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Result"), h("p", {}, `${settings.currency} account · min R:R 1:${settings.min_rr} · max ${settings.max_risk_pct}% per trade`))),
-      issueList(r.errors, { kind: "block", tag: "Fix first", iconName: "alert" }),
+      h(
+        "div",
+        { class: "card-head" },
+        h(
+          "div",
+          {},
+          h("h2", {}, t("Result")),
+          h("p", {}, t("{currency} account · min R:R 1:{rr} · max {risk}% per trade", { currency: settings.currency, rr: settings.min_rr, risk: settings.max_risk_pct })),
+        ),
+      ),
+      issueList(r.errors, { kind: "block", tag: t("Fix first"), iconName: "alert" }),
       hero,
       metrics,
       table,
       rrBar,
-      issueList(r.warnings, { kind: "warn", tag: "Note", iconName: "info" }),
+      issueList(r.warnings, { kind: "warn", tag: t("Note"), iconName: "info" }),
       s && s.notes.length ? h("div", { class: "muted small sig-notes" }, s.notes.map((note) => h("p", {}, note))) : null,
       management,
       guardBox,
@@ -761,7 +799,13 @@ export async function render(root) {
           "p",
           { class: "small muted sig-reason" },
           icon(reason ? "lock" : "info"),
-          reason || `Logs a live ${side} of ${fmt.lots(t.position_size)} lots ${t.symbol} at ${fmt.price(t.entry_price)}, timed now.`,
+          reason ||
+            t("Logs a live {side} of {lots} lots {symbol} at {price}, timed now.", {
+              side,
+              lots: fmt.lots(ticket.position_size),
+              symbol: ticket.symbol,
+              price: fmt.price(ticket.entry_price),
+            }),
         ),
       ),
     );
@@ -775,20 +819,25 @@ export async function render(root) {
       const fresh = await api.post("/api/signals/preview", payload());
       showPreview(fresh);
       if (!fresh.ticket || fresh.check.blocked) {
-        toast("The ticket can't be executed as it stands - review the result panel.", "warn");
+        toast(t("The ticket can't be executed as it stands - review the result panel."), "warn");
         return;
       }
       const warnings = fresh.check.violations.filter((v) => v.severity === "warn");
       if (warnings.length) {
-        const ok = await confirmDialog(`This trade breaks ${plural(warnings.length, "rule")} (warnings, not blocks). Log it anyway?`, {
-          title: "Execute with warnings",
-          confirmText: "Execute anyway",
-        });
+        const message = tn(
+          warnings.length,
+          "This trade breaks {n} rule (warnings, not blocks). Log it anyway?",
+          "This trade breaks {n} rules (warnings, not blocks). Log it anyway?",
+        );
+        const ok = await confirmDialog(message, { title: t("Execute with warnings"), confirmText: t("Execute anyway") });
         if (!ok) return;
       }
       const result = await api.post("/api/trades", fresh.ticket);
       const trade = result.trade;
-      toast(`${SIDE[trade.direction]} ${fmt.lots(trade.position_size)} lots ${trade.symbol} logged`, result.warnings.length ? "warn" : "success");
+      toast(
+        t("{side} {lots} lots {symbol} logged", { side: t(SIDE[trade.direction]), lots: fmt.lots(trade.position_size), symbol: trade.symbol }),
+        result.warnings.length ? "warn" : "success",
+      );
       if (memory.alert && memory.alert.symbol === trade.symbol) {
         // The ticket came from a strategy alert: mark it taken and link the trade.
         api.post(`/api/alerts/${memory.alert.id}/status`, { status: "taken", trade_id: trade.id }).catch(() => {});
@@ -800,12 +849,12 @@ export async function render(root) {
       if (error instanceof ApiError && error.status === 423) {
         clear(
           guardBox,
-          h("h3", {}, icon("shield"), "Guardrails"),
-          h("p", { class: "small neg" }, "Entry refused - fix these first:"),
+          h("h3", {}, icon("shield"), t("Guardrails")),
+          h("p", { class: "small neg" }, t("Entry refused - fix these first:")),
           guardrailFindings(error.payload.violations || [], memory.draft?.strategy || ""),
         );
         guardBox.scrollIntoView({ behavior: "smooth", block: "center" });
-        toast("Trade blocked by your risk rules", "error");
+        toast(t("Trade blocked by your risk rules"), "error");
         loadStatus().catch(() => {});
       } else {
         toast(error.message, "error");
@@ -821,8 +870,13 @@ export async function render(root) {
     h(
       "div",
       { class: "page-head" },
-      h("div", {}, h("h1", {}, "Signal parser"), h("p", {}, "Paste a Telegram / WhatsApp signal - it is parsed, sized with your risk rules and checked against every guardrail before you can execute it.")),
-      h("a", { class: "btn ghost", href: "#/calculator" }, icon("calculator"), "Risk calculator"),
+      h(
+        "div",
+        {},
+        h("h1", {}, t("Signal parser")),
+        h("p", {}, t("Paste a Telegram / WhatsApp signal - it is parsed, sized with your risk rules and checked against every guardrail before you can execute it.")),
+      ),
+      h("a", { class: "btn ghost", href: "#/calculator" }, icon("calculator"), t("Risk calculator")),
     ),
     h(
       "div",
@@ -836,13 +890,18 @@ export async function render(root) {
           h(
             "div",
             { class: "card-head" },
-            h("div", {}, h("h2", {}, "Paste a signal"), h("p", {}, "Parsed automatically as you paste or type.")),
-            h("div", { class: "row" }, h("button", { type: "button", class: "btn sm", onclick: tryExample }, icon("play"), "Try an example"), h("button", { type: "button", class: "btn ghost sm", onclick: clearAll }, icon("x"), "Clear")),
+            h("div", {}, h("h2", {}, t("Paste a signal")), h("p", {}, t("Parsed automatically as you paste or type."))),
+            h(
+              "div",
+              { class: "row" },
+              h("button", { type: "button", class: "btn sm", onclick: tryExample }, icon("play"), t("Try an example")),
+              h("button", { type: "button", class: "btn ghost sm", onclick: clearAll }, icon("x"), t("Clear")),
+            ),
           ),
           textarea,
           parseBox,
         ),
-        h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Ticket"), h("p", {}, "Review and correct anything the parser got wrong."))), ticketBox),
+        h("div", { class: "card" }, h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Ticket")), h("p", {}, t("Review and correct anything the parser got wrong.")))), ticketBox),
       ),
       h("div", { class: "card" }, resultBox),
     ),
