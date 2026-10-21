@@ -136,7 +136,28 @@ class FakeStream:
         return False
 
     def get_final_message(self):
+        if isinstance(self.outcome, Midway):
+            raise self.outcome.error
         return self.outcome
+
+
+class Midway:
+    """An error raised while the answer streams (after the request was accepted)."""
+
+    def __init__(self, error: Exception):
+        self.error = error
+
+
+class BlockFinal:
+    """A final message with explicit content blocks (e.g. around a refusal fallback)."""
+
+    def __init__(self, blocks: list[dict], model: str = "claude-opus-5-5"):
+        self.stop_reason, self.model = "end_turn", model
+        self.content = [SimpleNamespace(**block) for block in blocks]
+        self._dict = {"content": blocks}
+
+    def to_dict(self):
+        return copy.deepcopy(self._dict)
 
 
 class FakeClient:
@@ -530,3 +551,59 @@ def test_environment_credentials_are_detected(client, no_credentials, monkeypatc
 )
 def test_ai_settings_validation(client, payload):
     assert client.put("/api/ai/settings", json=payload).status_code == 422
+
+
+# ------------------------------------------------------------------ review fixes
+
+
+def test_a_failed_rerun_keeps_the_previous_analysis_and_questions(client, fake):
+    record = analyse(client, fake, FakeFinal(json.dumps(ANALYSIS))).json()
+    fake.outcomes.append(FakeFinal("Below 2636."))
+    client.post(f"/api/vision/analyses/{record['id']}/messages", json={"question": "Where is the stop?"})
+    for outcome, status in ((rate_limit_error("5"), 429), (FakeFinal("not json"), 422)):
+        fake.outcomes.append(outcome)
+        failed = client.post(f"/api/vision/analyses/{record['id']}/retry")
+        assert failed.status_code == status and "previous analysis is unchanged" in failed.json()["detail"]
+        kept = client.get(f"/api/vision/analyses/{record['id']}").json()
+        assert kept["status"] == "done" and kept["analysis"]["summary"] == ANALYSIS["summary"]
+        assert len(kept["messages"]) == 2
+
+
+def test_a_connection_dropped_mid_stream_is_reported_and_never_left_pending(client, fake):
+    dropped = httpx2.RemoteProtocolError("peer closed connection without sending complete message body")
+    response = analyse(client, fake, Midway(dropped))
+    assert response.status_code == 502 and "interrupted" in response.json()["detail"]
+    record = client.get(f"/api/vision/analyses/{response.json()['analysis_id']}").json()
+    assert record["status"] == "error" and record["error"]
+
+
+@pytest.mark.parametrize(("kind", "status"), [("overloaded_error", 502), ("api_error", 502), ("rate_limit_error", 429)])
+def test_error_events_inside_the_stream_map_to_retryable_statuses(kind, status):
+    response = httpx2.Response(200, request=httpx2.Request("POST", "https://api.anthropic.com"))
+    error = anthropic.APIStatusError(
+        "stream error", response=response, body={"type": "error", "error": {"type": kind, "message": "Overloaded"}}
+    )
+    with pytest.raises(ai_client.AIRequestError) as caught:
+        ai_client.stream_final_message(FakeClient(Midway(error)), {"model": "claude-opus-5-5"})
+    assert caught.value.status_code == status and "{" not in str(caught.value)
+
+
+def test_a_mid_output_fallback_is_read_whole_and_replayed_without_the_declined_thinking(client, fake):
+    text = json.dumps(ANALYSIS)
+    fallback = {"type": "fallback", "from": {"model": "claude-opus-5-5"}, "to": {"model": "claude-sonnet-5-5"}}
+    declined = {"type": "thinking", "thinking": "", "signature": "declined"}
+    served = {"type": "thinking", "thinking": "", "signature": "served"}
+    blocks = [declined, {"type": "text", "text": text[:40]}, fallback, served, {"type": "text", "text": text[40:]}]
+    record = analyse(client, fake, BlockFinal(blocks)).json()
+    assert record["status"] == "done" and record["analysis"]["summary"] == ANALYSIS["summary"]
+
+    answer = [declined, {"type": "text", "text": "The stop belongs below the demand "}, fallback, served]
+    answer.append({"type": "text", "text": "zone at 2636."})
+    fake.outcomes.append(BlockFinal(answer))
+    reply = client.post(f"/api/vision/analyses/{record['id']}/messages", json={"question": "Where is the stop?"})
+    assert reply.json()["answer"]["text"] == "The stop belongs below the demand zone at 2636."
+    fake.outcomes.append(FakeFinal("Yes."))
+    client.post(f"/api/vision/analyses/{record['id']}/messages", json={"question": "Still valid?"})
+    replayed = fake.calls[-1]["messages"][1]["content"]
+    assert [b.get("signature") for b in replayed if b["type"] == "thinking"] == ["served"]
+    assert [b["type"] for b in replayed] == ["text", "fallback", "thinking", "text"]

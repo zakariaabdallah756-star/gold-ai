@@ -122,20 +122,8 @@ def stream_final_message(client, params: dict[str, Any]):
     try:
         with client.beta.messages.stream(**params) as stream:
             return stream.get_final_message()
-    except anthropic.AuthenticationError as exc:
-        raise AIRequestError(401, "Claude rejected the API key. Check it in Trading plan -> AI assistant.") from exc
-    except anthropic.PermissionDeniedError as exc:
-        raise AIRequestError(403, f"This API key is not allowed to use {params.get('model')}: {exc.message}") from exc
-    except anthropic.RateLimitError as exc:
-        retry_after = exc.response.headers.get("retry-after")
-        hint = f" Try again in {retry_after} seconds." if retry_after else " Try again shortly."
-        raise AIRequestError(429, "Claude API rate limit reached." + hint) from exc
-    except anthropic.BadRequestError as exc:
-        raise AIRequestError(400, f"Claude rejected the request: {exc.message}") from exc
     except anthropic.APIStatusError as exc:
-        if exc.status_code >= 500:
-            raise AIRequestError(502, "The Claude API had a server error. Try again in a moment.") from exc
-        raise AIRequestError(400, f"Claude API error ({exc.status_code}): {exc.message}") from exc
+        raise _status_error(exc, params) from exc
     except (anthropic.APITimeoutError, anthropic.APIConnectionError) as exc:
         raise AIRequestError(503, "Cannot reach the Claude API. Check your internet connection.") from exc
     except anthropic.CredentialsError as exc:
@@ -145,6 +133,48 @@ def stream_final_message(client, params: dict[str, Any]):
         if "authentication method" in str(exc):
             raise AIUnavailable("Claude is not configured yet - no API key or login was found.") from exc
         raise
+    except Exception as exc:
+        # The SDK wraps transport errors only on the initial request; a connection that drops while the
+        # answer streams surfaces as the HTTP library's own error.
+        if _transport_error(exc):
+            raise AIRequestError(502, "The connection to Claude was interrupted. Try again.") from exc
+        raise
+
+
+def _transport_error(exc: BaseException) -> bool:
+    module = type(exc).__module__.split(".")[0]
+    return isinstance(exc, OSError) or module in ("httpx", "httpx2", "httpcore", "h11", "h2", "anyio")
+
+
+# Error types the API may send inside an already-started stream (HTTP status 200).
+_STREAM_ERRORS = {"overloaded_error": 502, "api_error": 502, "rate_limit_error": 429}
+
+
+def _status_error(exc, params: dict[str, Any]) -> AIRequestError:
+    """Map an API status error to an :class:`AIRequestError`, most specific first."""
+    import anthropic
+
+    status = exc.status_code
+    if status == 200:  # an error event in the middle of the stream: use its error type
+        body = exc.body if isinstance(exc.body, dict) else {}
+        error = body.get("error") if isinstance(body.get("error"), dict) else body
+        status = _STREAM_ERRORS.get(str(error.get("type", "")), 502)
+        if status == 429:
+            return AIRequestError(429, "Claude API rate limit reached. Try again shortly.")
+        return AIRequestError(502, "The Claude API had a server error. Try again in a moment.")
+    if isinstance(exc, anthropic.AuthenticationError):
+        return AIRequestError(401, "Claude rejected the API key. Check it in Trading plan -> AI assistant.")
+    if isinstance(exc, anthropic.PermissionDeniedError):
+        return AIRequestError(403, f"This API key is not allowed to use {params.get('model')}: {exc.message}")
+    if isinstance(exc, anthropic.RateLimitError):
+        retry_after = exc.response.headers.get("retry-after")
+        hint = f" Try again in {retry_after} seconds." if retry_after else " Try again shortly."
+        return AIRequestError(429, "Claude API rate limit reached." + hint)
+    if isinstance(exc, anthropic.BadRequestError):
+        return AIRequestError(400, f"Claude rejected the request: {exc.message}")
+    if status >= 500:
+        return AIRequestError(502, "The Claude API had a server error. Try again in a moment.")
+    return AIRequestError(400, f"Claude API error ({status}): {exc.message}")
 
 
 def capped_effort(effort: str, ceiling: str) -> str:

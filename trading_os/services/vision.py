@@ -508,6 +508,23 @@ def _texts(final: Any) -> list[str]:
     return [block.text for block in final.content if block.type == "text"]
 
 
+def _full_text(final: Any) -> str:
+    """The response text. After a mid-output refusal fallback the fallback model continues the declined
+    model's partial text, so the text blocks are joined without separators."""
+    return "".join(_texts(final))
+
+
+def replay_content(final: Any) -> list[dict]:
+    """Assistant content to store for later Q&A turns.
+
+    After a mid-output refusal fallback, the declined model's internal blocks (thinking and the like)
+    before the last ``fallback`` block must not be echoed; its text and the marker stay where they are.
+    """
+    content = final.to_dict()["content"]
+    boundary = max((i for i, block in enumerate(content) if block.get("type") == "fallback"), default=-1)
+    return [block for i, block in enumerate(content) if i > boundary or block.get("type") in ("text", "fallback")]
+
+
 def parse_analysis(final: Any) -> dict:
     """Validate the structured analysis in a final message; raises :class:`AnalysisFailed`."""
     _check_stop(
@@ -515,10 +532,9 @@ def parse_analysis(final: Any) -> dict:
         "The model declined to analyse this image.",
         "The analysis was cut off before it finished. Try again, or lower the effort in Trading plan -> AI assistant.",
     )
-    texts = _texts(final)
     try:
-        return ChartAnalysis.model_validate(json.loads(texts[0])).model_dump(mode="json")
-    except (IndexError, json.JSONDecodeError, ValidationError) as exc:
+        return ChartAnalysis.model_validate(json.loads(_full_text(final))).model_dump(mode="json")
+    except (json.JSONDecodeError, ValidationError) as exc:
         raise AnalysisFailed("The model returned an analysis in an unexpected format. Try again.") from exc
 
 
@@ -527,7 +543,7 @@ def answer_text(final: Any) -> str:
     _check_stop(
         final, "The model declined to answer this question.", "The answer was cut off. Ask a narrower question."
     )
-    text = "\n\n".join(t.strip() for t in _texts(final) if t.strip())
+    text = _full_text(final).strip()
     if not text:
         raise AnalysisFailed("The model returned an empty answer. Try rephrasing the question.")
     return text
@@ -589,26 +605,45 @@ def run_analysis(
 ) -> VisionAnalysis:
     """(Re)run the analysis for ``record``; the outcome is stored on the record.
 
-    Model-side failures (refusal, truncation, bad format) end as ``status="error"``. API
-    errors are stored the same way and then re-raised for the HTTP layer. Earlier Q&A is
-    removed because it refers to the previous analysis.
+    First runs: model-side failures (refusal, truncation, bad format) end as ``status="error"``;
+    API errors are stored the same way and then re-raised for the HTTP layer. Re-running a
+    completed analysis replaces it (and its Q&A, which refers to it) only when the new one
+    succeeds: on any failure the previous analysis stays and :class:`ai_client.AIRequestError`
+    is raised.
     """
     image = _load_image(uploads_dir, record)
     strategy = db.scalar(select(Strategy).where(Strategy.name == record.strategy)) if record.strategy else None
-    record.messages.clear()
-    record.status, record.error, record.analysis, record.model = "pending", "", None, settings.ai_model
-    db.commit()
+    rerun = record.status == "done" and bool(record.analysis)
+    if not rerun:
+        record.messages.clear()
+        record.status, record.error, record.analysis, record.model = "pending", "", None, settings.ai_model
+        db.commit()
+    kept = " Your previous analysis is unchanged."
     try:
         final = ai_client.stream_final_message(client, analysis_request(settings, record, image, strategy))
-        record.analysis = parse_analysis(final)
-        record.status = "done"
-        record.model = served_model(final, settings.ai_model)
+        analysis = parse_analysis(final)
     except AnalysisFailed as exc:
+        if rerun:
+            raise ai_client.AIRequestError(422, str(exc) + kept) from exc
         record.status, record.error = "error", str(exc)
-    except (ai_client.AIRequestError, ai_client.AIUnavailable) as exc:
+        db.commit()
+        return record
+    except ai_client.AIRequestError as exc:
+        if rerun:
+            raise ai_client.AIRequestError(exc.status_code, str(exc) + kept) from exc
         record.status, record.error = "error", str(exc)
         db.commit()
         raise
+    except Exception as exc:  # never leave a first run "pending" forever
+        if not rerun:
+            record.status, record.error = "error", "The analysis failed unexpectedly. Try again."
+            if isinstance(exc, ai_client.AIUnavailable):
+                record.error = str(exc)
+            db.commit()
+        raise
+    record.messages.clear()
+    record.analysis, record.status, record.error = analysis, "done", ""
+    record.model = served_model(final, settings.ai_model)
     db.commit()
     return record
 
@@ -631,7 +666,7 @@ def ask(
     )
     text = answer_text(final)
     asked = VisionMessage(role="user", text=question, content=[], created_at=now)
-    answered = VisionMessage(role="assistant", text=text, content=final.to_dict()["content"], created_at=now)
+    answered = VisionMessage(role="assistant", text=text, content=replay_content(final), created_at=now)
     record.messages.extend([asked, answered])
     db.commit()
     return asked, answered

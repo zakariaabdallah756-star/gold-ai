@@ -399,6 +399,10 @@ def _target_plan(
             price = _price(entry + sign * target.pips * pip)
         if price is not None:
             rows.append((price, target.close_pct))
+    relative = [t.price is None and bool(t.pips) for t in draft.targets]
+    if entry and sign and any(relative) and not all(relative):
+        # "TP1 30 pips TP2 2680": the parser lists priced targets first - put the mix in distance order.
+        rows.sort(key=lambda row: (row[0] - entry) * sign)
     try:
         pcts = resolve_close_pcts([pct for _, pct in rows])
     except ValueError as exc:

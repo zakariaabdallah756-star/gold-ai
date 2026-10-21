@@ -79,6 +79,8 @@ def _fmt_list(values: list, limit: int = 6) -> str:
 _CURRENCIES = frozenset("USD EUR GBP JPY CHF AUD CAD NZD SEK NOK DKK PLN HUF CZK TRY ZAR MXN SGD HKD CNH".split())
 # Pairs of these currencies always trade below 1000 - used to read "1,085" as 1.085.
 _LOW_PRICED = frozenset("EUR GBP CHF AUD CAD NZD USD JPY".split())
+# Instruments quoted in the thousands - used to read "18.550" (European thousands dot) as 18550.
+_HIGH_PRICED = frozenset("XAUUSD US30 NAS100 SPX500 GER40 BTCUSD ETHUSD".split())
 
 _ALIASES = {
     **dict.fromkeys(("GOLD", "XAU", "XAUUSD", "GOLDUSD"), "XAUUSD"),
@@ -207,7 +209,7 @@ def _unknown_symbol(text: str, hidden: list[tuple[int, int]]) -> _SymbolHit | No
 _B = r"(?<![a-z])"  # no letter before (digits are fine: "2650sl 2640")
 _E = r"(?![a-z])"  # no letter after
 _AT = r"(?:\s*(?:@|at(?![a-z])))?"  # "SL @ 2640" / "TP1 at 2660" stay one label
-_TP_INDEX = r"(?:\s*(?:#|no\.?\s*)?(?P<index>[1-9])(?!\d)(?![.,]\d)(?!\s*(?:pips?|points?|pts?|p\b|%)))?"
+_TP_INDEX = r"(?:\s*(?:#|no\.?\s*|[-_]\s*)?(?P<index>[1-9])(?!\d)(?![.,]\d)(?!\s*(?:pips?|points?|pts?|p\b|%)))?"
 
 _LABEL_RE = re.compile(
     "|".join(
@@ -336,7 +338,7 @@ def _readings(region: str) -> list[_Reading]:
     return [reading for reading in out if reading.choices]
 
 
-def _settle(readings: list[_Reading], low_priced: bool) -> None:
+def _settle(readings: list[_Reading], low_priced: bool, high_priced: bool = False) -> None:
     """Pick an interpretation for every reading, using the unambiguous prices as the scale."""
     refs = [v for r in readings if len(r.choices) == 1 and not r.pips for v in r.choices[0] if v > 0]
     scale = statistics.median(refs) if refs else None
@@ -351,6 +353,8 @@ def _settle(readings: list[_Reading], low_priced: bool) -> None:
             reading.chosen = min(reading.choices, key=distance)
         elif low_priced:
             reading.chosen = next((c for c in reading.choices if all(v < 1000 for v in c)), reading.choices[0])
+        elif high_priced:
+            reading.chosen = next((c for c in reading.choices if all(v >= 1000 for v in c)), reading.choices[0])
         else:
             reading.chosen = reading.choices[0]
 
@@ -379,12 +383,19 @@ def _label_kind(match: re.Match) -> str:
     return next(name for name in _LABEL_KINDS if match.group(name) is not None)
 
 
+_FREE_LINE_RE = re.compile(r"\n[ \t]*[a-z]")  # a new line that starts with a word
+
+
 def _regions(work: str) -> list[_Region]:
     labels = list(_LABEL_RE.finditer(work))
     regions = [_Region("prefix", "", 0, readings=_readings(work[: labels[0].start() if labels else len(work)]))]
     for i, match in enumerate(labels):
         end = labels[i + 1].start() if i + 1 < len(labels) else len(work)
         kind = _label_kind(match)
+        if kind in ("sl", "tp"):
+            # "TP 2660\nVIP signal 125": a stop or target ends at a new line of free text.
+            free = _FREE_LINE_RE.search(work, match.end(), end)
+            end = free.start() if free else end
         index = int(match.group("index")) if kind == "tp" and match.group("index") else None
         readings = [] if kind == "ignore" else _readings(work[match.end() : end])
         regions.append(_Region(kind, match.group(0).strip(), match.start(), index, readings))
@@ -462,7 +473,7 @@ def parse_signal(text: str, symbols: Iterable[str] = ()) -> ParsedSignal:
     regions = _regions(work)
     code = (result.symbol or "").upper()
     low_priced = _is_fx_pair(code) and code[:3] in _LOW_PRICED and code[3:] in _LOW_PRICED
-    _settle([r for region in regions for r in region.readings], low_priced)
+    _settle([r for region in regions for r in region.readings], low_priced, code in _HIGH_PRICED)
 
     result.direction = _direction(regions, text, warnings)
     result.order_type = _order_type(regions)
@@ -486,14 +497,28 @@ def parse_signal(text: str, symbols: Iterable[str] = ()) -> ParsedSignal:
 
 
 def _assemble_entry(result: ParsedSignal, regions: list[_Region]) -> None:
+    """Entry (or zone), most specific first: the price after BUY/SELL, an entry label before the stop and
+    targets, an entry-like phrase after them ("add more at 2645", "move SL to BE at 2655" are management
+    notes, used only when nothing else gives an entry), then a bare leading number."""
+    structure = next((r.start for r in regions if r.kind in ("sl", "stop", "tp")), None)
+    late = [r for r in regions if r.kind == "entry" and r.prices and structure is not None and r.start > structure]
     candidates = (
-        [r for r in regions if r.kind == "entry" and r.prices]
-        or [r for r in regions if r.kind in _ENTRY_KINDS and r.prices]
+        [r for r in regions if r.kind in _ENTRY_KINDS and r.prices]
+        or [r for r in regions if r.kind == "entry" and r.prices and r not in late]
+        or late
         or [r for r in regions if r.kind == "prefix" and r.prices]
     )
     if not candidates:
         return
     prices = candidates[0].prices
+    others = [
+        r for r in regions if (r.kind == "entry" or r.kind in _ENTRY_KINDS) and r.prices and set(r.prices) - set(prices)
+    ]
+    if others:
+        result.warnings.append(
+            f"Entry {_fmt_list(prices)} used; '{others[0].label} {_fmt_list(others[0].prices)}' also looks like a "
+            "price to enter at - check the entry."
+        )
     if len(prices) == 1:
         result.entry = prices[0]
         return

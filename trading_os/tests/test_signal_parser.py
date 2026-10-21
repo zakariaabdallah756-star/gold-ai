@@ -270,3 +270,50 @@ def test_split_lots_floors_to_step_and_last_takes_the_rest():
     assert split_lots(0.2, [50, 25, 25], 0.01) == [0.1, 0.05, 0.05]
     assert split_lots(0.15, [50, 25, 25], 0.01) == [0.07, 0.03, 0.05]
     assert split_lots(0.01, [50, 50], 0.01) == [0.0, 0.01]
+
+
+@pytest.mark.parametrize(
+    "text, entry, stop, target",
+    [
+        ("NAS100 BUY 18.550 SL 18.500 TP 18.650", 18550.0, 18500.0, 18650.0),
+        ("US30 SELL 39.250 SL 39.300 TP 39.100", 39250.0, 39300.0, 39100.0),
+        ("BTCUSD BUY 67.250 SL 66.900 TP 68.000", 67250.0, 66900.0, 68000.0),
+        ("USDJPY BUY 150.250 SL 149.900 TP 150.800", 150.25, 149.9, 150.8),
+    ],
+)
+def test_thousands_dots_are_read_by_the_instruments_price_range(text, entry, stop, target):
+    result = parse(text)
+    assert (result.entry, result.stop_loss, result.take_profits) == (entry, stop, [target])
+
+
+@pytest.mark.parametrize(
+    "note",
+    [
+        "Add more at 2645",
+        "Move SL to BE at 2655",
+        "Secure partials at 2645",
+        "Re-entry zone 2645",
+        "Current price 2652",
+    ],
+)
+def test_management_notes_after_the_signal_do_not_replace_the_entry(note):
+    result = parse(f"GOLD BUY 2650\nSL 2640\nTP 2680\n{note}")
+    assert result.entry == 2650.0 and result.stop_loss == 2640.0 and result.take_profits == [2680.0]
+    assert any("check the entry" in warning for warning in result.warnings)
+
+
+def test_an_entry_written_after_the_stop_and_targets_is_still_used():
+    result = parse("XAUUSD SELL\nSL 2660\nTP 2620\nEntry 2650")
+    assert (result.entry, result.stop_loss, result.take_profits) == (2650.0, 2660.0, [2620.0])
+
+
+def test_free_text_after_the_last_target_is_not_a_target():
+    result = parse("XAUUSD BUY 2650 SL 2640 TP 2660\nVIP Signal 125")
+    assert result.take_profits == [2660.0] and result.target_pips == []
+    listed = parse("XAUUSD BUY 2650 SL 2640\nTP 2660\n2670\n2680")
+    assert listed.take_profits == [2660.0, 2670.0, 2680.0]
+
+
+def test_dashed_target_numbers_are_indexes():
+    result = parse("XAUUSD BUY 2650 SL 2640 TP-1 2660 TP-2 2670")
+    assert result.take_profits == [2660.0, 2670.0] and result.target_pips == []

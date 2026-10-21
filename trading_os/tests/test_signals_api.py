@@ -218,3 +218,10 @@ def test_unconvertible_quote_currency_asks_for_the_rate(client):
     # 100 USD risk / (50 points * 1 contract * 1.1) = 1.818 -> 1.8 lots (lot step 0.1).
     assert priced["sizing"]["lots"] == pytest.approx(1.8)
     assert priced["ticket"]["risk_amount"] == pytest.approx(round(1.8 * 50 * market["contract_size"] * 1.1, 2))
+
+
+def test_mixed_priced_and_pip_targets_are_put_in_distance_order(client):
+    result = parse(client, "XAUUSD BUY 2650 SL 2640 TP1 30 pips TP2 2680")
+    assert result["errors"] == [], result["errors"]
+    prices = [t["price"] for t in result["ticket"]["targets"]]
+    assert prices == sorted(prices) and prices[-1] == 2680.0
