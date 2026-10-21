@@ -18,6 +18,7 @@ Definitions
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
 from statistics import fmean
@@ -248,7 +249,8 @@ def r_distribution(trades: Sequence[ClosedTrade]) -> list[dict]:
     for trade in trades:
         if trade.r_multiple is None:
             continue
-        index = int(round((trade.r_multiple - R_BIN_MIN) / R_BIN_WIDTH))
+        # Half-way values go up (+0.25R -> +0.5R, -0.25R -> 0R) - round() would send them to the even bin.
+        index = math.floor((trade.r_multiple - R_BIN_MIN) / R_BIN_WIDTH + 0.5)
         bucket = bins[min(max(index, 0), bin_count - 1)]
         bucket["count"] += 1
         bucket["wins"] += trade.outcome == "win"

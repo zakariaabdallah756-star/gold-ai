@@ -1,6 +1,6 @@
 """Statistical dashboard, P&L calendar and day-detail endpoints."""
 
-from datetime import date, datetime, time
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Query
@@ -10,7 +10,7 @@ from ..models import DailyReview, Trade
 from ..schemas import FiniteModel, TradeOut
 from ..services import analytics, reviews, time_analytics
 from ..services import trades as trade_service
-from ..services.account import local_today, realized_pnl
+from ..services.account import local_today, report_base_equity
 from .deps import DbDep, SettingsDep
 from .trades import FiltersDep
 
@@ -36,9 +36,7 @@ def read_analytics(settings: SettingsDep, db: DbDep, filters: FiltersDep):
     meaningful.
     """
     trades = trade_service.closed_trades(db, filters)
-    base_equity = settings.starting_balance
-    if filters.date_from:
-        base_equity += realized_pnl(db, before=datetime.combine(filters.date_from, time.min))
+    base_equity = report_base_equity(db, settings, filters.date_from, trades)
 
     report = analytics.full_report(trades, base_equity)
     report["time_heatmap"] = time_analytics.heatmap(trades)

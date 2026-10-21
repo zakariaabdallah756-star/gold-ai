@@ -76,6 +76,24 @@ def equity_at(db: Session, settings: AccountSettings, when: datetime) -> float:
     return settings.starting_balance + realized_pnl(db, before=when)
 
 
+def report_base_equity(db: Session, settings: AccountSettings, date_from: date | None, trades) -> float:
+    """Equity a date-filtered report starts from: the account equity at ``date_from``, minus partial
+    profits taken before it on the reported ``trades`` - each reported trade counts its whole P&L at
+    its close, so those partials would otherwise be counted twice."""
+    if date_from is None:
+        return settings.starting_balance
+    cutoff = datetime.combine(date_from, time.min)
+    managed = [trade.id for trade in trades if getattr(trade, "managed", False)]
+    early = 0.0
+    if managed:
+        early = db.scalar(
+            select(func.coalesce(func.sum(TradeEvent.pnl), 0.0)).where(
+                TradeEvent.trade_id.in_(managed), TradeEvent.lots > 0, TradeEvent.time < cutoff
+            )
+        )
+    return settings.starting_balance + realized_pnl(db, before=cutoff) - float(early or 0.0)
+
+
 def current_equity(db: Session, settings: AccountSettings) -> float:
     return settings.starting_balance + realized_pnl(db)
 

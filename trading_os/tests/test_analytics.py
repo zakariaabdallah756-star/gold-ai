@@ -96,3 +96,9 @@ def test_breakdowns_including_overlapping_confluences():
     assert {row["key"]: row["trades"] for row in result["confluence"]} == {"Key level": 3, "Liquidity sweep": 2}
     assert [row["key"] for row in result["weekday"]] == ["Monday", "Tuesday", "Wednesday"]
     assert {row["key"] for row in result["compliance"]} == {"Followed plan", "Broke rules"}
+
+
+def test_r_distribution_puts_half_way_values_in_the_upper_bin_consistently():
+    bins = analytics.r_distribution(make_trades([12.5, 37.5, -12.5, -37.5], risk=50))  # +0.25R +0.75R -0.25R -0.75R
+    by_label = {b["label"]: b["count"] for b in bins}
+    assert (by_label["+0.5R"], by_label["+1R"], by_label["0R"], by_label["-0.5R"]) == (1, 1, 1, 1)

@@ -695,7 +695,7 @@ export async function render(root, { params }) {
     h(
       "div",
       { class: "page-head" },
-      h("div", {}, h("h1", {}, "P&L calendar"), h("p", {}, "Closed trades by the day they closed, with your review and checklist streaks")),
+      h("div", {}, h("h1", {}, "P&L calendar"), h("p", {}, "Closed trades by the day they closed (partial exits included), with your review and checklist streaks")),
       h("a", { class: "btn", href: `#/review?date=${today}` }, icon("review"), "Today's review"),
     ),
     tabs,
