@@ -87,5 +87,7 @@ def history(db: Session, today: date, days: int) -> list[dict]:
         day = today - timedelta(days=offset)
         record = records.get(day)
         entry = progress(list(record.checked_item_ids) if record else [], items)
+        if day < today:  # judged by the checklist of that day, not today's template
+            entry["completed"] = record is not None and record.completed_at is not None
         out.append({"day": day, "started": record is not None, "bias": record.bias if record else "", **entry})
     return out

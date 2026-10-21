@@ -266,6 +266,16 @@ def _material_change(existing: Trade, data: TradeIn, entry_time: datetime, sessi
 def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSettings) -> None:
     # A managed trade (with fills) derives status, exit and P&L from its ledger.
     managed = positions.has_fills(trade)
+    # The recorded auto P&L, for keeping it when the market has since been removed from the plan.
+    recorded_gross = (
+        trade.pnl + (trade.fees or 0.0)
+        if trade.id is not None
+        and trade.pnl is not None
+        and not trade.pnl_manual
+        and (trade.symbol, trade.direction, trade.entry_price, trade.exit_price, trade.position_size)
+        == (data.symbol, data.direction, data.entry_price, data.exit_price, data.position_size)
+        else None
+    )
     if not managed:
         trade.status = data.status
         trade.exit_time = ev.exit_time if data.status == "closed" else None
@@ -314,6 +324,8 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
 
     if data.pnl is not None:
         pnl, manual = data.pnl, True
+    elif ev.market is None and recorded_gross is not None:
+        pnl, manual = recorded_gross - data.fees, False  # same fill, market no longer configured
     else:
         if ev.market is None or not data.position_size:
             raise TradeError(

@@ -14,7 +14,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import ChecklistDay, DailyReview, Trade
-from . import checklist
 from .account import CLOSE_TIME, day_bounds
 
 REVIEW_FIELDS = (
@@ -136,7 +135,6 @@ def reviewed_days(db: Session, first: date, last: date) -> set[date]:
 
 
 def checklist_completed_days(db: Session, first: date, last: date) -> set[date]:
-    """Days in ``[first, last]`` whose pre-market checklist was started and completed."""
-    items = checklist.active_items(db)
+    """Days in ``[first, last]`` whose pre-market checklist was completed (as it stood that day)."""
     records: Iterable[ChecklistDay] = db.scalars(select(ChecklistDay).where(ChecklistDay.day.between(first, last)))
-    return {r.day for r in records if checklist.progress(list(r.checked_item_ids or []), items)["completed"]}
+    return {r.day for r in records if r.completed_at is not None}

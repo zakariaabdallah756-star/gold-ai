@@ -4,7 +4,9 @@ This module intentionally does not use ``from __future__ import annotations``:
 FastAPI must see the real schema classes captured by the factory closure.
 """
 
-from fastapi import APIRouter, HTTPException, Response
+from collections.abc import Callable
+
+from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -20,8 +22,23 @@ def _commit(db: Session, label: str) -> None:
         raise HTTPException(status_code=409, detail=f"A {label} with that name already exists") from exc
 
 
-def crud_router(model, schema_in, schema_out, *, path: str, label: str, order_by) -> APIRouter:
-    """Build list/create/update/delete endpoints under ``/api/{path}``."""
+def crud_router(
+    model,
+    schema_in,
+    schema_out,
+    *,
+    path: str,
+    label: str,
+    order_by,
+    on_update: Callable | None = None,
+    on_delete: Callable | None = None,
+) -> APIRouter:
+    """Build list/create/update/delete endpoints under ``/api/{path}``.
+
+    ``on_update(db, obj, before)`` runs after an update is applied (``before`` holds the
+    previous values) and ``on_delete(db, obj, force)`` before a delete; it may raise an
+    HTTPException (e.g. 409 when the item is still in use and ``force`` is not set).
+    """
     router = APIRouter(prefix=f"/api/{path}", tags=["plan"])
 
     @router.get("", response_model=list[schema_out])
@@ -38,14 +55,21 @@ def crud_router(model, schema_in, schema_out, *, path: str, label: str, order_by
     @router.put("/{item_id}", response_model=schema_out)
     def update_item(item_id: int, payload: schema_in, db: DbDep):
         obj = get_or_404(db, model, item_id)
-        for key, value in payload.model_dump().items():
+        values = payload.model_dump()
+        before = {key: getattr(obj, key) for key in values}
+        for key, value in values.items():
             setattr(obj, key, value)
+        if on_update is not None:
+            on_update(db, obj, before)
         _commit(db, label)
         return obj
 
     @router.delete("/{item_id}", status_code=204)
-    def delete_item(item_id: int, db: DbDep):
-        db.delete(get_or_404(db, model, item_id))
+    def delete_item(item_id: int, db: DbDep, force: bool = Query(False)):
+        obj = get_or_404(db, model, item_id)
+        if on_delete is not None:
+            on_delete(db, obj, force)
+        db.delete(obj)
         db.commit()
         return Response(status_code=204)
 

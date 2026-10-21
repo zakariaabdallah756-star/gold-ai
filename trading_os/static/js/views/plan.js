@@ -151,7 +151,13 @@ function entitySection({ title, description, endpoint, fields, columns, defaults
     const name = row.name || row.symbol || row.label;
     if (!(await confirmDialog(`Delete "${name}"? Past trades keep their recorded values.`, { title: `Delete ${label.toLowerCase()}`, confirmText: "Delete", danger: true }))) return;
     try {
-      await api.del(`${endpoint}/${row.id}`);
+      try {
+        await api.del(`${endpoint}/${row.id}`);
+      } catch (error) {
+        // Still in use (e.g. a strategy with backtests or alert rules): say what goes with it, then confirm.
+        if (error.status !== 409 || !(await confirmDialog(error.message, { title: `Delete ${label.toLowerCase()} and its data`, confirmText: "Delete everything", danger: true }))) throw error;
+        await api.del(`${endpoint}/${row.id}?force=true`);
+      }
       toast(`${label} deleted`, "success");
       await refreshPlan();
       await load();

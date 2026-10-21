@@ -78,6 +78,8 @@ class AccountSettings(TimestampMixin, Base):
     # Emergency kill switch (cool-off). Set via /api/killswitch, not the settings form.
     cooloff_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     cooloff_started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Default plan groups already seeded once (deleting defaults must not bring them back on restart).
+    seeded_defaults: Mapped[list[str]] = mapped_column(JSON, default=list)
     cooloff_reason: Mapped[str] = mapped_column(String(200), default="")
 
     # Position-management defaults for new trades / signals

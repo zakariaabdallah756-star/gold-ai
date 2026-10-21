@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -319,21 +320,34 @@ def _normalise_header(name: str) -> str:
     return re.sub(r"[^a-z0-9&]+", "_", name).strip("_")
 
 
-def _parse_number(raw: str) -> float | None:
-    text = raw.strip().replace("−", "-").replace(" ", "").replace(" ", "")
+PRICE_FIELDS = ("entry_price", "stop_loss", "take_profit", "exit_price")
+
+
+def _parse_number(raw: str, decimal_comma: bool = False) -> float | None:
+    """A number as written in a spreadsheet export.
+
+    With both separators the last one is the decimal mark ("1.234,56", "1,234.56"). A lone comma is a
+    decimal comma in semicolon/tab files; in comma files ("1,0850" vs "18,550") three trailing digits
+    after a single comma mean thousands.
+    """
+    text = raw.strip().replace("−", "-").replace(" ", "").replace("\u00a0", "")
     if not text:
         return None
     text = text.removesuffix("R").removesuffix("r").replace("$", "").replace("€", "")
-    if "," in text and "." not in text:
-        # "1,0850" (decimal comma) vs "18,550" (thousands) - three trailing digits after one comma = thousands.
+    if "," in text and "." in text:
+        decimal, thousands = (",", ".") if text.rfind(",") > text.rfind(".") else (".", ",")
+        text = text.replace(thousands, "").replace(decimal, ".")
+    elif "," in text:
         head, _, tail = text.rpartition(",")
-        text = head.replace(",", "") + ("" if len(tail) == 3 and head.lstrip("-").isdigit() else ".") + tail
-    else:
-        text = text.replace(",", "")
+        thousands = not decimal_comma and len(tail) == 3 and head.lstrip("-").isdigit() and "," not in head
+        text = head.replace(",", "") + ("" if thousands else ".") + tail
     try:
-        return float(text)
+        value = float(text)
     except ValueError as exc:
         raise BacktestError(f"'{raw.strip()}' is not a number") from exc
+    if not math.isfinite(value):
+        raise BacktestError(f"'{raw.strip()}' is not a finite number")
+    return value
 
 
 def _parse_date(raw: str) -> datetime:
@@ -357,6 +371,7 @@ def parse_csv(text: str) -> tuple[list[dict], list[dict]]:
         raise BacktestError("The CSV is empty")
     first_line = text.splitlines()[0]
     delimiter = max((",", ";", "\t"), key=first_line.count)
+    decimal_comma = delimiter != ","
     reader = csv.reader(io.StringIO(text), delimiter=delimiter)
     header = next(reader)
     columns: dict[int, str] = {}
@@ -382,14 +397,19 @@ def parse_csv(text: str) -> tuple[list[dict], list[dict]]:
                 "symbol": raw.get("symbol", "").strip().upper()[:20],
                 "session": raw.get("session", "").strip()[:40],
                 "timeframe": raw.get("timeframe", "").strip().upper()[:10],
-                "notes": raw.get("notes", "").strip(),
+                "notes": raw.get("notes", "").strip()[:5000],
             }
             direction = DIRECTION_ALIASES.get(raw.get("direction", "").strip().lower())
             if direction is None:
                 raise BacktestError(f"Unknown direction '{raw.get('direction', '').strip()}'")
             values["direction"] = direction
             for key in ("entry_price", "stop_loss", "take_profit", "exit_price", "r_multiple", "pnl"):
-                values[key] = _parse_number(raw[key]) if key in raw else None
+                values[key] = _parse_number(raw[key], decimal_comma) if key in raw else None
+            for key in PRICE_FIELDS:
+                if values[key] is not None and values[key] < 0:
+                    raise BacktestError(f"{key.replace('_', ' ')} cannot be negative")
+                if values[key] == 0:  # platforms write 0 for "no stop / no target / not closed"
+                    values[key] = None
             rows.append(derive(values))
         except BacktestError as exc:
             errors.append({"line": line_number, "message": str(exc)})

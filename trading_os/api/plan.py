@@ -3,8 +3,9 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException
+from pydantic import ValidationError
+from sqlalchemy import func, select
 
 from .. import APP_NAME, __version__
 from ..constants import (
@@ -21,7 +22,17 @@ from ..constants import (
     TIMEFRAMES,
     TRAIL_TRIGGERS,
 )
-from ..models import ChecklistItem, Confluence, Market, MistakeType, NewsEvent, Strategy, TradingSession
+from ..models import (
+    AlertRule,
+    BacktestTrade,
+    ChecklistItem,
+    Confluence,
+    Market,
+    MistakeType,
+    NewsEvent,
+    Strategy,
+    TradingSession,
+)
 from ..schemas import (
     ChecklistItemIn,
     ChecklistItemOut,
@@ -52,8 +63,14 @@ def read_settings(settings: SettingsDep):
 
 @router.put("/settings", response_model=SettingsOut)
 def update_settings(payload: SettingsIn, settings: SettingsDep, db: DbDep):
-    # Only fields the client sent are changed, so partial forms can't reset others.
+    # Only fields the client sent are changed, so partial forms can't reset others; the merged result
+    # must still be valid as a whole (e.g. max risk >= default risk).
     changes = payload.model_dump(exclude_unset=True)
+    merged = {name: getattr(settings, name) for name in SettingsIn.model_fields if hasattr(settings, name)}
+    try:
+        SettingsIn.model_validate({**merged, **changes})
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()[0]["msg"].removeprefix("Value error, ")) from exc
     if changes.get("timezone") and changes["timezone"] != settings.timezone:
         _move_absolute_times(db, settings, settings.timezone, changes["timezone"])
     for key, value in changes.items():
@@ -119,11 +136,33 @@ plan_routers = [
     router,
     crud_router(Market, MarketIn, MarketOut, path="markets", label="market", order_by=(Market.symbol,)),
     crud_router(
-        TradingSession, SessionIn, SessionOut, path="sessions", label="session", order_by=(TradingSession.start_utc,)
+        TradingSession,
+        SessionIn,
+        SessionOut,
+        path="sessions",
+        label="session",
+        order_by=(TradingSession.start_utc,),
+        on_update=lambda db, obj, before: session_updated(db, obj, before),
+        on_delete=lambda db, obj, force: session_deleted(db, obj, force),
     ),
-    crud_router(Strategy, StrategyIn, StrategyOut, path="strategies", label="strategy", order_by=(Strategy.name,)),
     crud_router(
-        Confluence, ConfluenceIn, ConfluenceOut, path="confluences", label="confluence", order_by=(Confluence.name,)
+        Strategy,
+        StrategyIn,
+        StrategyOut,
+        path="strategies",
+        label="strategy",
+        order_by=(Strategy.name,),
+        on_delete=lambda db, strategy, force: _guard_strategy_delete(db, strategy, force),
+    ),
+    crud_router(
+        Confluence,
+        ConfluenceIn,
+        ConfluenceOut,
+        path="confluences",
+        label="confluence",
+        order_by=(Confluence.name,),
+        on_update=lambda db, obj, before: confluence_updated(db, obj, before),
+        on_delete=lambda db, obj, force: confluence_deleted(db, obj, force),
     ),
     crud_router(
         ChecklistItem,
@@ -137,3 +176,54 @@ plan_routers = [
         MistakeType, MistakeTypeIn, MistakeTypeOut, path="mistakes", label="mistake", order_by=(MistakeType.name,)
     ),
 ]
+
+
+# --------------------------------------------------------------------------- plan integrity
+
+
+def _rename_in_lists(db, field: str, old: str, new: str | None) -> None:
+    """Replace (or remove, when ``new`` is None) a name in every strategy's ``field`` list."""
+    for strategy in db.scalars(select(Strategy)):
+        names = list(getattr(strategy, field) or [])
+        if old in names:
+            updated = [new if name == old else name for name in names if new is not None or name != old]
+            setattr(strategy, field, list(dict.fromkeys(updated)))
+
+
+def _rename_alert_confluences(db, old: str, new: str) -> None:
+    for rule in db.scalars(select(AlertRule)):
+        if any(c.get("confluence") == old for c in rule.conditions or []):
+            rule.conditions = [{**c, "confluence": new} if c.get("confluence") == old else c for c in rule.conditions]
+
+
+def confluence_updated(db, confluence: Confluence, before: dict) -> None:
+    """Strategies (and alert rules) follow a renamed confluence instead of requiring the old name."""
+    if before.get("name") and before["name"] != confluence.name:
+        _rename_in_lists(db, "required_confluences", before["name"], confluence.name)
+        _rename_alert_confluences(db, before["name"], confluence.name)
+
+
+def confluence_deleted(db, confluence: Confluence, _force: bool) -> None:
+    _rename_in_lists(db, "required_confluences", confluence.name, None)
+
+
+def session_updated(db, session: TradingSession, before: dict) -> None:
+    if before.get("name") and before["name"] != session.name:
+        _rename_in_lists(db, "allowed_sessions", before["name"], session.name)
+
+
+def session_deleted(db, session: TradingSession, _force: bool) -> None:
+    _rename_in_lists(db, "allowed_sessions", session.name, None)
+
+
+def _guard_strategy_delete(db, strategy: Strategy, force: bool) -> None:
+    """Deleting a strategy also deletes its backtests and alert rules: refuse unless asked explicitly."""
+    backtests = db.scalar(select(func.count(BacktestTrade.id)).where(BacktestTrade.strategy_id == strategy.id))
+    rules = db.scalar(select(func.count(AlertRule.id)).where(AlertRule.strategy_id == strategy.id))
+    if (backtests or rules) and not force:
+        parts = [f"{backtests} backtest trade(s)" if backtests else "", f"{rules} alert rule(s)" if rules else ""]
+        raise HTTPException(
+            status_code=409,
+            detail=f"{strategy.name} has {' and '.join(p for p in parts if p)} that would be deleted with it. "
+            "Retire the strategy instead to keep them, or confirm to delete everything.",
+        )

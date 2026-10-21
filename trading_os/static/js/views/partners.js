@@ -72,7 +72,7 @@ function partnerEditor(partner, onSaved) {
   const website = h("input", { type: "url", value: p.website_url || "", placeholder: "https://" });
   const customLink = h("input", { type: "url", value: p.link_url || "", placeholder: "https://… (optional)" });
   const description = h("textarea", { rows: 2, value: p.description || "" });
-  const highlights = h("input", { value: (p.highlights || []).join(", "), placeholder: "Comma separated" });
+  const highlights = h("textarea", { rows: 3, value: (p.highlights || []).join("\n"), placeholder: "One per line" });
   const order = h("input", { type: "number", step: "1", value: p.sort_order ?? 0 });
   const featured = h("input", { type: "checkbox", checked: p.featured });
   const active = h("input", { type: "checkbox", checked: p.active });
@@ -88,7 +88,7 @@ function partnerEditor(partner, onSaved) {
           website_url: website.value.trim(),
           link_url: customLink.value.trim(),
           description: description.value,
-          highlights: highlights.value.split(",").map((s) => s.trim()).filter(Boolean),
+          highlights: highlights.value.split("\n").map((s) => s.trim()).filter(Boolean),
           sort_order: Number(order.value) || 0,
           featured: featured.checked,
           active: active.checked,

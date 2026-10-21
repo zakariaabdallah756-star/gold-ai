@@ -2,7 +2,7 @@
 
 * **CSV** - one row per trade, for spreadsheets and external analysis.
 * **JSON** - every table, losslessly; can be restored.
-* **ZIP** - the JSON plus all uploaded screenshot files; can be restored.
+* **ZIP** - the JSON plus all uploaded images (trade screenshots, Vision AI charts); can be restored.
 
 A restore *replaces* all data. Before touching anything, a safety snapshot of
 the current data is written to ``<data_dir>/backups/``.
@@ -190,8 +190,9 @@ def export_zip_bytes(db: Session, uploads_dir: Path) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(BACKUP_JSON_NAME, export_json_bytes(db))
-        filenames = db.scalars(select(Screenshot.filename).where(Screenshot.kind == "file"))
-        for filename in filenames:
+        filenames = list(db.scalars(select(Screenshot.filename).where(Screenshot.kind == "file")))
+        filenames += list(db.scalars(select(VisionAnalysis.filename)))  # Vision AI chart images
+        for filename in dict.fromkeys(filenames):
             path = uploads_dir / (filename or "")
             if filename and uploads.is_safe_name(filename) and path.is_file():
                 archive.write(path, f"uploads/{filename}")
