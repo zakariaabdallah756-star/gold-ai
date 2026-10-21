@@ -265,16 +265,31 @@ def test_configs_are_masked_and_unchanged_masks_keep_secrets(client, http):
     assert channel["config"] == {"server": "https://ntfy.sh", "topic": "tr••••", "token": "••••0abc"}
 
     listed = client.get("/api/notifications/channels").json()[0]
-    edited = client.put(
-        f"/api/notifications/channels/{listed['id']}",
-        json={"name": "My phone", "config": {**listed["config"], "server": "https://ntfy.example.org"}},
+    renamed = client.put(
+        f"/api/notifications/channels/{listed['id']}", json={"name": "My phone", "config": listed["config"]}
     )
-    assert edited.status_code == 200, edited.text
-    assert edited.json()["name"] == "My phone"
+    assert renamed.status_code == 200 and renamed.json()["name"] == "My phone"
     send_note(client, alert_note())
-    assert http.calls[-1]["url"] == "https://ntfy.example.org"
+    assert http.calls[-1]["url"] == "https://ntfy.sh"
     assert http.calls[-1]["headers"]["Authorization"] == f"Bearer {NTFY_TOKEN}"
     assert http.json()["topic"] == "tradingos_k3x9q2"
+
+    # Another server: the stored token and topic are not carried over to it.
+    moved = client.put(
+        f"/api/notifications/channels/{listed['id']}",
+        json={"config": {**listed["config"], "server": "https://ntfy.example.org"}},
+    )
+    assert moved.status_code == 422 and "again" in moved.json()["detail"]
+    retyped = client.put(
+        f"/api/notifications/channels/{listed['id']}",
+        json={
+            "config": {"server": "https://ntfy.example.org", "topic": "home_topic_77", "token": "tk_home_token_123456"}
+        },
+    )
+    assert retyped.status_code == 200, retyped.text
+    send_note(client, alert_note())
+    assert http.calls[-1]["url"] == "https://ntfy.example.org"
+    assert http.calls[-1]["headers"]["Authorization"] == "Bearer tk_home_token_123456"
 
     client.put(
         f"/api/notifications/channels/{listed['id']}",
@@ -535,3 +550,88 @@ def test_log_rows_store_channel_names(client, http):
         row = db.query(NotificationLog).one()
         assert row.results[0]["name"] == "Pixel"
         assert db.query(NotificationChannel).one().last_error == ""
+
+
+# ------------------------------------------------------------ review fixes
+
+
+def test_failed_risk_notice_is_retried_later_not_marked_as_sent(client, http):
+    enable(client)
+    add_channel(client, "ntfy")
+    client.post("/api/killswitch", json={"hours": 2})
+    scheduler = client.app.state.scheduler
+    http.responses["https://ntfy.sh"] = httpx.ConnectError("offline")
+    scheduler.run_now("risk-watch")
+    assert [row["status"] for row in risk_log(client)] == ["failed"]
+    scheduler.run_now("risk-watch")  # within the retry delay: no new attempt every minute
+    assert len(risk_log(client)) == 1
+
+    del http.responses["https://ntfy.sh"]
+    with client.app.state.session_factory() as db:  # the failed attempt is older than the retry delay
+        for row in db.query(NotificationLog).all():
+            row.created_at -= notify.RETRY_AFTER + timedelta(minutes=1)
+        db.commit()
+    scheduler.run_now("risk-watch")
+    assert [row["status"] for row in risk_log(client)] == ["sent", "failed"]
+    scheduler.run_now("risk-watch")
+    assert len(risk_log(client)) == 2  # delivered once: done for the day
+
+
+def test_clearing_history_does_not_resend_todays_risk_notice(client, http):
+    enable(client)
+    add_channel(client, "ntfy")
+    client.post("/api/killswitch", json={"hours": 2})
+    client.app.state.scheduler.run_now("risk-watch")
+    calls = len(http.calls)
+    assert client.delete("/api/notifications/log").status_code == 204
+    client.app.state.scheduler.run_now("risk-watch")
+    assert len(http.calls) == calls
+
+
+def test_browser_rotation_keeps_the_channels_name_and_pause(client):
+    first = {"endpoint": "https://fcm.googleapis.com/fcm/send/old-endpoint", "keys": WEBPUSH_KEYS}
+    created = client.post("/api/notifications/webpush/subscribe", json={"subscription": first}).json()
+    client.put(f"/api/notifications/channels/{created['id']}", json={"name": "Work laptop", "enabled": False})
+    rotated = {"endpoint": "https://fcm.googleapis.com/fcm/send/new-endpoint", "keys": WEBPUSH_KEYS}
+    after = client.post(
+        "/api/notifications/webpush/subscribe", json={"subscription": rotated, "old_endpoint": first["endpoint"]}
+    ).json()
+    assert after["id"] == created["id"] and after["name"] == "Work laptop" and after["enabled"] is False
+    turned_on = client.post("/api/notifications/webpush/subscribe", json={"subscription": rotated}).json()
+    assert turned_on["enabled"] is True and turned_on["name"] == "Work laptop"
+
+
+def test_vapid_keys_are_generated_once(client):
+    first = client.get("/api/notifications/webpush/key").json()["public_key"]
+    assert first and client.get("/api/notifications/webpush/key").json()["public_key"] == first
+
+
+def test_custom_webhook_summary_hides_the_full_host(client):
+    channel = client.post(
+        "/api/notifications/channels",
+        json={"kind": "webhook", "config": {"url": "https://eo1a2b3c4d5e6f.m.pipedream.net/x"}},
+    ).json()
+    assert channel["summary"] == "Webhook to …pipedream.net" and "eo1a2b3c" not in json.dumps(channel)
+
+
+def _browser_keys() -> dict:
+    """A valid PushSubscription key pair (P-256 public key + 16-byte auth secret), as a browser sends it."""
+    import base64
+    import os
+
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    raw = (
+        ec.generate_private_key(ec.SECP256R1())
+        .public_key()
+        .public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+    )
+
+    def b64(data: bytes) -> str:
+        return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+    return {"p256dh": b64(raw), "auth": b64(os.urandom(16))}
+
+
+WEBPUSH_KEYS = _browser_keys()

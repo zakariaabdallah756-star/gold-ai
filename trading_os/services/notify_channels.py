@@ -428,16 +428,34 @@ def masked_config(kind: str, config: dict) -> dict:
     return masked
 
 
+# Fields that say where a channel delivers: stored secrets are never re-sent to a new destination.
+DESTINATION_FIELDS = {"ntfy": ("server",), "discord": ("webhook_url",), "slack": ("webhook_url",), "webhook": ("url",)}
+
+
 def merge_config(kind: str, stored: dict, incoming: dict) -> dict:
-    """Keep stored secrets that come back unchanged in their masked form, then validate."""
+    """Keep stored secrets that come back unchanged in their masked form, then validate.
+
+    When the destination changes (another ntfy server, another webhook URL), secrets sent back masked
+    are not carried over: the user has to enter them again, so they never reach a new host.
+    """
     if kind == "webpush":
         return stored
     merged = dict(incoming)
     masked = masked_config(kind, stored)
+    restored = []
     for key in (*KINDS[kind].secret_fields, "topic"):
         if key in stored and merged.get(key) == masked.get(key) and masked.get(key):
             merged[key] = stored[key]
-    return validate(kind, merged)
+            restored.append(key)
+    candidate = validate(kind, merged)
+    destinations = DESTINATION_FIELDS.get(kind, ())
+    moved = [field for field in destinations if candidate.get(field) != stored.get(field)]
+    carried = [key for key in restored if key not in destinations]
+    if moved and carried:
+        raise ChannelConfigError(
+            f"The destination changed - enter the {' and '.join(carried)} again so it isn't sent to the new address."
+        )
+    return candidate
 
 
 def summary(kind: str, config: dict) -> str:
@@ -452,6 +470,9 @@ def summary(kind: str, config: dict) -> str:
     if kind == "pushover":
         return f"User key {masked['user_key']}"
     host = urlsplit(config.get("webhook_url") or config.get("url") or "").hostname or ""
+    labels = host.split(".")
+    if kind == "webhook" and len(labels) > 2 and not host.replace(".", "").isdigit():
+        host = "…" + ".".join(labels[-2:])  # a custom webhook's host can be its secret: show only the site
     return f"Webhook to {host}" + (" (signed)" if config.get("secret") else "")
 
 

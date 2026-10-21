@@ -5,6 +5,7 @@ a masked value sent back unchanged keeps the stored secret.
 """
 
 import re
+from datetime import timedelta
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
@@ -13,7 +14,7 @@ from sqlalchemy import delete, func, select
 
 from ..models import AccountSettings, NotificationChannel, NotificationLog
 from ..schemas import FiniteModel
-from ..services import notify, notify_channels, webpush
+from ..services import account, notify, notify_channels, webpush
 from .deps import DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -255,9 +256,11 @@ def webpush_key(db: DbDep, settings: SettingsDep) -> dict:
 
 @router.post("/webpush/subscribe")
 def webpush_subscribe(body: SubscribeIn, request: Request, db: DbDep) -> dict:
-    name = body.name or notify.device_label(request.headers.get("user-agent", ""))
+    label = notify.device_label(request.headers.get("user-agent", ""))
     try:
-        channel = notify.upsert_webpush(db, body.subscription.model_dump(), name, body.old_endpoint)
+        channel = notify.upsert_webpush(
+            db, body.subscription.model_dump(), body.name, body.old_endpoint, default_name=label
+        )
     except notify_channels.ChannelConfigError as exc:
         raise _config_error(exc) from exc
     return _channel_out(channel)
@@ -278,8 +281,15 @@ def list_log(db: DbDep, limit: int = Query(50, ge=1, le=200)) -> list[dict]:
 
 
 @router.delete("/log", status_code=204)
-def clear_log(db: DbDep) -> Response:
-    db.execute(delete(NotificationLog))
+def clear_log(db: DbDep, settings: SettingsDep) -> Response:
+    """Clear the history, except the last day's risk events and news reminders: the watchers use those
+    to know what was already sent, so clearing must not send them again."""
+    since = account.local_now(settings) - timedelta(days=1)
+    db.execute(
+        delete(NotificationLog).where(
+            ~(NotificationLog.event.in_(("risk", "news")) & (NotificationLog.created_at >= since))
+        )
+    )
     db.commit()
     return Response(status_code=204)
 

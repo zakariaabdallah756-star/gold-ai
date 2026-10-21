@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import threading
 from concurrent.futures import ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -241,11 +242,18 @@ def _dispatch(db: Session, settings: AccountSettings, note: Note, channels: list
 # ------------------------------------------------------------------ Web Push
 
 
+_vapid_lock = threading.Lock()
+
+
 def ensure_vapid_keys(db: Session, settings: AccountSettings) -> str:
-    """The VAPID public key, generating the key pair on first use."""
-    if not settings.vapid_public_key or not settings.vapid_private_key:
-        settings.vapid_private_key, settings.vapid_public_key = webpush.generate_vapid_keys()
-        db.commit()
+    """The VAPID public key, generating the key pair once (two first requests must not create two pairs)."""
+    if settings.vapid_public_key and settings.vapid_private_key:
+        return settings.vapid_public_key
+    with _vapid_lock:
+        db.refresh(settings)
+        if not settings.vapid_public_key or not settings.vapid_private_key:
+            settings.vapid_private_key, settings.vapid_public_key = webpush.generate_vapid_keys()
+            db.commit()
     return settings.vapid_public_key
 
 
@@ -260,18 +268,26 @@ def _webpush_channels(db: Session) -> list[NotificationChannel]:
     return list(db.scalars(select(NotificationChannel).where(NotificationChannel.kind == "webpush")).all())
 
 
-def upsert_webpush(db: Session, subscription: dict, name: str, old_endpoint: str = "") -> NotificationChannel:
-    """Save a browser subscription, updating the channel with the same (or the replaced) endpoint."""
+def upsert_webpush(
+    db: Session, subscription: dict, name: str, old_endpoint: str = "", default_name: str = "Browser"
+) -> NotificationChannel:
+    """Save a browser subscription, updating the channel with the same (or the replaced) endpoint.
+
+    A rotation by the browser (``old_endpoint`` set, no ``name``) keeps the channel's name and its
+    on/off state; turning the device on from the page enables it. ``name`` renames explicitly.
+    """
     config = notify_channels.validate("webpush", subscription)
     matches = {config["endpoint"]} | ({old_endpoint} if old_endpoint else set())
     channel = next((c for c in _webpush_channels(db) if (c.config or {}).get("endpoint") in matches), None)
     if channel is None:
-        channel = NotificationChannel(kind="webpush", name=name or "Browser", events=[])
+        channel = NotificationChannel(kind="webpush", name=name or default_name, events=[], enabled=True)
         db.add(channel)
-    elif name:
-        channel.name = name
+    else:
+        if name:
+            channel.name = name
+        if not old_endpoint:
+            channel.enabled = True
     channel.config = config
-    channel.enabled = True
     channel.last_error = ""
     db.commit()
     return channel
@@ -333,12 +349,25 @@ def risk_notes(status: dict) -> list[Note]:
     return notes
 
 
-def _logged_values(db: Session, event: str, key: str, since: datetime) -> set:
-    """Values of ``data[key]`` on log rows of ``event`` since ``since`` (dedupe without extra columns)."""
-    rows = db.scalars(
-        select(NotificationLog.data).where(NotificationLog.event == event, NotificationLog.created_at >= since)
+RETRY_AFTER = timedelta(minutes=10)  # a failed or undeliverable notice is tried again after this
+
+
+def _logged_values(db: Session, event: str, key: str, since: datetime, now: datetime) -> set:
+    """Values of ``data[key]`` already handled for ``event`` since ``since`` (dedupe without extra columns).
+
+    Delivered rows (sent / partial) count for the whole period; failed or skipped attempts only for
+    ``RETRY_AFTER``, so a notice is retried when the network or a channel comes back.
+    """
+    rows = db.execute(
+        select(NotificationLog.data, NotificationLog.status, NotificationLog.created_at).where(
+            NotificationLog.event == event, NotificationLog.created_at >= since
+        )
     )
-    return {row.get(key) for row in rows if isinstance(row, dict)}
+    return {
+        data.get(key)
+        for data, status, created in rows
+        if isinstance(data, dict) and (status in ("sent", "partial") or created >= now - RETRY_AFTER)
+    }
 
 
 def risk_watch(session_factory: sessionmaker[Session]) -> dict:
@@ -348,8 +377,9 @@ def risk_watch(session_factory: sessionmaker[Session]) -> dict:
         if not event_enabled(settings, "risk"):
             return {"sent": 0}
         notes = risk_notes(account.daily_status(db, settings))
-        today_start, _end = account.day_bounds(account.local_today(settings))
-        already = _logged_values(db, "risk", "code", today_start)
+        now = account.local_now(settings)
+        today_start, _end = account.day_bounds(now.date())
+        already = _logged_values(db, "risk", "code", today_start, now)
         sent = 0
         for note in notes:
             if note.data["code"] not in already:
@@ -410,7 +440,7 @@ def news_reminders(session_factory: sessionmaker[Session]) -> dict:
             )
         ).all()
         markets = list(db.scalars(select(Market).where(Market.active.is_(True))).all())
-        reminded = _logged_values(db, "news", "news_event_id", now - timedelta(days=1))
+        reminded = _logged_values(db, "news", "news_event_id", now - timedelta(days=1), now)
         sent = 0
         for note in news_notes(list(events), settings, markets, now):
             if note.data["news_event_id"] not in reminded:

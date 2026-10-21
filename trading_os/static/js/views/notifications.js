@@ -284,7 +284,7 @@ export async function renderNotificationSettings(container) {
 
   // ------------------------------------------------------------- Web Push
 
-  async function enablePush(button) {
+  async function enablePush(button, { renew = false } = {}) {
     button.disabled = true;
     try {
       const permission = await Notification.requestPermission();
@@ -298,12 +298,15 @@ export async function renderNotificationSettings(container) {
       await navigator.serviceWorker.ready;
       const keyBytes = base64UrlToBytes(key);
       let subscription = await registration.pushManager.getSubscription();
-      if (subscription && !sameBytes(subscription.options?.applicationServerKey, keyBytes)) {
+      let oldEndpoint = "";
+      // A paused channel usually means the push service dropped the subscription: get a fresh one.
+      if (subscription && (renew || !sameBytes(subscription.options?.applicationServerKey, keyBytes))) {
+        oldEndpoint = subscription.endpoint;
         await subscription.unsubscribe();
         subscription = null;
       }
       subscription ||= await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes });
-      await api.post(`${BASE}/webpush/subscribe`, { subscription: subscription.toJSON() });
+      await api.post(`${BASE}/webpush/subscribe`, { subscription: subscription.toJSON(), old_endpoint: oldEndpoint });
       toast("Notifications are on for this device", "success");
     } catch (error) {
       toast(`Web Push could not be turned on: ${error.message}`, "error");
@@ -396,7 +399,7 @@ export async function renderNotificationSettings(container) {
       text = paused
         ? `This device's subscription is paused${channel.last_error ? ` (${channel.last_error})` : ""}. Turn it on again to renew it.`
         : "Your browser will ask for permission. Notifications then arrive even when this tab is closed (the browser must be running).";
-      const onBtn = h("button", { class: "btn primary sm", type: "button", onclick: () => enablePush(onBtn) }, icon("bell"), paused ? "Turn on again" : "Enable on this device");
+      const onBtn = h("button", { class: "btn primary sm", type: "button", onclick: () => enablePush(onBtn, { renew: paused }) }, icon("bell"), paused ? "Turn on again" : "Enable on this device");
       actions = [onBtn];
     }
     clear(cards.device, head, h("div", { class: "nt-device-state" }, h("div", { class: "row" }, chip), h("p", { class: "small nt-device-text" }, text), h("div", { class: "row" }, actions)), env.ios ? null : iosNote);
@@ -629,7 +632,7 @@ export async function renderNotificationSettings(container) {
   }
 
   async function clearHistory() {
-    const ok = await confirmDialog("Clear the notification history? Channels and settings are kept.", { title: "Clear history", confirmText: "Clear", danger: true });
+    const ok = await confirmDialog("Clear the notification history? Channels and settings are kept, and so are the last day's risk and news notices (so they aren't sent again).", { title: "Clear history", confirmText: "Clear", danger: true });
     if (!ok) return;
     try {
       await api.del(`${BASE}/log`);
