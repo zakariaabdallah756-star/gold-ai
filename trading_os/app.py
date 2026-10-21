@@ -18,7 +18,7 @@ from .api import routers
 from .config import STATIC_DIR, AppConfig, load_config
 from .database import create_db_engine, init_db
 from .seed import seed_defaults
-from .services import alerts, notify
+from .services import alerts, i18n, notify
 from .services.backup import BackupError
 from .services.scheduler import Scheduler
 from .services.sizing import SizingError
@@ -79,6 +79,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if request.method not in ("GET", "HEAD", "OPTIONS") and _cross_origin(request, host, config.allowed_hosts):
             return JSONResponse(status_code=403, content={"detail": "Cross-origin requests are not allowed"})
         return await call_next(request)
+
+    @app.middleware("http")
+    async def _language(request: Request, call_next):
+        # Server-side text (guardrail messages, errors, notices) follows the language chosen in the settings.
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        token = i18n.set_current(i18n.stored_language(session_factory))
+        try:
+            return await call_next(request)
+        finally:
+            i18n.reset(token)
 
     @app.middleware("http")
     async def _headers(request: Request, call_next):

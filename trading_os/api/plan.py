@@ -49,6 +49,7 @@ from ..schemas import (
     StrategyIn,
     StrategyOut,
 )
+from ..services import i18n
 from ..services.account import local_now
 from .crud import crud_router
 from .deps import ConfigDep, DbDep, SettingsDep
@@ -128,6 +129,7 @@ def read_plan(settings: SettingsDep, db: DbDep, config: ConfigDep):
             "trail_triggers": TRAIL_TRIGGERS,
             "max_targets": MAX_TARGETS,
             "tp_splits": {str(count): list(split) for count, split in DEFAULT_TP_SPLITS.items()},
+            "languages": [{"code": code, "name": name} for code, name in i18n.LANGUAGES.items()],
         },
     }
 

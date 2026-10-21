@@ -2,10 +2,11 @@
 // so they are parsed as local time and never shifted between zones.
 
 let currency = "USD";
+let locale; // undefined = the browser's formats; set from the interface language (i18n.js)
 let moneyFormat = makeMoney("USD");
 
 function makeMoney(code) {
-  return new Intl.NumberFormat(undefined, { style: "currency", currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return new Intl.NumberFormat(locale, { style: "currency", currency: code, minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function setCurrency(code) {
@@ -15,12 +16,26 @@ export function setCurrency(code) {
   }
 }
 
+/** Number and date formats of ``tag`` (e.g. "it-IT"); undefined = the browser's. */
+export function setLocale(tag) {
+  locale = tag;
+  moneyFormat = makeMoney(currency);
+  dateFormat = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short", year: "numeric" });
+  shortDateFormat = new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short" });
+  timeFormat = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" });
+  weekdayFormat = new Intl.DateTimeFormat(locale, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+}
+
+export function currentLocale() {
+  return locale;
+}
+
 const MINUS = "−";
 const isNum = (v) => typeof v === "number" && Number.isFinite(v);
-const dateFormat = new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short", year: "numeric" });
-const shortDateFormat = new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short" });
-const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
-const weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+let dateFormat = new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short", year: "numeric" });
+let shortDateFormat = new Intl.DateTimeFormat(undefined, { day: "2-digit", month: "short" });
+let timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
+let weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
 function parseLocal(iso) {
   if (!iso) return null;
@@ -44,22 +59,22 @@ export const fmt = {
   },
   compactMoney(value) {
     if (!isNum(value)) return "";
-    return new Intl.NumberFormat(undefined, { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 })
+    return new Intl.NumberFormat(locale, { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 })
       .format(value)
       .replace("-", MINUS);
   },
   num(value, digits = 2) {
     if (!isNum(value)) return "—";
-    return value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }).replace("-", MINUS);
+    return value.toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).replace("-", MINUS);
   },
   price(value) {
     if (!isNum(value)) return "—";
     const digits = Math.abs(value) < 10 ? 5 : Math.abs(value) < 1000 ? 3 : 2;
-    return value.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: digits });
+    return value.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: digits });
   },
   lots(value) {
     if (!isNum(value)) return "—";
-    return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
+    return value.toLocaleString(locale, { maximumFractionDigits: 3 });
   },
   pct(value, digits = 1) {
     if (!isNum(value)) return "—";

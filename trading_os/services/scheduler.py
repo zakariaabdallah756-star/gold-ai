@@ -23,6 +23,8 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
+from . import i18n
+
 log = logging.getLogger("trading_os.scheduler")
 
 TICK_SECONDS = 1.0
@@ -116,7 +118,8 @@ class Scheduler:
         started = time.monotonic()
         job.last_run_at = datetime.now().replace(microsecond=0)
         try:
-            job.last_result = job.fn(self.session_factory)
+            with i18n.using(i18n.stored_language(self.session_factory)):  # notices in the user's language
+                job.last_result = job.fn(self.session_factory)
             job.last_error = ""
         except Exception as exc:  # a broken job must not stop the others
             log.exception("Background job %s failed", job.name)

@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { clear, field, h, icon, modal, segmented, toast } from "./dom.js";
 import { fmt, pnlClass, toInputDateTime } from "./format.js";
 import { mountDisclaimer } from "./disclaimer.js";
+import { N_, t, tn, useLanguage } from "./i18n.js";
 import { accountNow, loadPlan, loadStatus, onStatus, state } from "./state.js";
 import * as alerts from "./views/alerts.js";
 import * as backup from "./views/backup.js";
@@ -436,11 +437,13 @@ async function route() {
 }
 
 async function boot() {
-  buildNav();
   try {
     await loadPlan();
+    await useLanguage(state.plan.settings.language);
+    buildNav();
     await loadStatus();
   } catch (error) {
+    if (!document.querySelector("#nav a")) buildNav();
     clear(document.getElementById("view"), errorBox(error));
     return;
   }

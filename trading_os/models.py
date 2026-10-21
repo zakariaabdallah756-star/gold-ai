@@ -52,6 +52,7 @@ class AccountSettings(TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), default="USD")
     starting_balance: Mapped[float] = mapped_column(Float, default=10_000.0)
     timezone: Mapped[str] = mapped_column(String(64), default="UTC")
+    language: Mapped[str] = mapped_column(String(5), default="en")  # en | it - UI, messages and AI answers
 
     # Per-trade rules
     default_risk_pct: Mapped[float] = mapped_column(Float, default=1.0)

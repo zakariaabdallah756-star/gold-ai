@@ -224,6 +224,13 @@ function rulesSection() {
       { name: "currency", label: "Account currency", type: "select", options: currencies.includes(s.currency) ? currencies : [s.currency, ...currencies] },
       { name: "starting_balance", label: "Starting balance", type: "number", min: "0", help: "Equity = starting balance + net P&L of closed trades" },
       { name: "timezone", label: "Time zone", list: "tz-options", help: "Time zone of your journal timestamps and 'today'" },
+      {
+        name: "language",
+        label: "Language / Lingua",
+        type: "select",
+        options: (state.plan.enums.languages || []).map((l) => [l.code, l.name]),
+        help: "Interface, guardrail messages, notifications and Vision AI answers",
+      },
     ],
     s,
   );
@@ -306,7 +313,12 @@ function rulesSection() {
           ...newsRules.read(),
           ...positionDefaults.read(),
         });
+        const previousLanguage = state.plan.settings.language;
         await refreshPlan();
+        if (state.plan.settings.language !== previousLanguage) {
+          location.reload(); // every page and the app shell switch language at once
+          return;
+        }
         toast("Trading plan saved", "success");
       } catch (error) {
         toast(error.message, "error");

@@ -50,6 +50,7 @@ class SettingsIn(BaseModel):
     currency: Currency = "USD"
     starting_balance: float = Field(10_000.0, gt=0)
     timezone: str = "UTC"
+    language: Literal["en", "it"] = "en"
     default_risk_pct: float = Field(1.0, gt=0, le=100)
     max_risk_pct: float = Field(2.0, gt=0, le=100)
     min_rr: float = Field(2.0, ge=0, le=50)
