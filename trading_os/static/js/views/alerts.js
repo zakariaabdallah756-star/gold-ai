@@ -42,6 +42,7 @@ const TEMPLATES = [
   },
 ];
 const REFRESH_MS = 30_000;
+const RULE_SYMBOL = /^[A-Z0-9._-]{2,20}$/; // what the alert API accepts as a rule symbol
 
 let feedFilter = "new";
 
@@ -127,8 +128,10 @@ async function notificationHint() {
   let channels = data.channels ?? settings.channels;
   if (channels === undefined) channels = await api.get("/api/notifications/channels").catch(() => undefined);
   const list = Array.isArray(channels) ? channels : channels?.channels;
-  const active = Array.isArray(list) ? list.filter((channel) => channel.enabled !== false).length : null;
-  const events = settings.notify_events;
+  // Only channels that would actually receive strategy alerts count (a channel may subscribe to other events).
+  const receives = (channel) => channel.enabled !== false && (!channel.events?.length || channel.events.includes("strategy_alert"));
+  const active = Array.isArray(list) ? list.filter(receives).length : null;
+  const events = settings.events ?? settings.notify_events;
   if (enabled === false) return hint("Push notifications are off", "Alerts will only appear on this page.");
   if (active === 0) return hint("No notification channel yet", "Add your phone or browser to receive alerts instantly.");
   if (Array.isArray(events) && !events.includes("strategy_alert")) return hint("Strategy alert notifications are switched off", "Alerts will only appear on this page.");
@@ -269,7 +272,7 @@ function testResult(item) {
         )
       : null,
     copilot === null
-      ? h("p", { class: "small muted" }, "No strategy linked - only the rule's conditions decide.")
+      ? h("p", { class: "small muted" }, item.strategy ? `The ${item.strategy} Co-Pilot checks run once the conditions line up.` : "No strategy linked - only the rule's conditions decide.")
       : copilot.length
         ? h("div", { class: `copilot ${item.copilot_passes ? "neutral" : "wait"}` }, icon("shield"), h("div", {}, h("strong", {}, item.copilot_passes ? "Co-Pilot: passes (with notes)" : "Co-Pilot: wait"), h("ul", {}, copilot.map((v) => h("li", {}, v.message)))))
         : h("div", { class: "copilot ok" }, icon("shield"), h("div", {}, h("strong", {}, `Co-Pilot: every ${item.strategy} requirement is met`))),
@@ -361,7 +364,7 @@ function ruleEditor(rule, meta, onSaved) {
         name: "",
         enabled: true,
         strategy_id: null,
-        symbols: plan.markets.filter((m) => m.active).slice(0, 1).map((m) => m.symbol),
+        symbols: plan.markets.filter((m) => m.active && RULE_SYMBOL.test(m.symbol)).slice(0, 1).map((m) => m.symbol),
         timeframe: "M15",
         provider: "yahoo",
         provider_symbols: {},
@@ -428,7 +431,7 @@ function ruleEditor(rule, meta, onSaved) {
   const customSymbol = h("input", { placeholder: "Add symbol", maxlength: "20", style: { textTransform: "uppercase" } });
   const addSymbol = () => {
     const value = customSymbol.value.trim().toUpperCase();
-    if (!/^[A-Z0-9._-]{2,20}$/.test(value)) {
+    if (!RULE_SYMBOL.test(value)) {
       toast("Symbols use 2-20 letters, digits, '.', '_' or '-'", "warn");
       return;
     }
@@ -443,7 +446,9 @@ function ruleEditor(rule, meta, onSaved) {
     }
   });
   function drawSymbols() {
-    const options = [...new Set([...plan.markets.filter((m) => m.active).map((m) => m.symbol), ...draft.symbols])];
+    // Plan symbols such as "EUR/USD" cannot be scanned (the API refuses them), so they are not offered.
+    const planSymbols = plan.markets.filter((m) => m.active && RULE_SYMBOL.test(m.symbol)).map((m) => m.symbol);
+    const options = [...new Set([...planSymbols, ...draft.symbols])];
     clear(
       symbolChips,
       options.map((symbol) =>
@@ -454,7 +459,12 @@ function ruleEditor(rule, meta, onSaved) {
             class: `chip-toggle${draft.symbols.includes(symbol) ? " on" : ""}`,
             "aria-pressed": String(draft.symbols.includes(symbol)),
             onclick: () => {
-              draft.symbols = draft.symbols.includes(symbol) ? draft.symbols.filter((s) => s !== symbol) : [...draft.symbols, symbol];
+              if (draft.symbols.includes(symbol)) {
+                draft.symbols = draft.symbols.filter((s) => s !== symbol);
+                delete draft.provider_symbols[symbol]; // its override input disappears with it
+              } else {
+                draft.symbols = [...draft.symbols, symbol];
+              }
               drawSymbols();
             },
           },
@@ -695,7 +705,8 @@ function ruleEditor(rule, meta, onSaved) {
         if (!draft.conditions.length) return toast("Add at least one condition", "warn");
         save.disabled = true;
         try {
-          const payload = { ...draft, name: draft.name.trim() };
+          const overrides = Object.fromEntries(Object.entries(draft.provider_symbols).filter(([symbol]) => draft.symbols.includes(symbol)));
+          const payload = { ...draft, name: draft.name.trim(), provider_symbols: overrides };
           const saved = rule ? await api.put(`/api/alerts/rules/${rule.id}`, payload) : await api.post("/api/alerts/rules", payload);
           toast(rule ? "Rule saved" : "Rule created - press Test to check it on the latest candles", "success");
           ref.close();
@@ -823,8 +834,10 @@ export async function render(root, { params }) {
   }
 
   // --- scanner
+  let scanning = false; // a manual scan is running: re-renders keep the button busy
   async function drawScanner() {
     const scanner = await api.get("/api/alerts/scanner");
+    const wasOpen = scannerSlot.querySelector("details")?.open;
     const choices = meta.interval_choices.includes(scanner.interval_sec) ? meta.interval_choices : [...meta.interval_choices, scanner.interval_sec].sort((a, b) => a - b);
     const interval = select(
       choices.map((s) => [s, INTERVAL_LABELS[s] || `Every ${Math.round(s / 60)} min`]),
@@ -850,23 +863,30 @@ export async function render(root, { params }) {
       {
         class: "btn primary",
         type: "button",
+        disabled: scanning,
         onclick: async () => {
+          scanning = true;
           scanButton.disabled = true;
           scanButton.lastChild.textContent = "Scanning…";
           try {
             const result = await api.post("/api/alerts/scan");
             toast(`Scan finished: ${scanSummary(result.results)}`, result.errors ? "warn" : result.alerts ? "success" : "info", 6000);
-            await refreshAll();
           } catch (error) {
             toast(error.message, "error");
-            scanButton.disabled = false;
-            scanButton.lastChild.textContent = "Scan now";
+          } finally {
+            scanning = false;
           }
+          await refreshAll().catch(() => {});
         },
       },
       icon("refresh"),
-      h("span", {}, "Scan now"),
+      h("span", {}, scanning ? "Scanning…" : "Scan now"),
     );
+    const gapFree = scanner.gap_free_interval_sec;
+    const gaps =
+      gapFree && scanner.interval_sec > gapFree
+        ? h("div", { class: "violation warn" }, icon("alert"), h("div", { class: "al-msg" }, `Scans this far apart can skip candles of your shortest rule timeframe - choose ${INTERVAL_LABELS[meta.interval_choices.filter((s) => s <= gapFree).pop()]?.toLowerCase() || "a shorter interval"} or less to check every candle.`))
+        : null;
     const running = scanner.enabled
       ? scanner.thread_running
         ? h("span", { class: "chip ok" }, icon("checkCircle"), "Scanning in the background")
@@ -887,9 +907,10 @@ export async function render(root, { params }) {
         h("span", { class: "chip" }, icon("clock"), scanner.last_run_at ? `Last scan ${fmt.datetime(scanner.last_run_at)}${scanner.last_manual ? " (manual)" : ""}` : "No scan yet"),
         h("span", { class: "chip" }, icon("list"), plural(scanner.rules_enabled, "enabled rule")),
       ),
+      gaps,
       scanner.last_error ? h("div", { class: "violation block" }, icon("alert"), h("div", { class: "al-msg" }, `Last scan failed: ${scanner.last_error}`)) : null,
       scanner.last_results.length
-        ? h("details", { class: "al-details" }, h("summary", {}, `Last scan results · ${scanSummary(scanner.last_results)}`), resultsTable(scanner.last_results))
+        ? h("details", { class: "al-details", open: wasOpen || undefined }, h("summary", {}, `Last scan results · ${scanSummary(scanner.last_results)}`), resultsTable(scanner.last_results))
         : null,
     );
   }
@@ -906,6 +927,13 @@ export async function render(root, { params }) {
         toast(error.message, "error");
       }
       handoff.signalText = alert.signal_text;
+      handoff.signalContext = {
+        strategy: alert.strategy || "",
+        timeframe: alert.timeframe || "",
+        confluences: alert.confluences || [],
+        risk_pct: alert.details?.risk_pct ?? null,
+        alert: { id: alert.id, symbol: alert.symbol },
+      };
       location.hash = "#/signals";
     },
     onDismiss: async (alert) => {
@@ -1038,9 +1066,10 @@ export async function render(root, { params }) {
   notificationHint().then((node) => clear(hintSlot, node));
 
   const timer = setInterval(() => {
-    if (document.visibilityState === "visible" && !document.querySelector(".modal-backdrop")) {
-      Promise.all([drawFeed(), drawScanner()]).catch(() => {});
-    }
+    if (document.visibilityState !== "visible" || document.querySelector(".modal-backdrop")) return;
+    drawFeed().catch(() => {});
+    // Leave the scanner card alone while a scan runs or one of its controls is in use.
+    if (!scanning && !scannerSlot.contains(document.activeElement)) drawScanner().catch(() => {});
   }, REFRESH_MS);
   return () => clearInterval(timer);
 }

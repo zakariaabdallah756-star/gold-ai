@@ -17,7 +17,7 @@ const TRIGGER_LABELS = { tp1: "After TP1", immediate: "Immediately" };
 const SIDE = { long: "Buy", short: "Sell" };
 
 // Kept between visits: the pasted message and the ticket being edited.
-const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, example: -1 };
+const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, example: -1, context: null, alert: null };
 
 const num = (value) => numberOrNull({ value: value ?? "" });
 const inputValue = (value) => (value === null || value === undefined ? "" : String(value));
@@ -46,7 +46,7 @@ function guardrailFindings(violations, strategyName, okText) {
 }
 
 function resetMemory() {
-  Object.assign(memory, { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true });
+  Object.assign(memory, { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, context: null, alert: null });
 }
 
 /** Same markup as calculator.violationList, for non-guardrail messages. */
@@ -89,9 +89,12 @@ function parseSummary(parsed) {
 
 export async function render(root) {
   if (handoff.signalText) {
-    // A trade idea handed over by another page (e.g. Vision AI) is treated as a fresh paste.
-    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null });
+    // A trade idea handed over by another page (Vision AI, a strategy alert) is a fresh paste, judged with the
+    // strategy, timeframe, confluences and risk it came with - never the previous ticket's.
+    const context = handoff.signalContext || {};
+    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null, draft: null, splitAuto: true, context, alert: context.alert || null });
     handoff.signalText = null;
+    handoff.signalContext = null;
   }
   const { settings, enums } = state.plan;
   const markets = state.plan.markets.filter((m) => m.active);
@@ -149,8 +152,9 @@ export async function render(root) {
     }
     const id = ++seq;
     try {
-      // The trader's own context (risk, strategy, timeframe, confluences) survives a new paste.
-      const previous = memory.draft;
+      // The trader's own context (risk, strategy, timeframe, confluences) survives a new paste; a hand-off
+      // brings its own.
+      const previous = memory.context || memory.draft;
       const r = await api.post("/api/signals/parse", {
         text,
         risk_pct: previous?.risk_pct ?? null,
@@ -159,7 +163,7 @@ export async function render(root) {
         confluences: previous?.confluences || [],
       });
       if (id !== seq) return;
-      Object.assign(memory, { parsedText: text, parsed: r.parsed, draft: normalizeDraft(r.draft), splitAuto: true });
+      Object.assign(memory, { parsedText: text, parsed: r.parsed, draft: normalizeDraft(r.draft), splitAuto: true, context: null });
       renderParsed();
       renderTicket();
       showPreview(r);
@@ -785,6 +789,10 @@ export async function render(root) {
       const result = await api.post("/api/trades", fresh.ticket);
       const trade = result.trade;
       toast(`${SIDE[trade.direction]} ${fmt.lots(trade.position_size)} lots ${trade.symbol} logged`, result.warnings.length ? "warn" : "success");
+      if (memory.alert && memory.alert.symbol === trade.symbol) {
+        // The ticket came from a strategy alert: mark it taken and link the trade.
+        api.post(`/api/alerts/${memory.alert.id}/status`, { status: "taken", trade_id: trade.id }).catch(() => {});
+      }
       resetMemory();
       loadStatus().catch(() => {});
       location.hash = "#/positions";

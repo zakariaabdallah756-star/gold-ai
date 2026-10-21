@@ -128,9 +128,14 @@ function rewardRisk(idea, analysis) {
   return risk > 0 && reward > 0 ? reward / risk : null;
 }
 
+/** Only "Claude is not configured" carries setup steps; a 503 for a network problem keeps the working key. */
+const needsSetup = (error) => error.status === 503 && Array.isArray(error.payload?.setup);
+
 function sendToSignals(idea, record) {
   const symbol = displaySymbol(record).toUpperCase().replace(/[^A-Z0-9.]/g, "");
   handoff.signalText = signalText(idea, symbol);
+  // The chart was analysed against this strategy and timeframe: the Co-Pilot checks the idea against them too.
+  handoff.signalContext = { strategy: record.strategy || "", timeframe: record.timeframe || "", confluences: [], risk_pct: null };
   location.hash = "#/signals";
 }
 
@@ -571,7 +576,7 @@ export async function render(root, { params } = {}) {
       await refreshHistory();
       resultSlot.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
-      if (error.status === 503) {
+      if (needsSetup(error)) {
         showSetup(error.message);
       } else {
         toast(error.message, "error");
@@ -646,7 +651,7 @@ export async function render(root, { params } = {}) {
       showRecord(updated);
       if (updated.status === "error") toast("The analysis did not complete - see the details below.", "warn");
     } catch (error) {
-      if (error.status === 503) showSetup(error.message);
+      if (needsSetup(error)) showSetup(error.message);
       else toast(error.message, "error");
       await openAnalysis(record.id);
     } finally {
@@ -781,7 +786,7 @@ export async function render(root, { params } = {}) {
         record.messages.push(reply.question, reply.answer);
         input.value = "";
       } catch (error) {
-        if (error.status === 503) showSetup(error.message);
+        if (needsSetup(error)) showSetup(error.message);
         toast(error.message, "error");
         input.value = question;
       } finally {

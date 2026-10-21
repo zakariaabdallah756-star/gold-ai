@@ -373,7 +373,19 @@ def _scanner_out(request: Request, settings, db) -> dict:
         "last_error": job.last_error,
         "last_results": last["results"] if last else [],
         "rules_enabled": db.scalar(select(func.count(AlertRule.id)).where(AlertRule.enabled.is_(True))) or 0,
+        "gap_free_interval_sec": _gap_free_interval(db),
     }
+
+
+def _gap_free_interval(db) -> int | None:
+    """Longest scan interval at which no enabled rule skips a candle (catch-up covers what closed meanwhile)."""
+    timeframes = set(db.scalars(select(AlertRule.timeframe).where(AlertRule.enabled.is_(True))))
+    limits = [
+        min(alerts.MAX_CATCH_UP * market_data.timeframe_delta(tf), alerts.stale_after(tf)).total_seconds()
+        for tf in timeframes
+        if tf in market_data.TF_MINUTES
+    ]
+    return int(min(limits)) if limits else None
 
 
 @router.get("/scanner")
