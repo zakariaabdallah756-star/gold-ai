@@ -579,6 +579,9 @@ class AlertRule(TimestampMixin, Base):
     last_candle_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_alert_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     last_error: Mapped[str] = mapped_column(String(300), default="")
+    # Per symbol: {"through": close time of the newest evaluated candle, "alerted": time of the last alert}
+    # (ISO strings). Survives deleted alerts, so a deleted alert is never sent again.
+    scan_state: Mapped[dict] = mapped_column(JSON, default=dict)
 
 
 class StrategyAlert(Base):

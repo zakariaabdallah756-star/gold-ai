@@ -514,3 +514,156 @@ def test_push_provider_reads_stored_candles(db):
     assert [bar.time.strftime("%H:%M") for bar in candles] == ["08:45", "09:00"]
     with pytest.raises(MarketDataError, match="No candles pushed yet for EURUSD M15"):
         fetch(db, "push", "EURUSD", "M15")
+
+
+# --------------------------------------------------------------------------- review fixes
+
+
+def test_yahoo_h4_bucket_waits_for_its_last_hourly_bar(db, monkeypatch):
+    # US index hours start at :30, so the 12:00 UTC bucket holds the 15:30-16:30 bar.
+    stamps = [EPOCH_0000 + int((13.5 + i) * 3600) for i in range(3)]
+    quote = {"open": [5800.0] * 3, "high": [5830.0] * 3, "low": [5790.0] * 3, "close": [5821.0] * 3, "volume": [1] * 3}
+    payload = {"chart": {"result": [{"timestamp": stamps, "indicators": {"quote": [quote]}}]}}
+    monkeypatch.setattr(market_data, "_http_get", FakeHttp(payload=payload))
+    with pytest.raises(MarketDataError, match="No closed H4 candles"):
+        fetch(db, "yahoo", "NAS100", "H4", now=datetime(2026, 10, 20, 16, 10))
+    candles = fetch(db, "yahoo", "NAS100", "H4", now=datetime(2026, 10, 20, 16, 32))
+    assert [bar.time.hour for bar in candles] == [12]
+
+
+def test_closed_bars_are_judged_in_real_time_across_daylight_saving_changes(db, monkeypatch):
+    settings = get_settings(db)
+    settings.timezone = "Europe/London"
+    db.commit()
+    # Spring forward: the 00:00 UTC H4 bar ends at 04:00 UTC = 05:00 BST, not at 04:00 local.
+    start = int(datetime(2026, 3, 29, tzinfo=timezone.utc).timestamp())
+    klines = [[(start + k * 14400) * 1000, "100", "102", "99", "101", "1"] for k in (-1, 0)]
+    monkeypatch.setattr(market_data, "_http_get", FakeHttp(payload=klines))
+    early = fetch(db, "binance", "BTCUSD", "H4", now=datetime(2026, 3, 29, 4, 30))
+    assert [bar.time for bar in early] == [datetime(2026, 3, 28, 20, 0)]
+    market_data.clear_cache()
+    late = fetch(db, "binance", "BTCUSD", "H4", now=datetime(2026, 3, 29, 5, 1))
+    assert [bar.time for bar in late] == [datetime(2026, 3, 28, 20, 0), datetime(2026, 3, 29, 0, 0)]
+
+    # Fall back: 00:00-01:45 UTC on 2026-10-25 shows 01:00-01:45 twice locally; real order is kept.
+    settings.market_api_keys = {"twelvedata": "td-key-123456"}
+    db.commit()
+    values = [
+        {"datetime": f"2026-10-25 {h:02d}:{m:02d}:00", "open": "1", "high": "2", "low": "0.5", "close": str(10 + k)}
+        for k, (h, m) in enumerate((h, m) for h in (0, 1) for m in (0, 15, 30, 45))
+    ]
+    monkeypatch.setattr(market_data, "_http_get", FakeHttp(payload={"values": values[::-1], "status": "ok"}))
+    candles = fetch(db, "twelvedata", "XAUUSD", "M15", now=datetime(2026, 10, 25, 3, 0))
+    assert [bar.close for bar in candles] == [10 + k for k in range(8)]
+
+
+def test_a_deleted_alert_is_not_sent_again_for_the_same_candle(db, monkeypatch, captured):
+    feed(monkeypatch)
+    rule = make_rule(db, cooldown_minutes=0)
+    settings = get_settings(db)
+    (row,) = alerts.scan(db, settings, now_utc())
+    assert row["status"] == "alert"
+    db.delete(db.get(StrategyAlert, row["alert_id"]))
+    db.commit()
+    (again,) = alerts.scan(db, settings, now_utc())
+    assert again["status"] == "duplicate" and len(captured) == 1
+    # The cool-down also survives the deleted alert.
+    rule.cooldown_minutes = 60
+    db.commit()
+    feed(monkeypatch, last_open=live_last_open() + timedelta(minutes=15))
+    assert alerts.scan(db, settings, now_utc() + timedelta(minutes=15))[0]["status"] == "cooldown"
+
+
+def test_the_alert_is_saved_before_notifications_go_out(client, db, monkeypatch):
+    seen = []
+
+    def check_send(session, settings, note):
+        with client.app.state.session_factory() as other:  # another connection sees the committed alert
+            seen.append(other.scalar(select(func.count(StrategyAlert.id))))
+        return None
+
+    monkeypatch.setattr(notify, "send", check_send)
+    feed(monkeypatch)
+    make_rule(db)
+    assert alerts.scan(db, get_settings(db), now_utc())[0]["status"] == "alert"
+    assert seen == [1]
+
+
+def test_targets_round_away_from_the_entry_and_levels_stay_positive(db):
+    settings = get_settings(db)
+    rule = AlertRule(stop_method="signal", stop_buffer_pips=0.0, targets_rr=[], atr_multiple=1.5)
+    hint = alerts.ConditionCheck("x", "x", "x", True, "long", "", stop_hint=64700.0)
+    bars = [Bar(datetime(2026, 10, 20, 9, 0), 65000.0, 65100.0, 64600.0, 65000.34)]
+    levels, _ = alerts.compute_levels(settings, rule, None, "long", bars, [hint], 1.0)
+    assert levels.entry == 65000.3 and levels.planned_rr >= 2.0
+    rule.targets_rr = [1.5, 2.5]
+    levels, _ = alerts.compute_levels(settings, rule, None, "long", bars, [hint], 1.0)
+    risk = levels.entry - levels.stop_loss
+    assert all(tp - levels.entry >= r * risk - 1e-9 for tp, r in zip(levels.take_profits, [1.5, 2.5], strict=True))
+
+    short = alerts.ConditionCheck("x", "x", "x", True, "short", "", stop_hint=0.106)
+    coin = [Bar(datetime(2026, 10, 20, 9, 0), 0.09, 0.1, 0.08, 0.082)]
+    rule.targets_rr = [1, 3, 7]
+    levels, reason = alerts.compute_levels(settings, rule, None, "short", coin, [short], 0.0001)
+    assert levels is None and "below zero" in reason
+
+
+def test_pip_guess_is_for_currency_pairs_only():
+    assert alerts.pip_size_for(None, "EURUSD", 1.08) == 0.0001
+    assert alerts.pip_size_for(None, "USDJPY", 150.0) == 0.01
+    assert alerts.pip_size_for(None, "ETHUSD", 2600.0) == 0.1
+    assert alerts.pip_size_for(None, "XAUUSD", 2650.0) == 0.1
+
+
+def test_candles_missed_between_scans_are_caught_up(db, monkeypatch, captured):
+    neutral = (10.4, 10.5, 10.3, 10.45)
+    rows = PREFIX + BASE + [LONG_SIGNAL, neutral]
+    last_open = live_last_open()
+    start = last_open - timedelta(minutes=15 * (len(rows) - 1))
+    full = [Bar(start + timedelta(minutes=15 * i), g(o), g(h), g(lo), g(c)) for i, (o, h, lo, c) in enumerate(rows)]
+    available = {"bars": full[:-2]}
+    monkeypatch.setattr(market_data, "fetch_candles", lambda *a, **k: available["bars"])
+    make_rule(db)
+    settings = get_settings(db)
+    assert alerts.scan(db, settings, now_utc())[0]["status"] == "no_setup"
+    available["bars"] = full  # two candles closed before the next scan: the signal and a quiet one
+    (row,) = alerts.scan(db, settings, now_utc())
+    assert row["status"] == "alert" and "candle closed" in row["message"]
+    alert = db.get(StrategyAlert, row["alert_id"])
+    assert alert.candle_time == full[-2].time + timedelta(minutes=15)
+    assert captured[-1].body.startswith("Signal candle closed at")
+    assert alerts.scan(db, settings, now_utc())[0]["status"] == "no_setup"  # nothing new, no repeat
+
+
+def test_a_rule_deleted_during_a_scan_does_not_stop_the_others(client, db, monkeypatch, captured):
+    first = make_rule(db, name="Deleted meanwhile")
+    second = make_rule(db, name="Still here")
+    first_id = first.id
+
+    def fetch_and_delete(*args, **kwargs):
+        with client.app.state.session_factory() as other:
+            doomed = other.get(AlertRule, first_id)
+            if doomed is not None:
+                other.delete(doomed)
+                other.commit()
+        return series(last_open=live_last_open())
+
+    monkeypatch.setattr(market_data, "fetch_candles", fetch_and_delete)
+    results = alerts.scan(db, get_settings(db), now_utc())
+    assert [(r["rule_name"], r["status"]) for r in results] == [("Still here", "alert")]
+    db.expire_all()
+    assert db.get(AlertRule, second.id).last_checked_at is not None
+
+
+def test_test_view_names_the_linked_strategy_even_without_a_setup(db):
+    strategy = make_strategy(db)
+    rule = make_rule(db, strategy_id=strategy.id, conditions=[SWEEP, PIN, {"type": "rsi", "params": {}}])
+    quiet = series(signal=(10.4, 10.5, 10.3, 10.45))
+    result = evaluate(db, rule, quiet, diagnostics=True).to_dict()
+    assert result["found"] is False and result["strategy"] == "Sweep strategy"
+
+
+def test_saved_lookbacks_beyond_the_loaded_history_explain_themselves(db):
+    rule = make_rule(db, conditions=[{"type": "ema_trend", "params": {"fast": 50, "slow": 600}}])
+    ev = evaluate(db, rule)
+    assert ev.found is False and ev.conditions[0].explanation.endswith("edit the rule.")

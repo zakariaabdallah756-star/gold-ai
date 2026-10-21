@@ -2,10 +2,11 @@
 
 A rule (``AlertRule``) watches symbols on one timeframe. On each scan the
 engine loads the latest CLOSED candles (``services.market_data``), evaluates
-the rule's conditions (``services.detectors``) on the last closed candle and,
-when enough of them line up in one direction and the Strategy Co-Pilot accepts
-the setup, records a ``StrategyAlert`` with entry, stop, targets and size and
-sends a push notification (``services.notify``).
+the rule's conditions (``services.detectors``) on every candle that closed
+since the previous scan (``AlertRule.scan_state``; at most ``MAX_CATCH_UP``)
+and, when enough of them line up in one direction and the Strategy Co-Pilot
+accepts the setup, records a ``StrategyAlert`` with entry, stop, targets and
+size and sends a push notification (``services.notify``).
 
 Alerts are informational only: the engine never creates, logs or executes a
 trade. The guardrail pre-check runs ``services.trades.evaluate`` on a
@@ -25,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..constants import DEFAULT_TP_SPLITS
@@ -48,7 +50,9 @@ SWING_WINDOW = 20  # bars searched for the protective swing
 SWING_STRENGTH = 2
 ATR_PERIOD = 14
 MAX_ERROR = 300
+MAX_CATCH_UP = 5  # newly closed candles evaluated per symbol and scan (missed by scan drift or long intervals)
 NO_EXECUTION = "Nothing was executed - the decision is yours."
+FX_CODES = frozenset("USD EUR GBP JPY AUD NZD CAD CHF SEK NOK DKK PLN CZK HUF TRY ZAR MXN SGD HKD CNH CNY ILS".split())
 
 _manual = threading.local()  # set while scan_now runs the job in the caller's thread
 
@@ -64,7 +68,7 @@ def pip_size_for(market: Market | None, symbol: str, price: float) -> float:
     """The market's pip size, or a sensible guess when the symbol is not configured."""
     if market is not None and market.pip_size > 0:
         return market.pip_size
-    if len(symbol) == 6 and symbol.isalpha():
+    if len(symbol) == 6 and symbol[:3] in FX_CODES and symbol[3:] in FX_CODES:  # a currency pair
         return 0.01 if symbol.endswith("JPY") else 0.0001
     return 10.0 ** (math.floor(math.log10(price)) - 4) if price > 0 else 0.01
 
@@ -127,6 +131,7 @@ class Evaluation:
     timeframe: str
     signal_time: datetime | None = None  # open time of the signal candle
     candle_time: datetime | None = None  # close time of the signal candle
+    late: bool = False  # a candle caught up on after a newer one had closed
     close: float | None = None
     conditions: list[ConditionCheck] = field(default_factory=list)
     direction: str | None = None
@@ -205,7 +210,11 @@ def _check_conditions(rule: AlertRule, bars: list, context: dict) -> list[Condit
         if spec is None:
             checks.append(ConditionCheck(kind, kind, kind, False, None, f"Unknown condition type '{kind}'."))
             continue
-        result = detectors.run(kind, bars, condition.get("params") or {}, context)
+        try:
+            result = detectors.run(kind, bars, condition.get("params") or {}, context)
+        except ValueError as exc:  # parameters saved before a bound was tightened
+            checks.append(ConditionCheck(kind, spec.label, spec.label, False, None, f"{exc} - edit the rule."))
+            continue
         checks.append(
             ConditionCheck(
                 kind,
@@ -246,10 +255,14 @@ def compute_levels(
     checks: list[ConditionCheck],
     pip: float,
 ) -> tuple[Levels | None, str]:
-    """Entry (last close), stop by the rule's method plus buffer, and targets in R; or ``(None, reason)``."""
-    entry = bars[-1].close
-    sign = 1 if direction == "long" else -1
+    """Entry (last close), stop by the rule's method plus buffer, and targets in R; or ``(None, reason)``.
+
+    Prices are rounded to the market's precision; targets round away from the entry, so the plan's R:R is
+    never a hair below the multiple asked for (which would fail a minimum R:R check).
+    """
     decimals = price_decimals(pip)
+    entry = round(bars[-1].close, decimals)
+    sign = 1 if direction == "long" else -1
     base, note = None, ""
     method = rule.stop_method
     if method == "signal":
@@ -282,7 +295,15 @@ def compute_levels(
     multiples = list(rule.targets_rr or []) or [
         max(settings.min_rr or 0, (strategy.min_rr if strategy else 0) or 0) or 1.0
     ]
-    targets = [round(entry + sign * r * risk, decimals) for r in multiples]
+    targets = []
+    for multiple in multiples:
+        exact = entry + sign * multiple * risk
+        price = round(exact, decimals)
+        if (price - exact) * sign < -1e-9 * max(1.0, abs(exact)):  # rounded towards the entry: one tick out
+            price = round(price + sign * 10.0**-decimals, decimals)
+        targets.append(price)
+    if stop <= 0 or any(price <= 0 for price in targets):
+        return None, "The stop or a target would be at or below zero - no valid setup at this price."
     if any((b - a) * sign <= 0 for a, b in zip([entry, *targets[:-1]], targets, strict=True)):
         return None, "The stop is too tight to place distinct targets at this price precision."
     close_pcts = [float(p) for p in DEFAULT_TP_SPLITS[len(targets)]]
@@ -391,6 +412,15 @@ def evaluate(
     ev.candle_time = last.time + market_data.timeframe_delta(rule.timeframe)
     ev.close = last.close
 
+    if rule.strategy_id is not None:
+        ev.strategy = db.get(Strategy, rule.strategy_id)
+        if ev.strategy is None:
+            ev.reason = "The rule's strategy no longer exists - edit the rule."
+            return ev
+        if ev.strategy.status == "retired":
+            ev.reason = f"{ev.strategy.name} is retired - retired strategies never alert."
+            return ev
+
     today = db.get(ChecklistDay, now.date())
     context = {"key_levels": detectors.parse_levels(today.key_levels) if today else []}
     ev.conditions = _check_conditions(rule, bars, context)
@@ -418,15 +448,6 @@ def evaluate(
     if rule.direction != "both" and ev.direction != rule.direction:
         ev.reason = f"{ev.direction.capitalize()} setup skipped - this rule only alerts {rule.direction} setups."
         return ev
-
-    if rule.strategy_id is not None:
-        ev.strategy = db.get(Strategy, rule.strategy_id)
-        if ev.strategy is None:
-            ev.reason = "The rule's strategy no longer exists - edit the rule."
-            return ev
-        if ev.strategy.status == "retired":
-            ev.reason = f"{ev.strategy.name} is retired - retired strategies never alert."
-            return ev
 
     market = db.scalar(select(Market).where(Market.symbol == symbol))
     pip = pip_size_for(market, symbol, last.close)
@@ -487,6 +508,8 @@ def build_note(settings: AccountSettings, rule: AlertRule, alert: StrategyAlert,
         " · ".join(part for part in (f"R:R 1:{levels.planned_rr:.2f}", size, risk) if part),
         precheck_line(ev.precheck or []),
     ]
+    if ev.late:
+        lines.insert(0, f"Signal candle closed at {ev.candle_time:%H:%M} - price may have moved since.")
     if ev.in_test:
         lines.insert(0, f"In test: {ev.strategy.name} is still in the incubator - consider reduced size.")
     lines.append(NO_EXECUTION)
@@ -550,11 +573,12 @@ def record_alert(
         status="new",
     )
     db.add(alert)
-    db.flush()
+    db.commit()  # never hold the database write lock while notifications are on the network
     if rule.notify:
         entry = notify.send(db, settings, build_note(settings, rule, alert, ev))
         if entry is not None:
             alert.notification_id = entry.id
+            db.commit()
     return alert
 
 
@@ -566,9 +590,26 @@ def stale_after(timeframe: str) -> timedelta:
     return max(3 * market_data.timeframe_delta(timeframe), timedelta(minutes=30))
 
 
+def _iso(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _from_iso(value) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value) if value else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _scan_symbol(
     db: Session, settings: AccountSettings, rule: AlertRule, symbol: str, now: datetime
 ) -> tuple[dict, datetime | None]:
+    """Evaluate the newest closed candle of ``symbol`` and any earlier ones that closed since the last scan.
+
+    Each candle alerts at most once, even when its alert was deleted: ``rule.scan_state`` remembers per
+    symbol the newest evaluated candle (``through``), the last alerted candle (``candle``) and when that
+    alert was sent (``alerted``, for the cool-down).
+    """
     row = {
         "rule_id": rule.id,
         "rule_name": rule.name,
@@ -580,87 +621,131 @@ def _scan_symbol(
     bars = market_data.fetch_candles(
         db, settings, rule.provider, symbol, rule.timeframe, provider_symbols=rule.provider_symbols, now=now
     )
-    candle_close = bars[-1].time + market_data.timeframe_delta(rule.timeframe)
+    delta = market_data.timeframe_delta(rule.timeframe)
+    state = dict(rule.scan_state or {})
+    memory = dict(state.get(symbol) or {})
+    through = _from_iso(memory.get("through"))
+    alerted = _from_iso(memory.get("alerted"))
+    alerted_candle = _from_iso(memory.get("candle"))
+    candle_close = bars[-1].time + delta
+    memory["through"] = _iso(max(filter(None, (through, candle_close))))
+    rule.scan_state = {**state, symbol: memory}
     if now - candle_close > stale_after(rule.timeframe):
         row["message"] = (
             f"Latest closed candle ended {candle_close:%Y-%m-%d %H:%M} - market closed or data delayed, nothing to alert."
         )
         return row, candle_close
-    ev = evaluate(db, settings, rule, symbol, bars, now)
-    if not ev.found:
-        row["message"] = ev.reason
-        return row, candle_close
-    duplicate = db.scalar(
-        select(StrategyAlert.id).where(
-            StrategyAlert.rule_id == rule.id,
-            StrategyAlert.symbol == symbol,
-            StrategyAlert.candle_time == ev.candle_time,
-        )
-    )
-    if duplicate is not None:
-        row.update(status="duplicate", message="Already alerted for this candle.", alert_id=duplicate)
-        return row, candle_close
-    previous = db.scalar(
-        select(func.max(StrategyAlert.created_at)).where(
-            StrategyAlert.rule_id == rule.id, StrategyAlert.symbol == symbol
-        )
-    )
-    if rule.cooldown_minutes and previous is not None and now - previous < timedelta(minutes=rule.cooldown_minutes):
-        until = previous + timedelta(minutes=rule.cooldown_minutes)
-        row.update(status="cooldown", message=f"Setup found, but the rule is cooling down until {until:%H:%M}.")
-        return row, candle_close
-    alert = record_alert(db, settings, rule, ev, now)
-    rule.last_alert_at = now
-    row.update(status="alert", message=f"{ev.direction.upper()} setup at {ev.levels.entry:g}", alert_id=alert.id)
+
+    last = len(bars) - 1
+    fresh = [
+        index
+        for index in range(max(0, last - MAX_CATCH_UP + 1), last + 1)
+        if through is not None
+        and bars[index].time + delta > through
+        and now - (bars[index].time + delta) <= stale_after(rule.timeframe)
+    ]
+    alert_row = None
+    for index in sorted(set(fresh) | {last}):
+        ev = evaluate(db, settings, rule, symbol, bars[: index + 1], now)
+        ev.late = index != last
+        if not ev.found:
+            outcome = {"status": "no_setup", "message": ev.reason, "alert_id": None}
+        else:
+            duplicate = db.scalar(
+                select(StrategyAlert.id).where(
+                    StrategyAlert.rule_id == rule.id,
+                    StrategyAlert.symbol == symbol,
+                    StrategyAlert.candle_time == ev.candle_time,
+                )
+            )
+            previous = db.scalar(
+                select(func.max(StrategyAlert.created_at)).where(
+                    StrategyAlert.rule_id == rule.id, StrategyAlert.symbol == symbol
+                )
+            )
+            previous = max(filter(None, (previous, alerted)), default=None)
+            if duplicate is not None or (alerted_candle is not None and ev.candle_time <= alerted_candle):
+                outcome = {"status": "duplicate", "message": "Already alerted for this candle.", "alert_id": duplicate}
+            elif (
+                rule.cooldown_minutes
+                and previous is not None
+                and now - previous < timedelta(minutes=rule.cooldown_minutes)
+            ):
+                until = previous + timedelta(minutes=rule.cooldown_minutes)
+                outcome = {
+                    "status": "cooldown",
+                    "message": f"Setup found, but the rule is cooling down until {until:%H:%M}.",
+                    "alert_id": None,
+                }
+            else:
+                alerted, alerted_candle = now, ev.candle_time
+                memory.update(alerted=_iso(now), candle=_iso(ev.candle_time))
+                rule.scan_state = {**state, symbol: dict(memory)}
+                rule.last_alert_at = now
+                alert = record_alert(db, settings, rule, ev, now)
+                outcome = {
+                    "status": "alert",
+                    "message": f"{ev.direction.upper()} setup at {ev.levels.entry:g}"
+                    + (f" (candle closed {ev.candle_time:%H:%M})" if ev.late else ""),
+                    "alert_id": alert.id,
+                }
+                alert_row = outcome
+        if index == last:
+            row.update(outcome)
+    if alert_row is not None:
+        row.update(alert_row)
     return row, candle_close
+
+
+def _rule_exists(db: Session, rule_id: int) -> bool:
+    return db.scalar(select(AlertRule.id).where(AlertRule.id == rule_id)) is not None
 
 
 def scan(db: Session, settings: AccountSettings, now: datetime, rule_ids: list[int] | None = None) -> list[dict]:
     """Scan every enabled rule (or the enabled rules in ``rule_ids``) on each of its symbols.
 
     One failing symbol or provider never stops the others: its row gets status
-    ``error`` and the rule keeps the message in ``last_error``.
+    ``error`` and the rule keeps the message in ``last_error``. A rule deleted
+    while it is being scanned is skipped.
     """
     query = select(AlertRule).where(AlertRule.enabled.is_(True)).order_by(AlertRule.id)
     if rule_ids is not None:
         query = query.where(AlertRule.id.in_(rule_ids))
     results: list[dict] = []
     for rule in db.scalars(query).all():
+        rule_id, rule_name, symbols = rule.id, rule.name, list(rule.symbols or [])
         errors: list[str] = []
         latest: datetime | None = None
-        for symbol in rule.symbols or []:
+        gone = False
+        for symbol in symbols:
+            row = {"rule_id": rule_id, "rule_name": rule_name, "symbol": symbol, "status": "error", "alert_id": None}
             try:
                 row, candle_close = _scan_symbol(db, settings, rule, symbol, now)
                 db.commit()  # keep each alert even if a later symbol fails
                 latest = max(filter(None, (latest, candle_close)), default=None)
             except market_data.MarketDataError as exc:
-                row = {
-                    "rule_id": rule.id,
-                    "rule_name": rule.name,
-                    "symbol": symbol,
-                    "status": "error",
-                    "message": str(exc),
-                    "alert_id": None,
-                }
+                db.rollback()
+                row["message"] = str(exc)
                 errors.append(f"{symbol}: {exc}")
             except Exception as exc:  # a broken symbol must not stop the scan
-                log.exception("Alert scan failed for rule %s on %s", rule.id, symbol)
                 db.rollback()
-                row = {
-                    "rule_id": rule.id,
-                    "rule_name": rule.name,
-                    "symbol": symbol,
-                    "status": "error",
-                    "message": f"Unexpected error: {type(exc).__name__}",
-                    "alert_id": None,
-                }
+                if not _rule_exists(db, rule_id):
+                    gone = True
+                    break
+                log.exception("Alert scan failed for rule %s on %s", rule_id, symbol)
+                row["message"] = f"Unexpected error: {type(exc).__name__}"
                 errors.append(f"{symbol}: unexpected error ({type(exc).__name__})")
             results.append(row)
-        rule.last_checked_at = now
-        if latest is not None:
-            rule.last_candle_at = latest
-        rule.last_error = "; ".join(errors)[:MAX_ERROR]
-        db.commit()
+        if gone or not _rule_exists(db, rule_id):
+            continue
+        try:
+            rule.last_checked_at = now
+            if latest is not None:
+                rule.last_candle_at = latest
+            rule.last_error = "; ".join(errors)[:MAX_ERROR]
+            db.commit()
+        except SQLAlchemyError:  # deleted between the check and the commit
+            db.rollback()
     return results
 
 
@@ -687,10 +772,14 @@ def dry_run(db: Session, settings: AccountSettings, rule: AlertRule, now: dateti
             bars = market_data.fetch_candles(
                 db, settings, rule.provider, symbol, rule.timeframe, provider_symbols=rule.provider_symbols, now=now
             )
+            ev = evaluate(db, settings, rule, symbol, bars, now, diagnostics=True)
         except market_data.MarketDataError as exc:
             out.append({**item, "error": str(exc)})
             continue
-        ev = evaluate(db, settings, rule, symbol, bars, now, diagnostics=True)
+        except Exception as exc:  # one broken symbol must not break the whole test
+            log.exception("Alert rule test failed for rule %s on %s", rule.id, symbol)
+            out.append({**item, "error": f"Unexpected error: {type(exc).__name__}"})
+            continue
         stale = ev.candle_time is not None and now - ev.candle_time > stale_after(rule.timeframe)
         out.append({**item, "error": "", "bars": len(bars), "stale": stale, **ev.to_dict()})
     return out

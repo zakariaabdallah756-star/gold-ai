@@ -2,7 +2,9 @@
 
 ``fetch_candles`` returns CLOSED bars only (oldest first): the still-forming
 last bar is dropped. ``Bar.time`` is the bar's OPEN time as a naive datetime in
-the account time zone.
+the account time zone. Remote providers decide "closed" in UTC (a bar is closed
+once its real end, plus a short grace for feeds that publish late, has passed),
+so daylight-saving changes never let a forming bar through.
 
 Providers:
 
@@ -25,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import math
 import threading
+import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -44,6 +47,8 @@ HTTP_TIMEOUT = 8.0
 USER_AGENT = f"TradingOS/{__version__}"
 MIN_REFETCH = timedelta(seconds=60)
 CACHE_LIMIT = 256
+# Seconds after a bar's end before it counts as closed (feeds that may still update the last bar).
+CLOSE_GRACE = {"yahoo": 60, "twelvedata": 30, "binance": 2}
 
 
 class MarketDataError(Exception):
@@ -251,10 +256,10 @@ _YAHOO_INTERVALS = {
 }
 
 
-def _yahoo(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings) -> list[Bar]:
+def _yahoo(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings) -> list[tuple[float, Bar]]:
     label = "Yahoo Finance"
     interval, range_ = _YAHOO_INTERVALS[timeframe]
-    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{urllib.parse.quote(ticker, safe='^=')}"
     status, payload = _get_json(label, url, {"interval": interval, "range": range_, "includePrePost": "false"})
     chart = payload.get("chart") if isinstance(payload, dict) else None
     chart = chart if isinstance(chart, dict) else {}
@@ -284,35 +289,44 @@ def _yahoo(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings)
     if not bars:
         raise MarketDataError(f"{label} returned no candles for {ticker}.")
     if timeframe == "H4":
-        return aggregate(bars, 4 * 3600, tz)
-    return [bar for _, bar in bars]
+        return aggregate(bars, 4 * 3600, tz, 3600)
+    step = TF_MINUTES[timeframe] * 60
+    return [(stamp + step, bar) for stamp, bar in bars]
 
 
-def aggregate(stamped: list[tuple[float, Bar]], seconds: int, tz: ZoneInfo) -> list[Bar]:
-    """Merge ``(epoch, bar)`` pairs into buckets of ``seconds`` aligned to UTC midnight."""
-    out: list[Bar] = []
+def aggregate(stamped: list[tuple[float, Bar]], seconds: int, tz: ZoneInfo, part: int) -> list[tuple[float, Bar]]:
+    """Merge ``(open epoch, bar)`` pairs of ``part`` seconds into buckets of ``seconds`` aligned to UTC midnight.
+
+    Returns ``(end epoch, bar)``: a bucket ends when its period is over AND its last part has ended (US index
+    hours start at :30, so the 12:00 UTC bucket holds the 15:30-16:30 bar and is complete only at 16:30).
+    """
+    out: list[tuple[float, Bar]] = []
     current_key: int | None = None
     o = hi = lo = c = 0.0
+    last = 0.0
     volume: float | None = None
     for stamp, bar in stamped:
         key = int(stamp // seconds) * seconds
         if key != current_key:
             if current_key is not None:
-                out.append(Bar(_to_local(current_key, tz), o, hi, lo, c, volume))
+                out.append(
+                    (max(current_key + seconds, last + part), Bar(_to_local(current_key, tz), o, hi, lo, c, volume))
+                )
             current_key, o, hi, lo, c, volume = key, bar.open, bar.high, bar.low, bar.close, bar.volume
         else:
             hi, lo, c = max(hi, bar.high), min(lo, bar.low), bar.close
             if bar.volume is not None:
                 volume = (volume or 0.0) + bar.volume
+        last = stamp
     if current_key is not None:
-        out.append(Bar(_to_local(current_key, tz), o, hi, lo, c, volume))
+        out.append((max(current_key + seconds, last + part), Bar(_to_local(current_key, tz), o, hi, lo, c, volume)))
     return out
 
 
 _BINANCE_INTERVALS = {"M1": "1m", "M5": "5m", "M15": "15m", "M30": "30m", "H1": "1h", "H4": "4h", "D1": "1d"}
 
 
-def _binance(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings) -> list[Bar]:
+def _binance(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings) -> list[tuple[float, Bar]]:
     label = "Binance"
     params = {"symbol": ticker, "interval": _BINANCE_INTERVALS[timeframe], "limit": MAX_BARS}
     status, payload = _get_json(label, "https://api.binance.com/api/v3/klines", params)
@@ -325,12 +339,13 @@ def _binance(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSetting
         raise MarketDataError(
             f"{label} returned an error for {ticker}" + (f": {message}" if message else f" (HTTP {status}).")
         )
+    step = TF_MINUTES[timeframe] * 60
     bars = []
     for row in payload:
-        if isinstance(row, list) and len(row) >= 6:
+        if isinstance(row, list) and len(row) >= 6 and _num(row[0]) is not None:
             bar = _make_bar(_to_local(row[0] / 1000, tz), row[1], row[2], row[3], row[4], row[5])
             if bar is not None:
-                bars.append(bar)
+                bars.append((row[0] / 1000 + step, bar))
     return bars
 
 
@@ -345,7 +360,7 @@ _TWELVEDATA_INTERVALS = {
 }
 
 
-def _twelvedata(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings) -> list[Bar]:
+def _twelvedata(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings) -> list[tuple[float, Bar]]:
     label = "Twelve Data"
     key = (settings.market_api_keys or {}).get("twelvedata", "")
     if not key:
@@ -372,6 +387,7 @@ def _twelvedata(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSett
         if code in (400, 404) and "symbol" in message.lower():
             raise MarketDataError(f"Unknown symbol {ticker} on {label} - set the provider symbol for this market.")
         raise MarketDataError(f"{label} returned an error for {ticker}: {message[:120] or f'HTTP {status}'}")
+    step = TF_MINUTES[timeframe] * 60
     bars = []
     for row in payload.get("values") or []:
         raw = str(row.get("datetime", ""))
@@ -379,15 +395,18 @@ def _twelvedata(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSett
             moment = datetime.fromisoformat(raw)
         except ValueError:
             continue
-        local = moment.replace(tzinfo=timezone.utc).astimezone(tz).replace(tzinfo=None)
-        bar = _make_bar(local, row.get("open"), row.get("high"), row.get("low"), row.get("close"), row.get("volume"))
+        epoch = moment.replace(tzinfo=timezone.utc).timestamp()
+        bar = _make_bar(
+            _to_local(epoch, tz), row.get("open"), row.get("high"), row.get("low"), row.get("close"), row.get("volume")
+        )
         if bar is not None:
-            bars.append(bar)
-    bars.sort(key=lambda bar: bar.time)
+            bars.append((epoch + step, bar))
+    bars.sort(key=lambda pair: pair[0])  # real time, not the local wall clock (which repeats an hour in autumn)
     return bars
 
 
 def _push(db: Session, ticker: str, timeframe: str) -> list[Bar]:
+    ticker = ticker.upper()  # the push endpoint stores symbols upper-cased
     rows = db.scalars(
         select(Candle)
         .where(Candle.symbol == ticker, Candle.timeframe == timeframe)
@@ -466,7 +485,7 @@ def demo_bars(
 @dataclass
 class _CacheEntry:
     bars: list[Bar]
-    valid_until: datetime
+    valid_until: float  # UTC epoch
 
 
 _cache: dict[tuple[str, str, str, str], _CacheEntry] = {}
@@ -516,21 +535,28 @@ def fetch_candles(
     if provider == "push":
         bars = closed_only(_push(db, ticker, timeframe), timeframe, now)
     else:
+        # Naive local -> UTC with fold=0: in the repeated autumn hour this reads up to an hour early, which only
+        # ever treats a closed bar as still open (never the reverse).
+        now_utc = now.replace(tzinfo=tz).timestamp()
+        grace = CLOSE_GRACE.get(provider, 0)
         key = (provider, ticker, timeframe, settings.timezone)
         with _cache_lock:
             entry = _cache.get(key)
-        if entry is not None and now < entry.valid_until:
+        if entry is not None and now_utc < entry.valid_until:
             bars = entry.bars
         else:
-            bars = closed_only(_REMOTE[provider](ticker, timeframe, tz, settings), timeframe, now)
-            if not bars:
+            stamped = [
+                pair for pair in _REMOTE[provider](ticker, timeframe, tz, settings) if pair[0] + grace <= now_utc
+            ]
+            if not stamped:
                 raise MarketDataError(f"No closed {timeframe} candles for {ticker} yet.")
-            # The next bar closes one period after the newest closed bar; retry at most once a minute meanwhile.
-            next_close = bars[-1].time + 2 * timeframe_delta(timeframe)
+            bars = [bar for _, bar in stamped]
+            # The next bar ends one period after the newest closed one; retry at most once a minute meanwhile.
+            next_close = stamped[-1][0] + TF_MINUTES[timeframe] * 60 + grace
             with _cache_lock:
                 if len(_cache) >= CACHE_LIMIT:
                     _cache.clear()
-                _cache[key] = _CacheEntry(bars, max(next_close, now + MIN_REFETCH))
+                _cache[key] = _CacheEntry(bars, max(next_close, now_utc + MIN_REFETCH.total_seconds()))
     if not bars:
         raise MarketDataError(f"No closed {timeframe} candles for {ticker} yet.")
     return bars[-limit:]

@@ -218,37 +218,111 @@ def bar(time, o=2650.0, h=2652.0, low=2649.0, c=2651.0, **extra):
 
 
 def test_push_candles_upsert_and_validation(client):
-    payload = {"symbol": "xauusd", "timeframe": "M15", "bars": [bar("2026-10-20T09:00:00"), bar("2026-10-20T09:15:00")]}
+    payload = {"symbol": "xauusd", "timeframe": "M15", "bars": [bar("2025-10-20T09:00:00"), bar("2025-10-20T09:15:00")]}
     first = client.post("/api/alerts/candles", json=payload).json()
     assert first | {"symbol": "XAUUSD", "received": 2, "inserted": 2, "updated": 0} == first
-    payload["bars"] = [bar("2026-10-20T09:15:00", c=2650.5), bar("2026-10-20T09:30:00")]
+    payload["bars"] = [bar("2025-10-20T09:15:00", c=2650.5), bar("2025-10-20T09:30:00")]
     second = client.post("/api/alerts/candles", json=payload).json()
     assert (second["inserted"], second["updated"]) == (1, 1)
     with client.app.state.session_factory() as db:
         rows = db.scalars(select(Candle).order_by(Candle.time)).all()
         assert [r.close for r in rows] == [2651.0, 2650.5, 2651.0]
 
-    bad = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2026-10-20T09:00:00", h=2640.0)]}
+    bad = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2025-10-20T09:00:00", h=2640.0)]}
     assert client.post("/api/alerts/candles", json=bad).status_code == 422
-    too_many = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2026-10-20T09:00:00")] * 2001}
+    too_many = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2025-10-20T09:00:00")] * 2001}
     assert client.post("/api/alerts/candles", json=too_many).status_code == 422
-    wrong_tf = {"symbol": "XAUUSD", "timeframe": "M2", "bars": [bar("2026-10-20T09:00:00")]}
+    wrong_tf = {"symbol": "XAUUSD", "timeframe": "M2", "bars": [bar("2025-10-20T09:00:00")]}
     assert client.post("/api/alerts/candles", json=wrong_tf).status_code == 422
-    negative = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2026-10-20T09:00:00", low=-1)]}
+    negative = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2025-10-20T09:00:00", low=-1)]}
     assert client.post("/api/alerts/candles", json=negative).status_code == 422
 
 
 def test_push_candles_convert_aware_times_to_account_time(client):
     update_settings(client, timezone="Europe/Berlin")
-    payload = {"symbol": "EURUSD", "timeframe": "H1", "bars": [bar("2026-10-20T07:00:00Z", 1.08, 1.09, 1.07, 1.085)]}
-    assert client.post("/api/alerts/candles", json=payload).json()["first"] == "2026-10-20T09:00:00"
+    payload = {"symbol": "EURUSD", "timeframe": "H1", "bars": [bar("2025-10-20T07:00:00Z", 1.08, 1.09, 1.07, 1.085)]}
+    assert client.post("/api/alerts/candles", json=payload).json()["first"] == "2025-10-20T09:00:00"
 
 
 def test_push_token_is_required_once_configured(client):
     client.put("/api/alerts/providers/push/key", json={"api_key": "push-token-abc123"})
-    payload = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2026-10-20T09:00:00")]}
+    payload = {"symbol": "XAUUSD", "timeframe": "M15", "bars": [bar("2025-10-20T09:00:00")]}
     assert client.post("/api/alerts/candles", json=payload).status_code == 401
     assert client.post("/api/alerts/candles", json={**payload, "token": "wrong"}).status_code == 401
     assert client.post("/api/alerts/candles", json={**payload, "token": "push-token-abc123"}).status_code == 200
     meta = client.get("/api/alerts/meta")
     assert meta.json()["push"]["token_required"] is True and "push-token-abc123" not in meta.text
+
+
+def test_pushed_bars_that_are_still_forming_are_skipped(client):
+    now = now_utc().replace(second=0)
+    forming_open = now.replace(minute=now.minute - now.minute % 15)
+    closed_open = forming_open - timedelta(minutes=15)
+    payload = {
+        "symbol": "XAUUSD",
+        "timeframe": "M15",
+        "bars": [bar(closed_open.isoformat()), bar(forming_open.isoformat())],
+    }
+    result = client.post("/api/alerts/candles", json=payload).json()
+    assert (result["inserted"], result["skipped_forming"]) == (1, 1)
+    only_forming = client.post("/api/alerts/candles", json={**payload, "bars": [bar(forming_open.isoformat())]}).json()
+    assert only_forming["inserted"] == 0 and "still forming" in only_forming["note"]
+    with client.app.state.session_factory() as db:
+        assert [c.time for c in db.scalars(select(Candle))] == [closed_open]
+
+
+def test_push_rules_find_broker_symbols_whatever_their_case(client):
+    rule = create_rule(
+        client,
+        symbols=["XAUUSD"],
+        provider="push",
+        provider_symbols={"XAUUSD": "XAUUSDm"},
+        conditions=[{"type": "atr_filter", "params": {"min_atr_pct": 0.0}}],
+    )
+    assert rule["provider_symbols"] == {"XAUUSD": "XAUUSDM"}
+    start = now_utc().replace(second=0, minute=0) - timedelta(hours=10)
+    bars = [bar((start + timedelta(minutes=15 * i)).isoformat()) for i in range(30)]
+    assert (
+        client.post("/api/alerts/candles", json={"symbol": "XAUUSDm", "timeframe": "M15", "bars": bars}).status_code
+        == 200
+    )
+    (result,) = client.post(f"/api/alerts/rules/{rule['id']}/test").json()["results"]
+    assert result["error"] == "" and result["bars"] == 30
+    refused = client.post(
+        "/api/alerts/rules",
+        json=rule_payload(provider="push", symbols=["XAUUSD"], provider_symbols={"XAUUSD": "XAU/USD"}),
+    )
+    assert refused.status_code == 422 and "cannot be pushed" in refused.text
+
+
+def test_conditions_needing_more_history_than_the_scanner_loads_are_refused(client):
+    conditions = [{"type": "ema_trend", "params": {"fast": 50, "slow": 600}}]
+    response = client.post("/api/alerts/rules", json=rule_payload(conditions=conditions))
+    assert response.status_code == 422 and "Slow EMA must be between 3 and 479" in response.text
+
+
+def test_rule_test_reports_an_unexpected_error_per_symbol(client, monkeypatch):
+    from trading_os.services import alerts
+
+    rule = create_rule(client)
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(alerts, "evaluate", broken)
+    response = client.post(f"/api/alerts/rules/{rule['id']}/test")
+    assert response.status_code == 200
+    assert {r["error"] for r in response.json()["results"]} == {"Unexpected error: RuntimeError"}
+
+
+def test_editing_a_rule_keeps_the_memory_of_alerted_candles(client):
+    rule = create_rule(client)
+    with client.app.state.session_factory() as db:
+        from trading_os.models import AlertRule
+
+        stored = db.get(AlertRule, rule["id"])
+        stored.scan_state = {"XAUUSD": {"through": "2026-10-20T10:00:00", "candle": "2026-10-20T10:00:00"}}
+        db.commit()
+    client.put(f"/api/alerts/rules/{rule['id']}", json=rule_payload(name="Renamed"))
+    with client.app.state.session_factory() as db:
+        assert db.get(AlertRule, rule["id"]).scan_state == {"XAUUSD": {"candle": "2026-10-20T10:00:00"}}

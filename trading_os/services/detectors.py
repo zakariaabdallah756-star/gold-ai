@@ -520,6 +520,10 @@ def _p(name, label, kind, default, lo=None, hi=None, choices=(), help=""):
     return ParamSpec(name, label, kind, default, lo, hi, tuple(choices), help)
 
 
+# Candles of history a condition may need: providers return up to 500, minus the forming bar and the
+# few recent candles the scanner may catch up on.
+MAX_HISTORY = 480
+
 CONDITION_TYPES: dict[str, ConditionType] = {
     spec.key: spec
     for spec in (
@@ -529,7 +533,10 @@ CONDITION_TYPES: dict[str, ConditionType] = {
             "Fast EMA above the slow EMA with price above the slow EMA (long), or the mirror image (short).",
             True,
             "HTF trend alignment",
-            (_p("fast", "Fast EMA", "int", 50, 2, 500), _p("slow", "Slow EMA", "int", 200, 3, 1000)),
+            (
+                _p("fast", "Fast EMA", "int", 50, 2, MAX_HISTORY - 2),
+                _p("slow", "Slow EMA", "int", 200, 3, MAX_HISTORY - 1),
+            ),
             _ema_trend,
             lambda p: p["slow"] + 1,
         ),
@@ -539,7 +546,10 @@ CONDITION_TYPES: dict[str, ConditionType] = {
             "The fast EMA crosses the slow EMA on the signal candle.",
             True,
             "EMA cross",
-            (_p("fast", "Fast EMA", "int", 9, 2, 500), _p("slow", "Slow EMA", "int", 21, 3, 1000)),
+            (
+                _p("fast", "Fast EMA", "int", 9, 2, MAX_HISTORY - 2),
+                _p("slow", "Slow EMA", "int", 21, 3, MAX_HISTORY - 1),
+            ),
             _ema_cross,
             lambda p: p["slow"] + 1,
         ),
@@ -618,7 +628,7 @@ CONDITION_TYPES: dict[str, ConditionType] = {
             "The signal candle closes beyond the high (long) or low (short) of the previous N candles.",
             True,
             "Range breakout",
-            (_p("bars", "Range length (candles)", "int", 20, 3, 500),),
+            (_p("bars", "Range length (candles)", "int", 20, 3, MAX_HISTORY - 1),),
             _range_breakout,
             lambda p: p["bars"] + 1,
         ),
@@ -694,6 +704,8 @@ def validate_params(kind: str, params: dict | None) -> dict:
         out[p.name] = value
     if kind in ("ema_trend", "ema_cross") and out["fast"] >= out["slow"]:
         raise ValueError(f"{spec.label}: the fast EMA must be shorter than the slow EMA")
+    if spec.min_bars(out) > MAX_HISTORY:
+        raise ValueError(f"{spec.label}: needs more than the {MAX_HISTORY} candles of history the scanner loads")
     return out
 
 

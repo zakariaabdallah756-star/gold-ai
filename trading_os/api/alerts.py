@@ -109,7 +109,13 @@ class RuleIn(FiniteModel):
                 continue
             if symbol not in self.symbols:
                 raise ValueError(f"Provider symbol given for {symbol}, which the rule does not watch")
-            if not PROVIDER_SYMBOL_RE.match(ticker):
+            if self.provider == "push":  # must match what POST /candles stores (upper-cased symbols)
+                ticker = ticker.upper()
+                if not SYMBOL_RE.match(ticker):
+                    raise ValueError(
+                        f"'{ticker}' cannot be pushed - pushed symbols use 2-20 letters, digits, '.', '_' or '-'"
+                    )
+            elif not PROVIDER_SYMBOL_RE.match(ticker):
                 raise ValueError(f"'{ticker}' is not a valid provider symbol")
             mapped[symbol] = ticker
         self.provider_symbols = mapped
@@ -319,6 +325,13 @@ def update_rule(rule_id: int, data: RuleIn, db: DbDep):
     strategy = _strategy_or_422(db, data.strategy_id)
     _apply(rule, data)
     rule.last_error = ""
+    # Start afresh on the newest candle (no catch-up on candles judged under the old settings); alerted
+    # candles stay remembered so none is sent twice.
+    rule.scan_state = {
+        symbol: {key: value for key, value in memory.items() if key != "through"}
+        for symbol, memory in (rule.scan_state or {}).items()
+        if isinstance(memory, dict)
+    }
     db.commit()
     return _rule_out(rule, strategy)
 
@@ -394,13 +407,23 @@ def scan_now(request: Request):
 
 @router.post("/candles")
 def push_candles(data: CandlesIn, settings: SettingsDep, db: DbDep):
-    """Receive closed candles from the user's platform for the ``push`` provider (upsert by bar open time)."""
+    """Receive closed candles from the user's platform for the ``push`` provider (upsert by bar open time).
+
+    Bars that have not closed yet (open time + timeframe after now) are skipped: the scanner must never
+    judge a forming candle, and the closed version arrives with a later push.
+    """
     expected = (settings.market_api_keys or {}).get("push_token", "")
     if expected and not hmac.compare_digest((data.token or "").encode(), expected.encode()):
         raise HTTPException(status_code=401, detail="Invalid or missing push token")
+    now = local_now(settings)
+    delta = market_data.timeframe_delta(data.timeframe)
     rows = {}
+    forming = 0
     for bar in data.bars:
         moment = normalize_time(bar.time, settings.timezone)
+        if moment + delta > now:
+            forming += 1
+            continue
         rows[moment] = {
             "symbol": data.symbol,
             "timeframe": data.timeframe,
@@ -410,6 +433,21 @@ def push_candles(data: CandlesIn, settings: SettingsDep, db: DbDep):
             "low": bar.low,
             "close": bar.close,
             "volume": bar.volume,
+        }
+    summary = {
+        "symbol": data.symbol,
+        "timeframe": data.timeframe,
+        "received": len(data.bars),
+        "skipped_forming": forming,
+    }
+    if not rows:
+        return {
+            **summary,
+            "inserted": 0,
+            "updated": 0,
+            "first": None,
+            "last": None,
+            "note": "Every bar was still forming (or is in the future - check the time zone of the bar times).",
         }
     existing = set(
         db.scalars(
@@ -443,9 +481,7 @@ def push_candles(data: CandlesIn, settings: SettingsDep, db: DbDep):
     db.commit()
     inserted = len(set(rows) - existing)
     return {
-        "symbol": data.symbol,
-        "timeframe": data.timeframe,
-        "received": len(data.bars),
+        **summary,
         "inserted": inserted,
         "updated": len(rows) - inserted,
         "first": min(rows),
