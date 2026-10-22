@@ -103,14 +103,12 @@ function totals(details) {
   };
 }
 
-/** The activity line of a day or week cell: "2 trades · 50%" and the partial exits. */
+/** The activity lines of a day or week cell: "2 trades · 50%", then the partial exits. */
 function activity(stats) {
-  return h(
-    "span",
-    { class: "cal-meta num" },
-    stats.trades ? [h("span", {}, plural(stats.trades, "trade")), h("span", { class: "cal-wr" }, ` · ${fmt.pct(stats.win_rate, 0)}`)] : null,
-    stats.partials ? h("span", {}, `${stats.trades ? " · " : ""}${tn(stats.partials, "{n} partial", "{n} partials")}`) : null,
-  );
+  return [
+    stats.trades ? h("span", { class: "cal-meta num" }, h("span", {}, plural(stats.trades, "trade")), h("span", { class: "cal-wr" }, ` · ${fmt.pct(stats.win_rate, 0)}`)) : null,
+    stats.partials ? h("span", { class: "cal-meta num" }, tn(stats.partials, "{n} partial", "{n} partials")) : null,
+  ];
 }
 
 function kpi(label, value, sub, valueClass = "") {
@@ -195,7 +193,7 @@ function fillTable(fills, date) {
     h(
       "table",
       {},
-      h("thead", {}, h("tr", {}, [t("Time"), t("Symbol"), t("Side"), t("Exit"), t("Lots"), t("P&L"), t("R")].map((c, i) => h("th", { class: i > 3 ? "num" : "" }, c)))),
+      h("thead", {}, h("tr", {}, [t("Time"), t("Symbol"), t("Exit"), t("Lots"), t("P&L"), t("R")].map((c, i) => h("th", { class: `${i > 2 ? "num" : ""}${i === 3 || i === 5 ? " cal-fill-opt" : ""}` }, c)))),
       h(
         "tbody",
         {},
@@ -204,12 +202,11 @@ function fillTable(fills, date) {
             "tr",
             {},
             h("td", { class: "nowrap" }, fmt.time(fill.time)),
-            h("td", {}, fill.symbol),
-            h("td", {}, directionBadge(fill.direction)),
-            h("td", {}, eventLabel(fill), fillNote(fill, date, bookedByTrade)),
-            h("td", { class: "num" }, fmt.lots(fill.lots)),
+            h("td", { class: "cal-fill-symbol" }, fill.symbol, " ", directionBadge(fill.direction)),
+            h("td", { class: "cal-fill-exit" }, eventLabel(fill), fillNote(fill, date, bookedByTrade)),
+            h("td", { class: "num cal-fill-opt" }, fmt.lots(fill.lots)),
             h("td", { class: `num ${pnlClass(fill.pnl)}` }, fmt.signedMoney(fill.pnl)),
-            h("td", { class: "num" }, fill.closes_trade ? fmt.r(fill.r_multiple) : "—"),
+            h("td", { class: "num cal-fill-opt" }, fill.closes_trade ? fmt.r(fill.r_multiple) : "—"),
           ),
         ),
       ),
