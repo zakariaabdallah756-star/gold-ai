@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from ..models import AccountSettings, Market, NewsEvent
 from . import news
 from .guardrails import Violation
+from .i18n import tr
 
 
 def events_between(db: Session, start: datetime, end: datetime) -> list[NewsEvent]:
@@ -76,7 +77,7 @@ def _open_windows(db: Session, settings: AccountSettings, events: list[NewsEvent
             if not affected:
                 continue
             if len(affected) < len(markets):
-                message = f"{message} Affects {', '.join(affected)}."
+                message = tr("{message} Affects {symbols}.", message=message, symbols=", ".join(affected))
         reasons.append(Violation("NEWS_WINDOW", message, severity))
     return reasons
 
