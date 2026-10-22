@@ -12,6 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from ..models import BacktestTrade, Strategy
 from ..schemas import FiniteModel
 from ..services import backtest
+from ..services.i18n import tr
 from .deps import DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
@@ -122,7 +123,7 @@ def create_strategy(payload: IncubatorStrategyIn, db: DbDep):
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="A strategy with that name already exists") from exc
+        raise HTTPException(status_code=409, detail=tr("A strategy with that name already exists")) from exc
     return {"id": strategy.id, "name": strategy.name, "status": strategy.status}
 
 
