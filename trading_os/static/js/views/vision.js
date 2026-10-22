@@ -3,8 +3,8 @@
 // guardrails and the Strategy Co-Pilot run before anything is logged.
 
 import { api } from "../api.js";
-import { clear, confirmDialog, field, h, icon, lightbox, select, toast } from "../dom.js";
-import { fmt } from "../format.js";
+import { clear, confirmDialog, field, h, icon, lightbox, select, toast, withNodes } from "../dom.js";
+import { currentLocale, fmt } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
 import { handoff, state } from "../state.js";
 
@@ -14,52 +14,59 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 // [label, tone] - tones map to colour tokens in vision.css; every item also carries a text label.
 const LEVEL_KINDS = {
-  support: ["Support", "bull"],
-  resistance: ["Resistance", "bear"],
-  pivot: ["Pivot", "info"],
-  round_number: ["Round number", "info"],
-  previous_high: ["Previous high", "bear"],
-  previous_low: ["Previous low", "bull"],
-  other: ["Level", "neutral"],
+  support: [N_("Support"), "bull"],
+  resistance: [N_("Resistance"), "bear"],
+  pivot: [N_("Pivot"), "info"],
+  round_number: [N_("Round number"), "info"],
+  previous_high: [N_("Previous high"), "bear"],
+  previous_low: [N_("Previous low"), "bull"],
+  other: [N_("Level"), "neutral"],
 };
 const ZONE_KINDS = {
-  demand: ["Demand", "bull"],
-  supply: ["Supply", "bear"],
-  buy_side_liquidity: ["Buy-side liquidity", "liq"],
-  sell_side_liquidity: ["Sell-side liquidity", "liq"],
-  order_block: ["Order block", "info"],
-  fair_value_gap: ["Fair value gap", "info"],
-  consolidation: ["Consolidation", "neutral"],
-  imbalance: ["Imbalance", "info"],
-  other: ["Zone", "neutral"],
+  demand: [N_("Demand"), "bull"],
+  supply: [N_("Supply"), "bear"],
+  buy_side_liquidity: [N_("Buy-side liquidity"), "liq"],
+  sell_side_liquidity: [N_("Sell-side liquidity"), "liq"],
+  order_block: [N_("Order block"), "info"],
+  fair_value_gap: [N_("Fair value gap"), "info"],
+  consolidation: [N_("Consolidation"), "neutral"],
+  imbalance: [N_("Imbalance"), "info"],
+  other: [N_("Zone"), "neutral"],
 };
 const BIAS = {
-  bullish: { label: "Bullish", tone: "bull", badge: "long", icon: "up" },
-  bearish: { label: "Bearish", tone: "bear", badge: "short", icon: "down" },
-  neutral: { label: "Neutral", tone: "info", badge: "", icon: null },
+  bullish: { label: N_("Bullish"), tone: "bull", badge: "long", icon: "up" },
+  bearish: { label: N_("Bearish"), tone: "bear", badge: "short", icon: "down" },
+  neutral: { label: N_("Neutral"), tone: "info", badge: "", icon: null },
 };
+// `trend` is the badge text in the summary, e.g. "Bullish trend".
 const TREND = {
-  bullish: { label: "Bullish", badge: "long", icon: "up" },
-  bearish: { label: "Bearish", badge: "short", icon: "down" },
-  ranging: { label: "Ranging", badge: "", icon: "list" },
-  unclear: { label: "Unclear", badge: "", icon: "info" },
+  bullish: { label: N_("Bullish"), trend: N_("Bullish trend"), badge: "long", icon: "up" },
+  bearish: { label: N_("Bearish"), trend: N_("Bearish trend"), badge: "short", icon: "down" },
+  ranging: { label: N_("Ranging"), trend: N_("Ranging trend"), badge: "", icon: "list" },
+  unclear: { label: N_("Unclear"), trend: N_("Unclear trend"), badge: "", icon: "info" },
 };
 const STATUS = {
-  done: { label: "Done", badge: "good", icon: "check" },
-  error: { label: "Failed", badge: "bad", icon: "x" },
-  pending: { label: "Unfinished", badge: "warn", icon: "clock" },
+  done: { label: N_("Done"), badge: "good", icon: "check" },
+  error: { label: N_("Failed"), badge: "bad", icon: "x" },
+  pending: { label: N_("Unfinished"), badge: "warn", icon: "clock" },
 };
 const LEGEND = [
-  ["bull", "Support · demand · bullish"],
-  ["bear", "Resistance · supply · bearish"],
-  ["liq", "Liquidity"],
-  ["info", "Pivot · order block · imbalance"],
-  ["neutral", "Range · other"],
+  ["bull", N_("Support · demand · bullish")],
+  ["bear", N_("Resistance · supply · bearish")],
+  ["liq", N_("Liquidity")],
+  ["info", N_("Pivot · order block · imbalance")],
+  ["neutral", N_("Range · other")],
 ];
-const ENTRY_TYPES = { market: "Market", limit: "Limit", stop: "Stop" };
+const ENTRY_TYPES = { market: N_("Market"), limit: N_("Limit"), stop: N_("Stop") };
 const EXTENSION = { normal: N_("Normal"), extended: N_("Extended"), overextended: N_("Overextended"), unclear: N_("Unclear") };
-const CATEGORIES = { candlestick: "Candlestick", chart: "Chart pattern", structure: "Structure" };
-const SETUP_DETAIL = "Claude is not configured yet - no API key or login was found.";
+const CATEGORIES = { candlestick: N_("Candlestick"), chart: N_("Chart pattern"), structure: N_("Structure") };
+// Enum values from the analysis: the badge text, the table cell text (lowercase) and the trend strength badge.
+const CONFIDENCE_BADGE = { high: N_("High confidence"), medium: N_("Medium confidence"), low: N_("Low confidence") };
+const CONFIDENCE_VALUE = { high: N_("high"), medium: N_("medium"), low: N_("low") };
+const STRENGTH_VALUE = { strong: N_("strong"), moderate: N_("moderate"), weak: N_("weak") };
+const TREND_STRENGTH = { strong: N_("Strong"), moderate: N_("Moderate"), weak: N_("Weak") };
+const EFFORT_TEXT = { low: N_("low effort"), medium: N_("medium effort"), high: N_("high effort"), xhigh: N_("xhigh effort"), max: N_("max effort") };
+const SETUP_DETAIL = N_("Claude is not configured yet - no API key or login was found.");
 
 // Form values and the open analysis are remembered between visits (the file is not).
 const memory = { selectedId: null, symbol: "", timeframe: "", strategy: "", notes: "" };
@@ -82,17 +89,22 @@ function badge(cls, iconName, text) {
 
 function statusBadge(status) {
   const info = STATUS[status] || STATUS.pending;
-  return badge(info.badge, info.icon, info.label);
+  return badge(info.badge, info.icon, t(info.label));
 }
 
-function trendBadge(direction, suffix = "") {
+function trendBadge(direction, withTrend = false) {
   const info = TREND[direction] || TREND.unclear;
-  return badge(info.badge, info.icon, info.label + suffix);
+  return badge(info.badge, info.icon, t(withTrend ? info.trend : info.label));
 }
+
+const capitalise = (text) => `${text[0].toUpperCase()}${text.slice(1)}`;
+
+/** A translated enum value from the analysis; unknown values are shown as they come. */
+const enumText = (table, value) => (table[value] ? t(table[value]) : value);
 
 function confidenceBadge(confidence) {
   const cls = confidence === "high" ? "good" : confidence === "low" ? "warn" : "";
-  return badge(cls, null, `${confidence[0].toUpperCase()}${confidence.slice(1)} confidence`);
+  return badge(cls, null, CONFIDENCE_BADGE[confidence] ? t(CONFIDENCE_BADGE[confidence]) : t("{level} confidence", { level: capitalise(confidence) }));
 }
 
 function sectionTitle(text) {
@@ -182,32 +194,36 @@ function setupCard(detail) {
   return h(
     "div",
     { class: "card vi-setup" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Connect Claude to use Vision AI"), h("p", {}, detail || SETUP_DETAIL))),
+    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Connect Claude to use Vision AI")), h("p", {}, detail || t(SETUP_DETAIL)))),
     h(
       "ol",
       { class: "vi-steps" },
-      h("li", {}, "Set the ", h("code", {}, "ANTHROPIC_API_KEY"), " environment variable, then restart Trading OS, or"),
-      h("li", {}, "run ", h("code", {}, "ant auth login"), " once to sign in with the Anthropic CLI, or"),
-      h("li", {}, "save an API key in ", h("a", { href: "#/plan?tab=ai" }, "Trading plan → AI assistant"), "."),
+      h("li", {}, withNodes(t("Set the {variable} environment variable, then restart Trading OS, or"), { variable: h("code", {}, "ANTHROPIC_API_KEY") })),
+      h("li", {}, withNodes(t("run {command} once to sign in with the Anthropic CLI, or"), { command: h("code", {}, "ant auth login") })),
+      h("li", {}, withNodes(t("save an API key in {link}."), { link: h("a", { href: "#/plan?tab=ai" }, t("Trading plan → AI assistant")) })),
     ),
-    h("p", { class: "muted small" }, "Charts are analysed by Claude through Anthropic's API; usage is billed to your Anthropic account."),
+    h("p", { class: "muted small" }, t("Charts are analysed by Claude through Anthropic's API; usage is billed to your Anthropic account.")),
   );
 }
 
 // ------------------------------------------------------------------ chart overlay
 
+/** [translated label, tone] of a level. */
 function levelLabel(level) {
-  return LEVEL_KINDS[level.kind] || LEVEL_KINDS.other;
+  const [label, tone] = LEVEL_KINDS[level.kind] || LEVEL_KINDS.other;
+  return [t(label), tone];
 }
 
+/** [translated label, tone] of a zone. */
 function zoneLabel(zone) {
-  return ZONE_KINDS[zone.kind] || ZONE_KINDS.other;
+  const [label, tone] = ZONE_KINDS[zone.kind] || ZONE_KINDS.other;
+  return [t(label), tone];
 }
 
 function chartFigure(record) {
   const { analysis, overlay } = record;
   const figure = h("div", { class: "vi-figure" });
-  const image = h("img", { src: record.image_src, alt: "Analysed chart screenshot", title: "Open full size", onclick: () => lightbox(record.image_src) });
+  const image = h("img", { src: record.image_src, alt: t("Analysed chart screenshot"), title: t("Open full size"), onclick: () => lightbox(record.image_src) });
   figure.append(image);
   if (!overlay) return { figure, toolbar: null, note: null };
 
@@ -245,14 +261,14 @@ function chartFigure(record) {
   for (const spot of overlay.patterns) {
     const pattern = analysis.patterns[spot.index];
     const bias = BIAS[pattern.bias] || BIAS.neutral;
-    labels.append(h("span", { class: `vi-marker tone-${bias.tone}`, style: { left: pct(spot.x), top: pct(spot.y) }, title: `${pattern.name} (${bias.label.toLowerCase()})` }, `P${spot.index + 1}`));
+    labels.append(h("span", { class: `vi-marker tone-${bias.tone}`, style: { left: pct(spot.x), top: pct(spot.y) }, title: `${pattern.name} (${t(bias.label).toLowerCase()})` }, `P${spot.index + 1}`));
   }
   figure.append(shapes, labels);
 
   const layers = [
-    ["levels", "Levels", overlay.levels.length, analysis.levels.length],
-    ["zones", "Zones", overlay.zones.length, analysis.zones.length],
-    ["patterns", "Patterns", overlay.patterns.length, analysis.patterns.length],
+    ["levels", t("Levels"), overlay.levels.length, analysis.levels.length],
+    ["zones", t("Zones"), overlay.zones.length, analysis.zones.length],
+    ["patterns", t("Patterns"), overlay.patterns.length, analysis.patterns.length],
   ];
   const toggles = layers.map(([key, label, placed]) =>
     h(
@@ -274,12 +290,12 @@ function chartFigure(record) {
   const toolbar = h(
     "div",
     { class: "vi-toolbar" },
-    h("div", { class: "chips", role: "group", "aria-label": "Chart layers" }, toggles),
-    h("div", { class: "vi-legend" }, LEGEND.map(([tone, text]) => h("span", {}, h("i", { class: `tone-${tone}` }), text))),
+    h("div", { class: "chips", role: "group", "aria-label": t("Chart layers") }, toggles),
+    h("div", { class: "vi-legend" }, LEGEND.map(([tone, text]) => h("span", {}, h("i", { class: `tone-${tone}` }), t(text)))),
   );
   const unplaced = layers.reduce((sum, [, , placed, total]) => sum + total - placed, 0);
   const note = unplaced
-    ? h("p", { class: "muted small" }, `${unplaced} ${unplaced === 1 ? "item has" : "items have"} no position on the image and ${unplaced === 1 ? "is" : "are"} only listed below.`)
+    ? h("p", { class: "muted small" }, tn(unplaced, "{n} item has no position on the image and is only listed below.", "{n} items have no position on the image and are only listed below."))
     : null;
   return { figure, toolbar, note };
 }
@@ -289,12 +305,12 @@ function chartFigure(record) {
 function summaryCard(record) {
   const { analysis } = record;
   const axis = analysis.price_axis;
-  const range = axis.visible && isNum(axis.min_price) && isNum(axis.max_price) ? `${fmt.price(axis.min_price)} – ${fmt.price(axis.max_price)}` : "Not legible";
+  const range = axis.visible && isNum(axis.min_price) && isNum(axis.max_price) ? `${fmt.price(axis.min_price)} – ${fmt.price(axis.max_price)}` : t("Not legible");
   const rows = [
-    ["Price axis", range],
-    ["Last price", price(axis.current_price)],
-    ["Last break of structure", analysis.structure.last_bos || "None identified"],
-    ["Last change of character", analysis.structure.last_choch || "None identified"],
+    [t("Price axis"), range],
+    [t("Last price"), price(axis.current_price)],
+    [t("Last break of structure"), analysis.structure.last_bos || t("None identified")],
+    [t("Last change of character"), analysis.structure.last_choch || t("None identified")],
   ];
   const ext = analysis.extension;
   if (ext && EXTENSION[ext.state]) {
@@ -302,21 +318,22 @@ function summaryCard(record) {
     if (isNum(ext.distance_atr)) parts.push(t("{distance}× the typical candle from {reference}", { distance: fmt.num(ext.distance_atr, 1), reference: ext.reference || t("the mean") }));
     rows.push([t("Move extension"), parts.join(" · ")]);
   }
-  if (analysis.symbol_guess && analysis.symbol_guess !== record.symbol) rows.push(["Symbol on chart", analysis.symbol_guess]);
-  if (analysis.timeframe_guess && analysis.timeframe_guess !== record.timeframe) rows.push(["Timeframe on chart", analysis.timeframe_guess]);
+  if (analysis.symbol_guess && analysis.symbol_guess !== record.symbol) rows.push([t("Symbol on chart"), analysis.symbol_guess]);
+  if (analysis.timeframe_guess && analysis.timeframe_guess !== record.timeframe) rows.push([t("Timeframe on chart"), analysis.timeframe_guess]);
+  const strength = analysis.trend.strength;
   return h(
     "div",
     { class: "card" },
-    h("div", { class: "card-head" }, h("h2", {}, "Summary")),
+    h("div", { class: "card-head" }, h("h2", {}, t("Summary"))),
     fomoCallout(record),
     h("p", { class: "vi-summary" }, analysis.summary),
     h(
       "div",
       { class: "vi-trend" },
-      h("div", { class: "row" }, trendBadge(analysis.trend.direction, " trend"), badge("", null, `${analysis.trend.strength[0].toUpperCase()}${analysis.trend.strength.slice(1)}`)),
+      h("div", { class: "row" }, trendBadge(analysis.trend.direction, true), badge("", null, TREND_STRENGTH[strength] ? t(TREND_STRENGTH[strength]) : capitalise(strength))),
       h("p", {}, analysis.trend.description),
     ),
-    sectionTitle("Market structure"),
+    sectionTitle(t("Market structure")),
     h("p", { class: "vi-body" }, analysis.structure.description),
     h(
       "dl",
@@ -331,29 +348,29 @@ function ideaCard(idea, record, index) {
   const flagged = findings.some((f) => f.severity === "warn");
   const long = idea.direction === "long";
   const rr = rewardRisk(idea, record.analysis);
-  const entry = isNum(idea.entry) ? fmt.price(idea.entry) : idea.entry_type === "market" ? "At market" : "—";
+  const entry = isNum(idea.entry) ? fmt.price(idea.entry) : idea.entry_type === "market" ? t("At market") : "—";
   const cells = [
-    ["Entry", entry],
-    ["Stop loss", price(idea.stop_loss)],
+    [t("Entry"), entry],
+    [t("Stop loss"), price(idea.stop_loss)],
     ...idea.take_profits.map((tp, index) => [`TP${index + 1}`, fmt.price(tp)]),
-    ["R:R to TP1", rr ? fmt.rr(rr) : "—"],
+    [t("R:R to TP1"), rr ? fmt.rr(rr) : "—"],
   ];
   return h(
     "article",
     { class: `vi-idea tone-${long ? "bull" : "bear"}${flagged ? " fomo" : ""}` },
-    h("div", { class: "row" }, badge(long ? "long" : "short", long ? "up" : "down", long ? "Long" : "Short"), badge("", null, ENTRY_TYPES[idea.entry_type] || idea.entry_type), h("span", { class: "spacer" }), confidenceBadge(idea.confidence)),
+    h("div", { class: "row" }, badge(long ? "long" : "short", long ? "up" : "down", long ? t("Long") : t("Short")), badge("", null, enumText(ENTRY_TYPES, idea.entry_type)), h("span", { class: "spacer" }), confidenceBadge(idea.confidence)),
     h("dl", { class: "vi-idea-levels" }, cells.map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, value)))),
     h(
       "div",
       { class: "vi-idea-text" },
       [
-        ["Trigger", idea.trigger],
-        ["Rationale", idea.rationale],
-        ["Invalidation", idea.invalidation],
+        [t("Trigger"), idea.trigger],
+        [t("Rationale"), idea.rationale],
+        [t("Invalidation"), idea.invalidation],
       ].map(([label, text]) => h("div", {}, h("strong", {}, label), text)),
     ),
     findingList(findings),
-    h("button", { class: "btn sm", type: "button", onclick: () => sendToSignals(idea, record, findings) }, icon("signal"), flagged ? t("Send anyway…") : "Send to Signals"),
+    h("button", { class: "btn sm", type: "button", onclick: () => sendToSignals(idea, record, findings) }, icon("signal"), flagged ? t("Send anyway…") : t("Send to Signals")),
   );
 }
 
@@ -362,13 +379,13 @@ function ideasCard(record) {
   return h(
     "div",
     { class: "card" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Trade ideas"), h("p", {}, "Potential setups from structure. Send one to Signals to size it and run your guardrails - the decision stays yours."))),
-    ideas.length ? h("div", { class: "vi-ideas" }, ideas.map((idea, index) => ideaCard(idea, record, index))) : h("p", { class: "muted" }, "No clear setup on this chart - waiting is a position too."),
+    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Trade ideas")), h("p", {}, t("Potential setups from structure. Send one to Signals to size it and run your guardrails - the decision stays yours.")))),
+    ideas.length ? h("div", { class: "vi-ideas" }, ideas.map((idea, index) => ideaCard(idea, record, index))) : h("p", { class: "muted" }, t("No clear setup on this chart - waiting is a position too.")),
   );
 }
 
 function refCell(prefix, index, tone, placed) {
-  return h("td", {}, h("span", { class: `vi-ref tone-${tone}`, title: placed ? "Drawn on the chart" : "Listed only - no position on the image" }, `${prefix}${index + 1}`));
+  return h("td", {}, h("span", { class: `vi-ref tone-${tone}`, title: placed ? t("Drawn on the chart") : t("Listed only - no position on the image") }, `${prefix}${index + 1}`));
 }
 
 function tableCard(title, subtitle, headers, rows, emptyText) {
@@ -392,11 +409,17 @@ function levelsCard(record) {
       refCell("L", index, tone, placed.has(index)),
       h("td", {}, label),
       h("td", { class: "num" }, price(level.price)),
-      h("td", {}, level.strength),
+      h("td", {}, enumText(STRENGTH_VALUE, level.strength)),
       h("td", { class: "vi-note-cell" }, level.note),
     );
   });
-  return tableCard("Key levels", "Support, resistance and reference prices", [["#"], ["Type"], ["Price", "num"], ["Strength"], ["Note"]], rows, "No key levels identified.");
+  return tableCard(
+    t("Key levels"),
+    t("Support, resistance and reference prices"),
+    [["#"], [t("Type")], [t("Price"), "num"], [t("Strength")], [t("Note")]],
+    rows,
+    t("No key levels identified."),
+  );
 }
 
 function zonesCard(record) {
@@ -413,7 +436,13 @@ function zonesCard(record) {
       h("td", { class: "vi-note-cell" }, zone.note),
     );
   });
-  return tableCard("Zones & liquidity", "Supply and demand, liquidity pools, order blocks and imbalances", [["#"], ["Type"], ["Top", "num"], ["Bottom", "num"], ["Note"]], rows, "No zones identified.");
+  return tableCard(
+    t("Zones & liquidity"),
+    t("Supply and demand, liquidity pools, order blocks and imbalances"),
+    [["#"], [t("Type")], [t("Top"), "num"], [t("Bottom"), "num"], [t("Note")]],
+    rows,
+    t("No zones identified."),
+  );
 }
 
 function patternsCard(record) {
@@ -425,13 +454,19 @@ function patternsCard(record) {
       {},
       refCell("P", index, bias.tone, placed.has(index)),
       h("td", {}, pattern.name),
-      h("td", {}, CATEGORIES[pattern.category] || pattern.category),
-      h("td", {}, badge(bias.badge, bias.icon, bias.label)),
-      h("td", {}, pattern.confidence),
+      h("td", {}, enumText(CATEGORIES, pattern.category)),
+      h("td", {}, badge(bias.badge, bias.icon, t(bias.label))),
+      h("td", {}, enumText(CONFIDENCE_VALUE, pattern.confidence)),
       h("td", { class: "vi-note-cell" }, pattern.note),
     );
   });
-  return tableCard("Patterns", "Candlestick, chart and structure patterns", [["#"], ["Pattern"], ["Type"], ["Bias"], ["Confidence"], ["Note"]], rows, "No patterns identified.");
+  return tableCard(
+    t("Patterns"),
+    t("Candlestick, chart and structure patterns"),
+    [["#"], [t("Pattern")], [t("Type")], [t("Bias")], [t("Confidence")], [t("Note")]],
+    rows,
+    t("No patterns identified."),
+  );
 }
 
 function strategyFitCard(record) {
@@ -439,25 +474,34 @@ function strategyFitCard(record) {
   const name = fit.strategy || record.strategy;
   let body;
   if (!name) {
-    body = h("p", { class: "muted" }, "No strategy was selected. Pick one before analysing to check the chart against its rules.");
+    body = h("p", { class: "muted" }, t("No strategy was selected. Pick one before analysing to check the chart against its rules."));
   } else {
     const verdict =
-      fit.fits === true ? badge("good", "check", `Fits ${name}`) : fit.fits === false ? badge("bad", "x", `Does not fit ${name}`) : badge("warn", "alert", `Fit with ${name} is unclear`);
+      fit.fits === true
+        ? badge("good", "check", t("Fits {strategy}", { strategy: name }))
+        : fit.fits === false
+          ? badge("bad", "x", t("Does not fit {strategy}", { strategy: name }))
+          : badge("warn", "alert", t("Fit with {strategy} is unclear", { strategy: name }));
     body = [
       h("div", { class: "row" }, verdict),
-      fit.missing.length ? [sectionTitle("Missing for this strategy"), bulletList(fit.missing, "")] : null,
+      fit.missing.length ? [sectionTitle(t("Missing for this strategy")), bulletList(fit.missing, "")] : null,
       fit.notes ? h("p", { class: "vi-body" }, fit.notes) : null,
     ];
   }
-  return h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, "Strategy fit")), h("div", { class: "stack vi-tight" }, body));
+  return h("div", { class: "card" }, h("div", { class: "card-head" }, h("h2", {}, t("Strategy fit"))), h("div", { class: "stack vi-tight" }, body));
 }
 
 function risksCard(analysis) {
   return h(
     "div",
     { class: "card" },
-    h("div", { class: "card-head" }, h("h2", {}, "Risks & caveats")),
-    h("div", { class: "stack vi-tight" }, h("div", {}, sectionTitle("Risks"), bulletList(analysis.risks, "None noted.")), h("div", {}, sectionTitle("Caveats"), bulletList(analysis.caveats, "None noted."))),
+    h("div", { class: "card-head" }, h("h2", {}, t("Risks & caveats"))),
+    h(
+      "div",
+      { class: "stack vi-tight" },
+      h("div", {}, sectionTitle(t("Risks")), bulletList(analysis.risks, t("None noted."))),
+      h("div", {}, sectionTitle(t("Caveats")), bulletList(analysis.caveats, t("None noted."))),
+    ),
   );
 }
 
@@ -505,7 +549,7 @@ export async function render(root, { params } = {}) {
     class: "vi-drop",
     tabindex: "0",
     role: "button",
-    "aria-label": "Choose a chart screenshot",
+    "aria-label": t("Choose a chart screenshot"),
     onclick: () => !file && fileInput.click(),
     onkeydown: (event) => {
       if (!file && (event.key === "Enter" || event.key === " ")) {
@@ -529,30 +573,37 @@ export async function render(root, { params } = {}) {
   function renderDrop() {
     drop.classList.toggle("has-file", Boolean(file));
     drop.setAttribute("role", file ? "group" : "button");
-    drop.setAttribute("aria-label", file ? "Selected chart" : "Choose a chart screenshot");
+    drop.setAttribute("aria-label", file ? t("Selected chart") : t("Choose a chart screenshot"));
     if (!file) {
       clear(
         drop,
         icon("upload"),
-        h("strong", {}, "Drop a chart screenshot here"),
-        h("span", { class: "muted small" }, "or paste it with ", h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "V"), " · ", h("span", { class: "vi-browse" }, "browse files")),
-        h("span", { class: "muted small" }, "PNG, JPEG, GIF or WebP up to 5 MB"),
+        h("strong", {}, t("Drop a chart screenshot here")),
+        h(
+          "span",
+          { class: "muted small" },
+          withNodes(t("or paste it with {keys} · {browse}"), {
+            keys: [h("kbd", {}, "Ctrl"), "+", h("kbd", {}, "V")],
+            browse: h("span", { class: "vi-browse" }, t("browse files")),
+          }),
+        ),
+        h("span", { class: "muted small" }, t("PNG, JPEG, GIF or WebP up to 5 MB")),
       );
       return;
     }
     clear(
       drop,
-      h("img", { class: "vi-preview", src: previewUrl, alt: "Selected chart preview" }),
+      h("img", { class: "vi-preview", src: previewUrl, alt: t("Selected chart preview") }),
       h(
         "div",
         { class: "vi-file-meta" },
-        h("strong", {}, file.name || "Pasted screenshot"),
-        h("span", { class: "muted small" }, `${Math.max(1, Math.round(file.size / 1024)).toLocaleString()} KB`),
+        h("strong", {}, file.name || t("Pasted screenshot")),
+        h("span", { class: "muted small" }, `${Math.max(1, Math.round(file.size / 1024)).toLocaleString(currentLocale())} KB`),
         h(
           "div",
           { class: "row" },
-          h("button", { type: "button", class: "btn sm", onclick: () => fileInput.click() }, icon("refresh"), "Replace"),
-          h("button", { type: "button", class: "btn sm ghost", onclick: () => resetFile() }, icon("x"), "Remove"),
+          h("button", { type: "button", class: "btn sm", onclick: () => fileInput.click() }, icon("refresh"), t("Replace")),
+          h("button", { type: "button", class: "btn sm ghost", onclick: () => resetFile() }, icon("x"), t("Remove")),
         ),
       ),
     );
@@ -560,11 +611,11 @@ export async function render(root, { params } = {}) {
 
   function choose(candidate) {
     if (candidate.type && !IMAGE_TYPES.includes(candidate.type)) {
-      toast("Use a PNG, JPEG, GIF or WebP image.", "error");
+      toast(t("Use a PNG, JPEG, GIF or WebP image."), "error");
       return;
     }
     if (candidate.size > MAX_BYTES) {
-      toast("Chart images must be 5 MB or smaller.", "error");
+      toast(t("Chart images must be 5 MB or smaller."), "error");
       return;
     }
     if (previewUrl) URL.revokeObjectURL(previewUrl);
@@ -596,19 +647,25 @@ export async function render(root, { params } = {}) {
     memory[key] = event.target.value;
   };
   const markets = state.plan.markets.filter((m) => m.active);
-  const symbolSelect = select([["", "Detect from chart"], ...markets.map((m) => m.symbol)], memory.symbol, { onchange: remember("symbol") });
-  const timeframeSelect = select([["", "Detect from chart"], ...state.plan.enums.timeframes], memory.timeframe, { onchange: remember("timeframe") });
+  const symbolSelect = select([["", t("Detect from chart")], ...markets.map((m) => m.symbol)], memory.symbol, { onchange: remember("symbol") });
+  const timeframeSelect = select([["", t("Detect from chart")], ...state.plan.enums.timeframes], memory.timeframe, { onchange: remember("timeframe") });
   const strategies = state.plan.strategies.filter((s) => s.status !== "retired");
-  const strategySelect = select([["", "No strategy"], ...strategies.map((s) => s.name)], memory.strategy, { onchange: remember("strategy") });
-  const notesInput = h("textarea", { rows: 2, maxlength: 2000, placeholder: "Optional context, e.g. waiting for the London open, bias long above 2640", value: memory.notes, oninput: remember("notes") });
-  const analyzeBtn = h("button", { class: "btn primary", type: "button", disabled: true, onclick: () => analyse() }, icon("brain"), "Analyze chart");
+  const strategySelect = select([["", t("No strategy")], ...strategies.map((s) => s.name)], memory.strategy, { onchange: remember("strategy") });
+  const notesInput = h("textarea", {
+    rows: 2,
+    maxlength: 2000,
+    placeholder: t("Optional context, e.g. waiting for the London open, bias long above 2640"),
+    value: memory.notes,
+    oninput: remember("notes"),
+  });
+  const analyzeBtn = h("button", { class: "btn primary", type: "button", disabled: true, onclick: () => analyse() }, icon("brain"), t("Analyze chart"));
   const progress = h("div", { class: "vi-progress", role: "status", "aria-live": "polite" });
 
   async function analyse() {
     if (!file || busy) return;
     busy = true;
     analyzeBtn.disabled = true;
-    startProgress(progress, "Analysing - this can take up to a minute");
+    startProgress(progress, t("Analysing - this can take up to a minute"));
     const form = new FormData();
     form.append("file", file, file.name || "chart.png");
     form.append("symbol", symbolSelect.value);
@@ -621,7 +678,7 @@ export async function render(root, { params } = {}) {
       resetFile();
       memory.selectedId = record.id;
       showRecord(record);
-      if (record.status === "error") toast("The analysis did not complete - see the details below.", "warn");
+      if (record.status === "error") toast(t("The analysis did not complete - see the details below."), "warn");
       await refreshHistory();
       resultSlot.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
@@ -647,23 +704,30 @@ export async function render(root, { params } = {}) {
   const uploadCard = h(
     "div",
     { class: "card" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Analyse a chart"), h("p", {}, "Claude reports every key element it can see - not only what fits your strategy."))),
+    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Analyse a chart")), h("p", {}, t("Claude reports every key element it can see - not only what fits your strategy.")))),
     drop,
     fileInput,
     h(
       "div",
       { class: "form-grid vi-form" },
-      field("Symbol", symbolSelect),
-      field("Timeframe", timeframeSelect),
-      field("Strategy", strategySelect, { help: "Used only to judge the fit." }),
-      field("Notes", notesInput, { full: true }),
+      field(t("Symbol"), symbolSelect),
+      field(t("Timeframe"), timeframeSelect),
+      field(t("Strategy"), strategySelect, { help: t("Used only to judge the fit.") }),
+      field(t("Notes"), notesInput, { full: true }),
     ),
     h(
       "div",
       { class: "vi-actions" },
       analyzeBtn,
       progress,
-      aiSettings ? h("span", { class: "muted small vi-model" }, `${modelName(aiSettings.model)} · ${aiSettings.effort} effort · `, h("a", { href: "#/plan?tab=ai" }, "Change")) : null,
+      aiSettings
+        ? h(
+            "span",
+            { class: "muted small vi-model" },
+            `${modelName(aiSettings.model)} · ${EFFORT_TEXT[aiSettings.effort] ? t(EFFORT_TEXT[aiSettings.effort]) : t("{effort} effort", { effort: aiSettings.effort })} · `,
+            h("a", { href: "#/plan?tab=ai" }, t("Change")),
+          )
+        : null,
     ),
   );
 
@@ -687,18 +751,18 @@ export async function render(root, { params } = {}) {
   async function rerun(record, button, status) {
     if (busy) return;
     if (record.messages.length) {
-      const ok = await confirmDialog("Running the analysis again replaces it and clears the questions and answers below.", { title: "Run again", confirmText: "Run again" });
+      const ok = await confirmDialog(t("Running the analysis again replaces it and clears the questions and answers below."), { title: t("Run again"), confirmText: t("Run again") });
       if (!ok) return;
     }
     busy = true;
     button.disabled = true;
     analyzeBtn.disabled = true;
-    startProgress(status, "Analysing - this can take up to a minute");
+    startProgress(status, t("Analysing - this can take up to a minute"));
     try {
       const updated = await api.post(`/api/vision/analyses/${record.id}/retry`);
       clear(setupSlot);
       showRecord(updated);
-      if (updated.status === "error") toast("The analysis did not complete - see the details below.", "warn");
+      if (updated.status === "error") toast(t("The analysis did not complete - see the details below."), "warn");
     } catch (error) {
       if (needsSetup(error)) showSetup(error.message);
       else toast(error.message, "error");
@@ -713,11 +777,11 @@ export async function render(root, { params } = {}) {
   }
 
   async function remove(item) {
-    const ok = await confirmDialog("Delete this analysis and its chart image? This cannot be undone.", { title: "Delete analysis", confirmText: "Delete", danger: true });
+    const ok = await confirmDialog(t("Delete this analysis and its chart image? This cannot be undone."), { title: t("Delete analysis"), confirmText: t("Delete"), danger: true });
     if (!ok) return;
     try {
       await api.del(`/api/vision/analyses/${item.id}`);
-      toast("Analysis deleted", "success");
+      toast(t("Analysis deleted"), "success");
       if (memory.selectedId === item.id) {
         memory.selectedId = null;
         clear(resultSlot);
@@ -731,8 +795,8 @@ export async function render(root, { params } = {}) {
   function headCard(record) {
     const status = h("div", { class: "vi-progress", role: "status", "aria-live": "polite" });
     const done = record.status === "done";
-    const rerunBtn = h("button", { class: `btn sm${done ? "" : " primary"}`, type: "button", onclick: (event) => rerun(record, event.currentTarget, status) }, icon("refresh"), done ? "Run again" : "Retry");
-    const meta = [fmt.datetime(record.created_at), modelName(record.model), record.strategy ? `Strategy: ${record.strategy}` : null].filter(Boolean).join(" · ");
+    const rerunBtn = h("button", { class: `btn sm${done ? "" : " primary"}`, type: "button", onclick: (event) => rerun(record, event.currentTarget, status) }, icon("refresh"), done ? t("Run again") : t("Retry"));
+    const meta = [fmt.datetime(record.created_at), modelName(record.model), record.strategy ? t("Strategy: {strategy}", { strategy: record.strategy }) : null].filter(Boolean).join(" · ");
     return h(
       "div",
       { class: "card vi-head" },
@@ -742,28 +806,28 @@ export async function render(root, { params } = {}) {
         h(
           "div",
           { class: "vi-head-title" },
-          h("div", { class: "row" }, h("h2", {}, displaySymbol(record) || "Unknown symbol"), record.timeframe || record.analysis?.timeframe_guess ? badge("", null, record.timeframe || record.analysis.timeframe_guess) : null, statusBadge(record.status)),
+          h("div", { class: "row" }, h("h2", {}, displaySymbol(record) || t("Unknown symbol")), record.timeframe || record.analysis?.timeframe_guess ? badge("", null, record.timeframe || record.analysis.timeframe_guess) : null, statusBadge(record.status)),
           h("p", { class: "muted small" }, meta),
-          record.user_notes ? h("p", { class: "small vi-notes" }, h("span", { class: "muted" }, "Your notes: "), record.user_notes) : null,
+          record.user_notes ? h("p", { class: "small vi-notes" }, h("span", { class: "muted" }, t("Your notes: ")), record.user_notes) : null,
         ),
         h(
           "div",
           { class: "row vi-head-actions" },
-          done ? h("button", { class: "btn sm ghost", type: "button", onclick: () => document.getElementById("vi-chat")?.scrollIntoView({ behavior: "smooth" }) }, icon("signal"), "Ask a question") : null,
+          done ? h("button", { class: "btn sm ghost", type: "button", onclick: () => document.getElementById("vi-chat")?.scrollIntoView({ behavior: "smooth" }) }, icon("signal"), t("Ask a question")) : null,
           rerunBtn,
-          h("button", { class: "btn sm ghost danger", type: "button", onclick: () => remove(record) }, icon("trash"), "Delete"),
+          h("button", { class: "btn sm ghost danger", type: "button", onclick: () => remove(record) }, icon("trash"), t("Delete")),
         ),
       ),
       status,
-      record.status === "error" ? h("div", { class: "vi-callout bad" }, icon("xCircle"), h("div", {}, h("strong", {}, "The analysis failed"), record.error || "Unknown error.")) : null,
-      record.status === "pending" ? h("div", { class: "vi-callout warn" }, icon("alert"), h("div", {}, h("strong", {}, "This analysis did not finish"), "Run it again to get a result.")) : null,
+      record.status === "error" ? h("div", { class: "vi-callout bad" }, icon("xCircle"), h("div", {}, h("strong", {}, t("The analysis failed")), record.error || t("Unknown error."))) : null,
+      record.status === "pending" ? h("div", { class: "vi-callout warn" }, icon("alert"), h("div", {}, h("strong", {}, t("This analysis did not finish")), t("Run it again to get a result."))) : null,
     );
   }
 
   function showRecord(record) {
     for (const node of historyList.querySelectorAll(".vi-hist")) node.classList.toggle("active", Number(node.dataset.id) === record.id);
     if (record.status !== "done" || !record.analysis) {
-      clear(resultSlot, headCard(record), h("div", { class: "card" }, h("img", { class: "vi-failed-image", src: record.image_src, alt: "Chart screenshot", onclick: () => lightbox(record.image_src) })));
+      clear(resultSlot, headCard(record), h("div", { class: "card" }, h("img", { class: "vi-failed-image", src: record.image_src, alt: t("Chart screenshot"), onclick: () => lightbox(record.image_src) })));
       return;
     }
     const { figure, toolbar, note } = chartFigure(record);
@@ -777,7 +841,7 @@ export async function render(root, { params } = {}) {
       zonesCard(record),
       patternsCard(record),
       h("div", { class: "grid cols-2 vi-pair" }, strategyFitCard(record), risksCard(record.analysis)),
-      h("p", { class: "vi-disclaimer" }, icon("info"), "AI analysis is educational, not financial advice. Verify every level on your own chart - the final decision is always yours."),
+      h("p", { class: "vi-disclaimer" }, icon("info"), t("AI analysis is educational, not financial advice. Verify every level on your own chart - the final decision is always yours.")),
       chatCard(record),
     );
   }
@@ -788,7 +852,7 @@ export async function render(root, { params } = {}) {
     return h(
       "div",
       { class: `vi-msg ${message.role}` },
-      h("div", { class: "vi-msg-role" }, message.role === "user" ? "You" : "Claude"),
+      h("div", { class: "vi-msg-role" }, message.role === "user" ? t("You") : "Claude"),
       message.text.split(/\n{2,}/).map((paragraph) => h("p", {}, paragraph)),
     );
   }
@@ -799,8 +863,8 @@ export async function render(root, { params } = {}) {
     const input = h("textarea", {
       rows: 2,
       maxlength: 2000,
-      placeholder: "Ask a follow-up question about this chart…",
-      "aria-label": "Question",
+      placeholder: t("Ask a follow-up question about this chart…"),
+      "aria-label": t("Question"),
       onkeydown: (event) => {
         if (event.key === "Enter" && !event.shiftKey) {
           event.preventDefault();
@@ -808,18 +872,18 @@ export async function render(root, { params } = {}) {
         }
       },
     });
-    const sendBtn = h("button", { class: "btn primary", type: "button", onclick: () => send(input.value) }, icon("arrowRight"), "Send");
+    const sendBtn = h("button", { class: "btn primary", type: "button", onclick: () => send(input.value) }, icon("arrowRight"), t("Send"));
     const suggestions = [
-      "Where would you place the stop?",
-      record.strategy ? `Is this a valid setup for ${record.strategy}?` : null,
-      "What would invalidate this idea?",
-      "Which liquidity is likely to be taken next?",
+      t("Where would you place the stop?"),
+      record.strategy ? t("Is this a valid setup for {strategy}?", { strategy: record.strategy }) : null,
+      t("What would invalidate this idea?"),
+      t("Which liquidity is likely to be taken next?"),
       t("Is this move overextended?"),
     ].filter(Boolean);
     const chips = suggestions.map((question) => h("button", { type: "button", class: "chip-toggle", onclick: () => send(question) }, question));
 
     const draw = () => {
-      clear(list, record.messages.length ? record.messages.map(bubble) : h("p", { class: "muted small" }, "Ask about levels, stops, invalidation or liquidity. Claude answers from this chart and its analysis."));
+      clear(list, record.messages.length ? record.messages.map(bubble) : h("p", { class: "muted small" }, t("Ask about levels, stops, invalidation or liquidity. Claude answers from this chart and its analysis.")));
       list.scrollTop = list.scrollHeight;
     };
 
@@ -829,7 +893,7 @@ export async function render(root, { params } = {}) {
       pending = true;
       for (const control of [input, sendBtn, ...chips]) control.disabled = true;
       list.querySelector(".muted")?.remove();
-      list.append(bubble({ role: "user", text: question }), h("div", { class: "vi-msg assistant vi-thinking" }, h("span", { class: "vi-spinner", "aria-hidden": "true" }), "Claude is thinking…"));
+      list.append(bubble({ role: "user", text: question }), h("div", { class: "vi-msg assistant vi-thinking" }, h("span", { class: "vi-spinner", "aria-hidden": "true" }), t("Claude is thinking…")));
       list.scrollTop = list.scrollHeight;
       try {
         const reply = await api.post(`/api/vision/analyses/${record.id}/messages`, { question });
@@ -851,7 +915,7 @@ export async function render(root, { params } = {}) {
     return h(
       "div",
       { class: "card vi-chat", id: "vi-chat" },
-      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Ask about this chart"), h("p", {}, "Follow-up questions keep the chart and the analysis in context."))),
+      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Ask about this chart")), h("p", {}, t("Follow-up questions keep the chart and the analysis in context.")))),
       list,
       h("div", { class: "chips vi-suggest" }, chips),
       h("div", { class: "vi-chat-input" }, input, sendBtn),
@@ -861,7 +925,7 @@ export async function render(root, { params } = {}) {
   // ---------------------------------------------------------------- history
 
   function historyItem(item) {
-    const title = [item.symbol || "Unknown symbol", item.timeframe].filter(Boolean).join(" · ");
+    const title = [item.symbol || t("Unknown symbol"), item.timeframe].filter(Boolean).join(" · ");
     return h(
       "div",
       { class: `vi-hist${item.id === memory.selectedId ? " active" : ""}`, dataset: { id: item.id } },
@@ -871,13 +935,13 @@ export async function render(root, { params } = {}) {
         h("img", { src: item.image_src, alt: "", loading: "lazy" }),
         h("span", { class: "vi-hist-meta" }, h("strong", {}, title), h("span", { class: "muted small" }, fmt.datetime(item.created_at)), h("span", { class: "row" }, statusBadge(item.status), item.trend ? trendBadge(item.trend) : null)),
       ),
-      h("button", { type: "button", class: "btn ghost icon-only", "aria-label": `Delete analysis ${title}`, title: "Delete", onclick: () => remove(item) }, icon("trash")),
+      h("button", { type: "button", class: "btn ghost icon-only", "aria-label": t("Delete analysis {title}", { title }), title: t("Delete"), onclick: () => remove(item) }, icon("trash")),
     );
   }
 
   function drawHistory() {
-    clear(historyList, items.length ? items.map(historyItem) : h("p", { class: "muted small vi-hist-empty" }, "Your analysed charts appear here."));
-    historyCount.textContent = `${items.length} saved`;
+    clear(historyList, items.length ? items.map(historyItem) : h("p", { class: "muted small vi-hist-empty" }, t("Your analysed charts appear here.")));
+    historyCount.textContent = t("{n} saved", { n: items.length }); // same English for one and many
   }
 
   async function refreshHistory() {
@@ -891,17 +955,20 @@ export async function render(root, { params } = {}) {
 
   drawHistory();
   if (aiSettings && (!aiSettings.package_installed || aiSettings.key_source === "none")) {
-    clear(setupSlot, setupCard(aiSettings.package_installed ? SETUP_DETAIL : 'The "anthropic" Python package is not installed. Run: pip install anthropic'));
+    clear(
+      setupSlot,
+      setupCard(aiSettings.package_installed ? t(SETUP_DETAIL) : t('The "anthropic" Python package is not installed. Run: {command}', { command: "pip install anthropic" })),
+    );
   }
 
   clear(
     root,
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Vision AI"), h("p", {}, "Upload a chart for an objective read of levels, liquidity, patterns, structure and trade ideas."))),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, t("Vision AI")), h("p", {}, t("Upload a chart for an objective read of levels, liquidity, patterns, structure and trade ideas.")))),
     h(
       "div",
       { class: "vi-layout" },
       h("div", { class: "vi-main stack" }, uploadCard, setupSlot, resultSlot),
-      h("aside", { class: "card vi-side" }, h("div", { class: "card-head" }, h("h2", {}, "History"), historyCount), historyList),
+      h("aside", { class: "card vi-side" }, h("div", { class: "card-head" }, h("h2", {}, t("History")), historyCount), historyList),
     ),
   );
 
