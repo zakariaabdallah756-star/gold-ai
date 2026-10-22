@@ -679,13 +679,9 @@ def _check_geometry(result: ParsedSignal) -> None:
             if wrong:
                 params = {"wrong": _fmt_list(wrong), "word": word[result.direction]}
                 if sign > 0:
-                    message = tr(
-                        "Take profit {wrong} is below the entry for a {word} - check the signal.", **params
-                    )
+                    message = tr("Take profit {wrong} is below the entry for a {word} - check the signal.", **params)
                 else:
-                    message = tr(
-                        "Take profit {wrong} is above the entry for a {word} - check the signal.", **params
-                    )
+                    message = tr("Take profit {wrong} is above the entry for a {word} - check the signal.", **params)
                 warnings.append(message)
         elif stop is not None and (result.take_profits[0] - stop) * sign <= 0:
             warnings.append(tr("Stop loss {stop} is beyond the take profit - check the signal.", stop=_fmt(stop)))
