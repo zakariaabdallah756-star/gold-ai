@@ -24,6 +24,7 @@ from ..models import AccountSettings, NewsEvent
 from ..schemas import DailyStatusOut, FiniteModel
 from ..services import account
 from ..services import news as news_rules
+from ..services.i18n import tr
 from ..services.trades import normalize_time
 from .deps import DbDep, SettingsDep, get_or_404
 
@@ -142,7 +143,7 @@ def list_news(
     first = date_from or now.date() - timedelta(days=1)
     last = date_to or now.date() + timedelta(days=7)
     if last < first:
-        raise HTTPException(status_code=422, detail="date_to must not be before date_from")
+        raise HTTPException(status_code=422, detail=tr("date_to must not be before date_from"))
     stmt = (
         select(NewsEvent)
         .where(
@@ -185,7 +186,9 @@ def import_forexfactory(settings: SettingsDep, db: DbDep, payload: ImportIn | No
         feed = _fetch_forexfactory()
     except (OSError, ValueError, http.client.HTTPException) as exc:  # URLError/HTTPError/timeouts are OSErrors
         reason = getattr(exc, "reason", None) or exc
-        raise HTTPException(status_code=502, detail=f"Could not download the ForexFactory calendar ({reason})") from exc
+        raise HTTPException(
+            status_code=502, detail=tr("Could not download the ForexFactory calendar ({reason})", reason=reason)
+        ) from exc
 
     parsed = news_rules.parse_forexfactory(feed, settings.timezone)
     minimum = (payload.min_impact if payload else None) or settings.news_min_impact
@@ -227,7 +230,9 @@ def activate_killswitch(payload: KillSwitchIn, settings: SettingsDep, db: DbDep)
 def release_killswitch(payload: ReleaseIn, settings: SettingsDep, db: DbDep):
     """End the cool-off early. Requires ``confirm == "UNLOCK"``."""
     if payload.confirm.strip() != UNLOCK_PHRASE:
-        raise HTTPException(status_code=400, detail=f'Type "{UNLOCK_PHRASE}" to end the cool-off early')
+        raise HTTPException(
+            status_code=400, detail=tr('Type "{phrase}" to end the cool-off early', phrase=UNLOCK_PHRASE)
+        )
     settings.cooloff_until = None
     settings.cooloff_started_at = None
     settings.cooloff_reason = ""
