@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session
 
 from .. import __version__
 from ..models import AccountSettings, Candle, Market
+from .i18n import N_, tr
 
 TIMEFRAMES = ("M1", "M5", "M15", "M30", "H1", "H4", "D1")
 TF_MINUTES = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D1": 1440}
@@ -68,10 +69,20 @@ class Bar:
 @dataclass(frozen=True)
 class Provider:
     key: str
-    label: str
+    label_text: str  # English source text (marked with N_), translated on access
     needs_key: bool
-    description: str
+    description_text: str
     symbol_map: dict[str, str]
+
+    @property
+    def label(self) -> str:
+        """The label in the language of the current request."""
+        return tr(self.label_text)
+
+    @property
+    def description(self) -> str:
+        """The description in the language of the current request."""
+        return tr(self.description_text)
 
 
 YAHOO_SYMBOLS = {
@@ -117,32 +128,34 @@ PROVIDERS: dict[str, Provider] = {
     for p in (
         Provider(
             "demo",
-            "Demo data (synthetic) - not real prices",
+            N_("Demo data (synthetic) - not real prices"),
             False,
-            "Generated candles for trying the scanner offline. Never trade from them.",
+            N_("Generated candles for trying the scanner offline. Never trade from them."),
             {},
         ),
         Provider(
             "yahoo",
             "Yahoo Finance",
             False,
-            "Free, no key. Unofficial: data may be delayed or rate limited. Gold uses COMEX gold futures (GC=F), "
-            "not spot, so levels differ slightly from your broker.",
+            N_(
+                "Free, no key. Unofficial: data may be delayed or rate limited. Gold uses COMEX gold futures (GC=F), "
+                "not spot, so levels differ slightly from your broker."
+            ),
             YAHOO_SYMBOLS,
         ),
-        Provider("binance", "Binance (crypto)", False, "Free public crypto candles (USDT pairs).", BINANCE_SYMBOLS),
+        Provider("binance", "Binance (crypto)", False, N_("Free public crypto candles (USDT pairs)."), BINANCE_SYMBOLS),
         Provider(
             "twelvedata",
             "Twelve Data",
             True,
-            "Forex, metals and crypto with your Twelve Data API key (free tier available, rate limited).",
+            N_("Forex, metals and crypto with your Twelve Data API key (free tier available, rate limited)."),
             TWELVEDATA_SYMBOLS,
         ),
         Provider(
             "push",
-            "Pushed from my platform",
+            N_("Pushed from my platform"),
             False,
-            "Candles sent by your MT4/MT5 script, TradingView webhook or own script to POST /api/alerts/candles.",
+            N_("Candles sent by your MT4/MT5 script, TradingView webhook or own script to POST /api/alerts/candles."),
             {},
         ),
     )
@@ -215,11 +228,11 @@ def _get_json(label: str, url: str, params: dict[str, Any], headers: dict[str, s
     try:
         status, payload = _http_get(url, params, headers)
     except httpx.TimeoutException:
-        raise MarketDataError(f"{label} did not answer in time - try again later.") from None
+        raise MarketDataError(tr("{label} did not answer in time - try again later.", label=label)) from None
     except httpx.HTTPError:
-        raise MarketDataError(f"{label} did not answer - check your internet connection.") from None
+        raise MarketDataError(tr("{label} did not answer - check your internet connection.", label=label)) from None
     if status == 429:
-        raise MarketDataError(f"{label} is rate limiting requests - use a longer scan interval.")
+        raise MarketDataError(tr("{label} is rate limiting requests - use a longer scan interval.", label=label))
     return status, payload
 
 
@@ -265,12 +278,22 @@ def _yahoo(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings)
     chart = chart if isinstance(chart, dict) else {}
     error = chart.get("error") if isinstance(chart.get("error"), dict) else {}
     if status == 404 or "not found" in str(error.get("code", "")).lower():
-        raise MarketDataError(f"Unknown symbol {ticker} on {label} - set the provider symbol for this market.")
+        raise MarketDataError(
+            tr(
+                "Unknown symbol {ticker} on {label} - set the provider symbol for this market.",
+                ticker=ticker,
+                label=label,
+            )
+        )
     results = chart.get("result")
     if status != 200 or not results:
         detail = str(error.get("description") or "")[:120]
+        if detail:
+            raise MarketDataError(
+                tr("{label} returned no data for {ticker}: {detail}", label=label, ticker=ticker, detail=detail)
+            )
         raise MarketDataError(
-            f"{label} returned no data for {ticker}" + (f": {detail}" if detail else f" (HTTP {status}).")
+            tr("{label} returned no data for {ticker} (HTTP {status}).", label=label, ticker=ticker, status=status)
         )
     result = results[0]
     stamps = result.get("timestamp") or []
@@ -287,7 +310,7 @@ def _yahoo(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSettings)
         if bar is not None:
             bars.append((float(stamp), bar))
     if not bars:
-        raise MarketDataError(f"{label} returned no candles for {ticker}.")
+        raise MarketDataError(tr("{label} returned no candles for {ticker}.", label=label, ticker=ticker))
     if timeframe == "H4":
         return aggregate(bars, 4 * 3600, tz, 3600)
     step = TF_MINUTES[timeframe] * 60
@@ -331,13 +354,19 @@ def _binance(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSetting
     params = {"symbol": ticker, "interval": _BINANCE_INTERVALS[timeframe], "limit": MAX_BARS}
     status, payload = _get_json(label, "https://api.binance.com/api/v3/klines", params)
     if status == 400 and isinstance(payload, dict) and "symbol" in str(payload.get("msg", "")).lower():
-        raise MarketDataError(f"Unknown symbol {ticker} on {label} - use a USDT pair such as BTCUSDT.")
+        raise MarketDataError(
+            tr("Unknown symbol {ticker} on {label} - use a USDT pair such as BTCUSDT.", ticker=ticker, label=label)
+        )
     if status == 451:
-        raise MarketDataError(f"{label} is not available from your region - choose another provider.")
+        raise MarketDataError(tr("{label} is not available from your region - choose another provider.", label=label))
     if status != 200 or not isinstance(payload, list):
         message = payload.get("msg") if isinstance(payload, dict) else ""
+        if message:
+            raise MarketDataError(
+                tr("{label} returned an error for {ticker}: {detail}", label=label, ticker=ticker, detail=message)
+            )
         raise MarketDataError(
-            f"{label} returned an error for {ticker}" + (f": {message}" if message else f" (HTTP {status}).")
+            tr("{label} returned an error for {ticker} (HTTP {status}).", label=label, ticker=ticker, status=status)
         )
     step = TF_MINUTES[timeframe] * 60
     bars = []
@@ -364,7 +393,7 @@ def _twelvedata(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSett
     label = "Twelve Data"
     key = (settings.market_api_keys or {}).get("twelvedata", "")
     if not key:
-        raise MarketDataError("Twelve Data API key missing - add it under Strategy alerts → Data providers.")
+        raise MarketDataError(tr("Twelve Data API key missing - add it under Strategy alerts → Data providers."))
     params = {
         "symbol": ticker,
         "interval": _TWELVEDATA_INTERVALS[timeframe],
@@ -376,17 +405,26 @@ def _twelvedata(ticker: str, timeframe: str, tz: ZoneInfo, settings: AccountSett
         label, "https://api.twelvedata.com/time_series", params, {"Authorization": f"apikey {key}"}
     )
     if not isinstance(payload, dict):
-        raise MarketDataError(f"{label} returned an unreadable answer (HTTP {status}).")
+        raise MarketDataError(tr("{label} returned an unreadable answer (HTTP {status}).", label=label, status=status))
     if payload.get("status") == "error" or status != 200:
         code = payload.get("code")
         message = str(payload.get("message", ""))
         if code == 401 or "apikey" in message.lower():
-            raise MarketDataError("Twelve Data rejected the API key - check it under Data providers.")
+            raise MarketDataError(tr("Twelve Data rejected the API key - check it under Data providers."))
         if code == 429:
-            raise MarketDataError(f"{label} is rate limiting requests - use a longer scan interval.")
+            raise MarketDataError(tr("{label} is rate limiting requests - use a longer scan interval.", label=label))
         if code in (400, 404) and "symbol" in message.lower():
-            raise MarketDataError(f"Unknown symbol {ticker} on {label} - set the provider symbol for this market.")
-        raise MarketDataError(f"{label} returned an error for {ticker}: {message[:120] or f'HTTP {status}'}")
+            raise MarketDataError(
+                tr(
+                    "Unknown symbol {ticker} on {label} - set the provider symbol for this market.",
+                    ticker=ticker,
+                    label=label,
+                )
+            )
+        detail = message[:120] or f"HTTP {status}"
+        raise MarketDataError(
+            tr("{label} returned an error for {ticker}: {detail}", label=label, ticker=ticker, detail=detail)
+        )
     step = TF_MINUTES[timeframe] * 60
     bars = []
     for row in payload.get("values") or []:
@@ -415,7 +453,11 @@ def _push(db: Session, ticker: str, timeframe: str) -> list[Bar]:
     ).all()
     if not rows:
         raise MarketDataError(
-            f"No candles pushed yet for {ticker} {timeframe} - send them to POST /api/alerts/candles."
+            tr(
+                "No candles pushed yet for {ticker} {timeframe} - send them to POST /api/alerts/candles.",
+                ticker=ticker,
+                timeframe=timeframe,
+            )
         )
     return [Bar(r.time, r.open, r.high, r.low, r.close, r.volume) for r in reversed(rows)]
 
@@ -523,9 +565,9 @@ def fetch_candles(
     readable message when the provider fails or returns nothing.
     """
     if provider not in PROVIDERS:
-        raise MarketDataError(f"Unknown market data provider '{provider}'.")
+        raise MarketDataError(tr("Unknown market data provider '{provider}'.", provider=provider))
     if timeframe not in TF_MINUTES:
-        raise MarketDataError(f"Unsupported timeframe '{timeframe}'.")
+        raise MarketDataError(tr("Unsupported timeframe '{timeframe}'.", timeframe=timeframe))
     tz = ZoneInfo(settings.timezone)
     ticker = provider_symbol(provider, symbol, provider_symbols)
 
@@ -549,7 +591,9 @@ def fetch_candles(
                 pair for pair in _REMOTE[provider](ticker, timeframe, tz, settings) if pair[0] + grace <= now_utc
             ]
             if not stamped:
-                raise MarketDataError(f"No closed {timeframe} candles for {ticker} yet.")
+                raise MarketDataError(
+                    tr("No closed {timeframe} candles for {ticker} yet.", timeframe=timeframe, ticker=ticker)
+                )
             bars = [bar for _, bar in stamped]
             # The next bar ends one period after the newest closed one; retry at most once a minute meanwhile.
             next_close = stamped[-1][0] + TF_MINUTES[timeframe] * 60 + grace
@@ -558,5 +602,5 @@ def fetch_candles(
                     _cache.clear()
                 _cache[key] = _CacheEntry(bars, max(next_close, now_utc + MIN_REFETCH.total_seconds()))
     if not bars:
-        raise MarketDataError(f"No closed {timeframe} candles for {ticker} yet.")
+        raise MarketDataError(tr("No closed {timeframe} candles for {ticker} yet.", timeframe=timeframe, ticker=ticker))
     return bars[-limit:]
