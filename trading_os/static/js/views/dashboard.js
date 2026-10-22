@@ -54,6 +54,18 @@ const ROW_LABELS = new Map([
   ["Friday", N_("Friday")],
   ["Saturday", N_("Saturday")],
   ["Sunday", N_("Sunday")],
+  ["Calm", N_("Calm")],
+  ["Confident", N_("Confident")],
+  ["Focused", N_("Focused")],
+  ["Anxious", N_("Anxious")],
+  ["FOMO", N_("FOMO")],
+  ["Greedy", N_("Greedy")],
+  ["Fearful", N_("Fearful")],
+  ["Impatient", N_("Impatient")],
+  ["Revenge", N_("Revenge")],
+  ["Bored", N_("Bored")],
+  ["Euphoric", N_("Euphoric")],
+  ["Tired", N_("Tired")],
 ]);
 const rowLabel = (key) => (ROW_LABELS.has(key) ? t(ROW_LABELS.get(key)) : key);
 
