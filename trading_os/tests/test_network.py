@@ -136,7 +136,10 @@ def test_lan_lookup_is_cached(monkeypatch):
 def test_urls_bracket_ipv6_and_use_localhost_on_this_computer():
     assert cli.display_urls("127.0.0.1", 8765) == ("http://localhost:8765", [])
     assert cli.display_urls("::1", 8765) == ("http://localhost:8765", [])
-    assert cli.display_urls("0.0.0.0", 8765, ["192.168.1.20"]) == ("http://localhost:8765", ["http://192.168.1.20:8765"])
+    assert cli.display_urls("0.0.0.0", 8765, ["192.168.1.20"]) == (
+        "http://localhost:8765",
+        ["http://192.168.1.20:8765"],
+    )
     assert cli.display_urls("::", 9000, ["fd00::5"]) == ("http://localhost:9000", ["http://[fd00::5]:9000"])
     assert cli.display_urls("192.168.1.20", 8765) == ("http://192.168.1.20:8765", ["http://192.168.1.20:8765"])
     assert cli.display_urls("fe80::1", 8765)[0] == "http://[fe80::1]:8765"
@@ -156,12 +159,17 @@ def test_this_computer_means_loopback_localhost_and_no_proxy():
 
 def test_forwarding_headers_are_read_only_from_a_proxy_on_this_computer():
     proxied = fake_request(
-        host="localhost", x_forwarded_host="victim.trycloudflare.com", x_forwarded_proto="https", x_forwarded_for="9.9.9.9, 1.2.3.4"
+        host="localhost",
+        x_forwarded_host="victim.trycloudflare.com",
+        x_forwarded_proto="https",
+        x_forwarded_for="9.9.9.9, 1.2.3.4",
     )
     assert network.effective_host(proxied) == "victim.trycloudflare.com"
     assert network.request_scheme(proxied) == "https" and network.client_ip(proxied) == "1.2.3.4"
     assert network.client_ip(fake_request(cf_connecting_ip="5.6.7.8", x_forwarded_for="1.2.3.4")) == "5.6.7.8"
-    spoofed = fake_request(client=LAN_PEER, host="192.168.1.20", x_forwarded_host="x.example", x_forwarded_proto="https")
+    spoofed = fake_request(
+        client=LAN_PEER, host="192.168.1.20", x_forwarded_host="x.example", x_forwarded_proto="https"
+    )
     assert network.effective_host(spoofed) == "192.168.1.20"
     assert network.request_scheme(spoofed) == "http" and network.client_ip(spoofed) == "192.168.1.50"
 
@@ -192,7 +200,9 @@ def test_cross_origin_rules():
         assert network.cross_origin({"origin": origin}, host), (origin, host)
     assert not network.cross_origin({}, "localhost")  # scripts and webhooks send no Origin
     assert network.cross_origin({"sec-fetch-site": "cross-site"}, "localhost")
-    assert not network.cross_origin({"origin": "https://my-tunnel.example", "sec-fetch-site": "cross-site"}, "localhost", trusted)
+    assert not network.cross_origin(
+        {"origin": "https://my-tunnel.example", "sec-fetch-site": "cross-site"}, "localhost", trusted
+    )
 
 
 def test_passwords_are_hashed_with_scrypt_and_verified(monkeypatch):
@@ -246,7 +256,14 @@ def test_login_limiter_per_address_and_in_total():
 
 
 def test_local_names_machine_name_and_trailing_dots_are_served(client):
-    for host in ("localhost.", "LOCALHOST.:8765", "app.localhost", "app.localhost:8765", "tradingpc", "TradingPC.local."):
+    for host in (
+        "localhost.",
+        "LOCALHOST.:8765",
+        "app.localhost",
+        "app.localhost:8765",
+        "tradingpc",
+        "TradingPC.local.",
+    ):
         assert client.get("/api/plan", headers={"host": host}).status_code == 200, host
     for host in ("evil.localhost.example", "localhost..", "tradingpc.evil.example", ""):
         assert client.get("/api/plan", headers={"host": host}).status_code == 400, host
@@ -275,7 +292,11 @@ def test_wildcards_are_never_trusted_as_origins(tmp_path, monkeypatch):
     client = TestClient(app, base_url="https://victim.trycloudflare.com")
     accept = "/api/disclaimer/accept"
     assert client.post(accept, headers={"origin": "https://attacker.trycloudflare.com"}).status_code == 403
-    attacker = {"origin": "https://attacker.trycloudflare.com", "host": "localhost:8765", "sec-fetch-site": "cross-site"}
+    attacker = {
+        "origin": "https://attacker.trycloudflare.com",
+        "host": "localhost:8765",
+        "sec-fetch-site": "cross-site",
+    }
     assert client.post(accept, headers=attacker).status_code == 403
     assert client.post(accept, headers={"origin": "https://victim.trycloudflare.com"}).status_code == 200
 
@@ -349,9 +370,13 @@ def test_saved_host_names_are_local_only_and_apply_at_once(tmp_path, monkeypatch
     refused = lan.put("/api/network", json={"allowed_hosts": ["trading.lan"]})
     assert refused.status_code == 403 and refused.json()["code"] == "local_only"
     assert "http://localhost:8765" in refused.json()["detail"]
-    via_proxy = local.put("/api/network", json={"allowed_hosts": ["trading.lan"]}, headers={"x-forwarded-for": "1.2.3.4"})
+    via_proxy = local.put(
+        "/api/network", json={"allowed_hosts": ["trading.lan"]}, headers={"x-forwarded-for": "1.2.3.4"}
+    )
     assert via_proxy.status_code == 403
-    assert TestClient(app, base_url="http://localhost").put("/api/network", json={"allowed_hosts": []}).status_code == 403
+    assert (
+        TestClient(app, base_url="http://localhost").put("/api/network", json={"allowed_hosts": []}).status_code == 403
+    )
 
     saved = local.put("/api/network", json={"allowed_hosts": ["Trading.Lan.", "https://*.ts.net/", "trading.lan"]})
     assert saved.status_code == 200, saved.text
@@ -397,7 +422,12 @@ def test_network_status_reports_this_connection_and_lan_urls(tmp_path, monkeypat
     }
     me = status["this_request"]
     assert me["local"] and me["allowed_by"]["source"] == "localhost" and me["secure_context"]
-    assert me["local_reasons"] == {"peer": "127.0.0.1", "peer_loopback": True, "host_local": True, "forwarding_headers": []}
+    assert me["local_reasons"] == {
+        "peer": "127.0.0.1",
+        "peer_loopback": True,
+        "host_local": True,
+        "forwarding_headers": [],
+    }
     hosts = status["allowed_hosts"]
     assert hosts["builtin"] == ["localhost", "*.localhost"] and hosts["machine"] == ["tradingpc", "tradingpc.local"]
     assert hosts["env"] == ["trading.lan"] and hosts["env_ignored"][0]["entry"] == "*.com"
@@ -408,9 +438,11 @@ def test_network_status_reports_this_connection_and_lan_urls(tmp_path, monkeypat
     remote = remote_client(app, base_url="http://192.168.1.20:9000").get("/api/network").json()["this_request"]
     assert remote["allowed_by"] == {"source": "ip", "pattern": "192.168.1.20"} and not remote["local"]
     assert remote["secure_context"] is False and remote["local_reasons"]["peer"] == "192.168.1.50"
-    tunnel = local_client(app).get(
-        "/api/network", headers={"host": "trading.lan", "x-forwarded-proto": "https", "cf-ray": "1"}
-    ).json()["this_request"]
+    tunnel = (
+        local_client(app)
+        .get("/api/network", headers={"host": "trading.lan", "x-forwarded-proto": "https", "cf-ray": "1"})
+        .json()["this_request"]
+    )
     assert tunnel["scheme"] == "https" and tunnel["secure_context"] and not tunnel["local"]
     assert tunnel["local_reasons"]["forwarding_headers"] == ["x-forwarded-proto", "cf-ray"]
 
@@ -535,7 +567,9 @@ def test_secure_cookie_only_over_https(tmp_path, monkeypatch):
     tunnel = {"host": "abc.trycloudflare.com", "x-forwarded-proto": "https", "x-forwarded-for": "1.2.3.4"}
     through_tunnel = local_client(app).post("/api/access/login", json={"password": PASSWORD}, headers=tunnel)
     assert "secure" in through_tunnel.headers["set-cookie"].lower()
-    spoofed = remote_client(app).post("/api/access/login", json={"password": PASSWORD}, headers={"x-forwarded-proto": "https"})
+    spoofed = remote_client(app).post(
+        "/api/access/login", json={"password": PASSWORD}, headers={"x-forwarded-proto": "https"}
+    )
     assert "secure" not in spoofed.headers["set-cookie"].lower()
     # A tunnel is never "this computer", even though the connection comes from 127.0.0.1.
     assert local_client(app).get("/api/plan", headers=tunnel).json()["code"] == "login_required"

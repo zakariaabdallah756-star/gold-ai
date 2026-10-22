@@ -768,8 +768,8 @@ def refused_host_page(name: str, port: int, first_language: str = "en") -> str:
         "body{margin:0;background:#0d0e10;color:#e6e7ea;font:15px/1.55 system-ui,-apple-system,'Segoe UI',sans-serif}"
         "main{max-width:720px;margin:0 auto;padding:32px 20px}h1{font-size:22px;margin:0 0 10px}"
         "code,pre{background:#1d1f23;border:1px solid #2c2f35;border-radius:6px;font:13px ui-monospace,monospace}"
-        "code{padding:1px 6px;word-break:break-all}pre{padding:10px 12px;margin:4px 0 12px;white-space:pre-wrap;"
-        "word-break:break-all}.os{margin:10px 0 0;color:#a9adb5;font-size:13px}.muted{color:#8b9099;font-size:13px}"
+        "code{padding:1px 6px;overflow-wrap:anywhere}pre{padding:10px 12px;margin:4px 0 12px;white-space:pre-wrap;"
+        "overflow-wrap:anywhere}.os{margin:10px 0 0;color:#a9adb5;font-size:13px}.muted{color:#8b9099;font-size:13px}"
         "hr{border:0;border-top:1px solid #2c2f35;margin:28px 0}ol{padding-left:22px}"
     )
     return (

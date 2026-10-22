@@ -34,6 +34,7 @@
   "Notification link": "Link delle notifiche",
   "Notifications now link to {url}": "Ora le notifiche aprono {url}",
   "Notifications open the app at this address": "Le notifiche aprono l'app a questo indirizzo",
+  "On the computer running Trading OS, type {url} in the browser address bar - not in the search box.": "Sul computer su cui gira Trading OS, scrivi {url} nella barra degli indirizzi del browser, non nella casella di ricerca.",
   "On this computer, type {url} in the browser address bar - not in the search box.": "Su questo computer, scrivi {url} nella barra degli indirizzi del browser, non nella casella di ricerca.",
   "One per line, e.g. trading.lan or a tunnel address. *.example.com allows every name below example.com - handy for tunnels whose address changes, such as *.trycloudflare.com. Changes apply at once, up to {max} names.": "Uno per riga, ad esempio trading.lan o l'indirizzo di un tunnel. *.example.com consente ogni nome sotto example.com: utile per i tunnel il cui indirizzo cambia, come *.trycloudflare.com. Le modifiche valgono subito, fino a {max} nomi.",
   "Only the computer running Trading OS can change this (open {url} there).": "Solo il computer su cui gira Trading OS può modificarlo (apri {url} lì).",

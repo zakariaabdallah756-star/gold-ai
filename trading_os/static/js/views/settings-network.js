@@ -146,7 +146,10 @@ function devicesCard(data, redraw) {
       h("p", { class: "muted small" }, t("If Windows Firewall asks, allow Python on Private networks.")),
     );
   }
-  body.push(h("p", { class: "muted small" }, icon("info"), " ", t("On this computer, type {url} in the browser address bar - not in the search box.", { url: server.local_url })));
+  const tip = data.this_request.local
+    ? t("On this computer, type {url} in the browser address bar - not in the search box.", { url: server.local_url })
+    : t("On the computer running Trading OS, type {url} in the browser address bar - not in the search box.", { url: server.local_url });
+  body.push(h("p", { class: "muted small" }, icon("info"), " ", tip));
 
   async function useAsAppLink(url) {
     try {
@@ -193,7 +196,7 @@ function hostsCard(data, redraw) {
     { class: "card", onsubmit: submit },
     h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Allowed host names")), h("p", {}, t("Trading OS answers only to these names, so other websites cannot reach it. Addresses by IP always work.")))),
     h("div", { class: "net-label" }, t("Always allowed")),
-    h("div", { class: "net-chips" }, builtin.map((name) => h("span", { class: "chip" }, name)), h("span", { class: "chip" }, t("IP addresses"))),
+    h("div", { class: "net-chips" }, builtin.map((name) => h("span", { class: "chip" }, name)), h("span", { class: "chip net-note" }, t("IP addresses"))),
     hosts.env.length || hosts.env_ignored.length
       ? [
           h("div", { class: "net-label" }, t("From TRADING_OS_ALLOWED_HOSTS or --allow-host (change them where Trading OS is started)")),
