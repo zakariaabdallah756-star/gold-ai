@@ -9,6 +9,7 @@ from ..models import Screenshot, Trade
 from ..schemas import ScreenshotOut, ScreenshotUrlIn, TradeCheckOut, TradeIn, TradeListOut, TradeOut, TradeSaveOut
 from ..services import trades as trade_service
 from ..services import uploads
+from ..services.i18n import tr
 from .deps import ConfigDep, DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api", tags=["trades"])
@@ -46,7 +47,7 @@ FiltersDep = Annotated[trade_service.TradeFilters, Depends(trade_filters)]
 def _load(db, trade_id: int) -> Trade:
     trade = trade_service.get_trade(db, trade_id)
     if trade is None:
-        raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")
+        raise HTTPException(status_code=404, detail=tr("Trade {trade_id} not found", trade_id=trade_id))
     return trade
 
 

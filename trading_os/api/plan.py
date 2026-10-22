@@ -52,6 +52,7 @@ from ..schemas import (
 from ..services import backtest as backtest_service
 from ..services import i18n
 from ..services.account import local_now
+from ..services.i18n import N_, tr
 from .crud import crud_router
 from .deps import ConfigDep, DbDep, SettingsDep
 
@@ -137,13 +138,13 @@ def read_plan(settings: SettingsDep, db: DbDep, config: ConfigDep):
 
 plan_routers = [
     router,
-    crud_router(Market, MarketIn, MarketOut, path="markets", label="market", order_by=(Market.symbol,)),
+    crud_router(Market, MarketIn, MarketOut, path="markets", label=N_("market"), order_by=(Market.symbol,)),
     crud_router(
         TradingSession,
         SessionIn,
         SessionOut,
         path="sessions",
-        label="session",
+        label=N_("session"),
         order_by=(TradingSession.start_utc,),
         on_update=lambda db, obj, before: session_updated(db, obj, before),
         on_delete=lambda db, obj, force: session_deleted(db, obj, force),
@@ -153,7 +154,7 @@ plan_routers = [
         StrategyIn,
         StrategyOut,
         path="strategies",
-        label="strategy",
+        label=N_("strategy"),
         order_by=(Strategy.name,),
         on_update=lambda db, strategy, before: backtest_service.strategy_renamed(db, strategy, before),
         on_delete=lambda db, strategy, force: _guard_strategy_delete(db, strategy, force),
@@ -163,7 +164,7 @@ plan_routers = [
         ConfluenceIn,
         ConfluenceOut,
         path="confluences",
-        label="confluence",
+        label=N_("confluence"),
         order_by=(Confluence.name,),
         on_update=lambda db, obj, before: confluence_updated(db, obj, before),
         on_delete=lambda db, obj, force: confluence_deleted(db, obj, force),
@@ -173,11 +174,11 @@ plan_routers = [
         ChecklistItemIn,
         ChecklistItemOut,
         path="checklist-items",
-        label="checklist item",
+        label=N_("checklist item"),
         order_by=(ChecklistItem.sort_order, ChecklistItem.id),
     ),
     crud_router(
-        MistakeType, MistakeTypeIn, MistakeTypeOut, path="mistakes", label="mistake", order_by=(MistakeType.name,)
+        MistakeType, MistakeTypeIn, MistakeTypeOut, path="mistakes", label=N_("mistake"), order_by=(MistakeType.name,)
     ),
 ]
 
@@ -225,9 +226,18 @@ def _guard_strategy_delete(db, strategy: Strategy, force: bool) -> None:
     backtests = db.scalar(select(func.count(BacktestTrade.id)).where(BacktestTrade.strategy_id == strategy.id))
     rules = db.scalar(select(func.count(AlertRule.id)).where(AlertRule.strategy_id == strategy.id))
     if (backtests or rules) and not force:
-        parts = [f"{backtests} backtest trade(s)" if backtests else "", f"{rules} alert rule(s)" if rules else ""]
+        parts = []
+        if backtests:
+            parts.append(tr("{count} backtest trade(s)", count=backtests))
+        if rules:
+            parts.append(tr("{count} alert rule(s)", count=rules))
+        what = tr("{items} and {last}", items=parts[0], last=parts[1]) if len(parts) == 2 else parts[0]
         raise HTTPException(
             status_code=409,
-            detail=f"{strategy.name} has {' and '.join(p for p in parts if p)} that would be deleted with it. "
-            "Retire the strategy instead to keep them, or confirm to delete everything.",
+            detail=tr(
+                "{name} has {what} that would be deleted with it. "
+                "Retire the strategy instead to keep them, or confirm to delete everything.",
+                name=strategy.name,
+                what=what,
+            ),
         )

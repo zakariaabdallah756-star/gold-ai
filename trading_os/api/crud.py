@@ -11,6 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from ..services.i18n import tr
 from .deps import DbDep, get_or_404
 
 
@@ -19,7 +20,9 @@ def _commit(db: Session, label: str) -> None:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail=f"A {label} with that name already exists") from exc
+        raise HTTPException(
+            status_code=409, detail=tr("A {label} with that name already exists", label=tr(label))
+        ) from exc
 
 
 def crud_router(
