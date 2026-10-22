@@ -7,6 +7,7 @@ from . import (
     backup,
     checklist,
     i18n,
+    network,
     news,
     notifications,
     partners,
@@ -40,4 +41,5 @@ routers = [
     reports.router,
     backup.router,
     i18n.router,
+    network.router,
 ]

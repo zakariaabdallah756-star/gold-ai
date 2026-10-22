@@ -13,6 +13,8 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
+from .services.network import parse_patterns
+
 PACKAGE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = PACKAGE_DIR / "static"
 
@@ -35,8 +37,14 @@ class AppConfig:
     max_upload_mb: int = DEFAULT_MAX_UPLOAD_MB
     # Background thread (strategy alert scanner, notification watchers). Off in tests.
     background_jobs: bool = True
-    # Host names (besides localhost and IP addresses) the server answers to, e.g. a LAN name or a tunnel.
+    # Host names (besides localhost and IP addresses) the server answers to, e.g. a LAN name or a tunnel:
+    # normalised TRADING_OS_ALLOWED_HOSTS / --allow-host entries, wildcards such as *.trycloudflare.com allowed.
     allowed_hosts: tuple[str, ...] = ()
+    # Entries that could not be used (shown by the CLI and on Trading Plan > Network & access).
+    ignored_hosts: tuple[str, ...] = ()
+    # Where the server listens (set by the CLI; shown on Trading Plan > Network & access).
+    bind_host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
 
     @property
     def db_path(self) -> Path:
@@ -81,14 +89,13 @@ def load_config(data_dir: str | Path | None = None) -> AppConfig:
         "no",
         "off",
     )
-    allowed_hosts = tuple(
-        name.strip().lower() for name in os.environ.get("TRADING_OS_ALLOWED_HOSTS", "").split(",") if name.strip()
-    )
+    allowed_hosts, ignored_hosts = parse_patterns([os.environ.get("TRADING_OS_ALLOWED_HOSTS", "")])
     config = AppConfig(
         data_dir=Path(resolved).expanduser().resolve(),
         max_upload_mb=max_upload_mb,
         background_jobs=background_jobs,
         allowed_hosts=allowed_hosts,
+        ignored_hosts=ignored_hosts,
     )
     config.ensure_dirs()
     return config

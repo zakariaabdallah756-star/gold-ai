@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import ipaddress
 import math
 from contextlib import asynccontextmanager
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -18,7 +16,7 @@ from .api import routers
 from .config import STATIC_DIR, AppConfig, load_config
 from .database import create_db_engine, init_db
 from .seed import seed_defaults
-from .services import alerts, i18n, notify
+from .services import alerts, i18n, network, notify
 from .services.backup import BackupError
 from .services.scheduler import Scheduler
 from .services.sizing import SizingError
@@ -64,20 +62,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         app.include_router(router)
     _register_error_handlers(app)
 
-    allowed_hosts = {"localhost", *config.allowed_hosts}
+    access = network.install(app, config, session_factory)
 
     @app.middleware("http")
     async def _same_origin_only(request: Request, call_next):
-        # The API has no login: only answer to local names / IP addresses (no DNS rebinding) and refuse
-        # state-changing requests sent by other websites (a form or fetch from another origin).
-        host = request.headers.get("host", "")
-        if not _host_allowed(host, allowed_hosts):
-            return JSONResponse(
-                status_code=400,
-                content={"detail": "Unknown host name. Add it to TRADING_OS_ALLOWED_HOSTS to allow it."},
-            )
-        if request.method not in ("GET", "HEAD", "OPTIONS") and _cross_origin(request, host, config.allowed_hosts):
-            return JSONResponse(status_code=403, content={"detail": "Cross-origin requests are not allowed"})
+        # Only answer to allowed names / IP addresses (no DNS rebinding), refuse state-changing requests sent
+        # by other websites and, when a remote-access password is set, ask other devices to sign in.
+        refused = network.check_request(request, access, config.port, session_factory)
+        if refused is not None:
+            return refused
         return await call_next(request)
 
     @app.middleware("http")
@@ -113,37 +106,6 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return FileResponse(STATIC_DIR / "sw.js", media_type="text/javascript", headers={"Service-Worker-Allowed": "/"})
 
     return app
-
-
-def _hostname(host: str) -> str:
-    """The name part of a Host header (``[::1]:8765`` -> ``::1``, ``Localhost:80`` -> ``localhost``)."""
-    host = host.strip().lower()
-    if host.startswith("["):
-        return host[1 : host.find("]")] if "]" in host else host
-    return host.rsplit(":", 1)[0] if host.count(":") == 1 else host
-
-
-def _host_allowed(host: str, allowed: set[str]) -> bool:
-    name = _hostname(host)
-    if name in allowed:
-        return True
-    try:
-        ipaddress.ip_address(name)  # LAN access by IP; rebinding attacks need a DNS name
-    except ValueError:
-        return False
-    return True
-
-
-def _cross_origin(request: Request, host: str, trusted: tuple[str, ...] = ()) -> bool:
-    """A write sent by another website. ``trusted`` host names (a reverse proxy or tunnel) count as this app."""
-    origin = request.headers.get("origin")
-    if origin is not None and urlsplit(origin).hostname in trusted:
-        return False
-    if request.headers.get("sec-fetch-site") == "cross-site":
-        return True
-    if origin is None:  # scripts, curl, platform webhooks
-        return False
-    return urlsplit(origin).netloc.lower() != host.strip().lower()
 
 
 def _json_safe(value):
