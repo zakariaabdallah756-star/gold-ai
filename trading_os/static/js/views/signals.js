@@ -99,7 +99,7 @@ export async function render(root) {
     // A trade idea handed over by another page (Vision AI, a strategy alert) is a fresh paste, judged with the
     // strategy, timeframe, confluences and risk it came with - never the previous ticket's.
     const context = handoff.signalContext || {};
-    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null, draft: null, splitAuto: true, context, alert: context.alert || null, vision: context.vision || null });
+    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null, draft: null, splitAuto: true, context, alert: context.alert || null, vision: context.vision ? { ...context.vision, text: handoff.signalText } : null });
     handoff.signalText = null;
     handoff.signalContext = null;
   }
@@ -158,6 +158,8 @@ export async function render(root) {
       clearAll();
       return;
     }
+    // Anti-FOMO warnings belong to the Vision idea handed over, not to a ticket pasted or typed afterwards.
+    if (memory.vision && text !== memory.vision.text) memory.vision = null;
     const id = ++seq;
     try {
       // The trader's own context (risk, strategy, timeframe, confluences) survives a new paste; a hand-off

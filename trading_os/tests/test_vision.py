@@ -648,6 +648,12 @@ def test_fomo_check_flags_chasing_wide_stops_and_poor_rr_now():
     assert codes(vision.fomo_check(with_idea(price=2661.0), 2.0)["ideas"][0]) == {"FOMO_TARGET_HIT"}
     assert codes(vision.fomo_check(with_idea(stop_loss=2650.0), 2.0)["ideas"][0]) == {"FOMO_STOP_SIDE"}
 
+    # Breakout orders not triggered yet: price sitting beyond their stop is normal, not an invalidated idea.
+    buy_stop = with_idea(entry_type="stop", entry=2671.0, stop_loss=2664.0, take_profits=[2690.0])
+    sell_stop = with_idea(direction="short", entry_type="stop", entry=2639.0, stop_loss=2646.0, take_profits=[2625.0])
+    for pending in (buy_stop, sell_stop):
+        assert "FOMO_INVALIDATED" not in codes(vision.fomo_check(pending, 2.0)["ideas"][0])
+
 
 def test_fomo_check_reads_the_extension_and_tolerates_missing_data():
     over = vision.fomo_check(with_idea(extension="overextended", entry_type="stop"), 2.0)

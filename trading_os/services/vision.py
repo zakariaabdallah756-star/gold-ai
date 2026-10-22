@@ -720,7 +720,10 @@ def _idea_fomo(
         return findings
     enter_now = entry_type == "market" or (price is not None and abs(entry - price) <= FOMO_NEAR_PRICE_R * risk)
 
-    if price is not None and (price - stop) * sign <= 0:
+    # A stop order not triggered yet (a buy-stop above price, a sell-stop below) often has its stop between
+    # price and entry: that is the normal state before the breakout, not an invalidated idea.
+    pending_stop = entry_type == "stop" and price is not None and (price - entry) * sign < 0
+    if price is not None and not pending_stop and (price - stop) * sign <= 0:
         findings.append(
             _finding(
                 "FOMO_INVALIDATED",
