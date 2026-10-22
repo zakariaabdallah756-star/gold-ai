@@ -15,6 +15,7 @@ from ..models import AccountSettings, Strategy, VisionAnalysis
 from ..schemas import FiniteModel
 from ..services import ai_client, uploads, vision
 from ..services.account import local_now
+from ..services.i18n import tr
 from .deps import ConfigDep, DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api", tags=["vision"])
@@ -83,27 +84,27 @@ class AISettingsIn(FiniteModel):
     @classmethod
     def _known_model(cls, value: str | None) -> str | None:
         if value is not None and value not in AI_MODELS:
-            raise ValueError(f"Unknown model - choose one of {', '.join(AI_MODELS)}")
+            raise ValueError(tr("Unknown model - choose one of {options}", options=", ".join(AI_MODELS)))
         return value
 
     @field_validator("effort")
     @classmethod
     def _known_effort(cls, value: str | None) -> str | None:
         if value is not None and value not in AI_EFFORTS:
-            raise ValueError(f"Unknown effort - choose one of {', '.join(AI_EFFORTS)}")
+            raise ValueError(tr("Unknown effort - choose one of {options}", options=", ".join(AI_EFFORTS)))
         return value
 
     @field_validator("api_key")
     @classmethod
     def _plausible_key(cls, value: str | None) -> str | None:
         if value is not None and any(ch.isspace() for ch in value):
-            raise ValueError("The API key must not contain spaces")
+            raise ValueError(tr("The API key must not contain spaces"))
         return value
 
     @model_validator(mode="after")
     def _one_key_action(self) -> "AISettingsIn":
         if self.api_key and self.clear_key:
-            raise ValueError("Either save a new API key or remove the saved one, not both")
+            raise ValueError(tr("Either save a new API key or remove the saved one, not both"))
         return self
 
 
@@ -151,7 +152,7 @@ def _full(record: VisionAnalysis, db: Session, settings: AccountSettings) -> dic
 
 
 def _unavailable(exc: ai_client.AIUnavailable, analysis_id: int | None = None) -> JSONResponse:
-    content: dict[str, Any] = {"detail": str(exc), "setup": list(ai_client.SETUP_STEPS)}
+    content: dict[str, Any] = {"detail": str(exc), "setup": ai_client.setup_steps()}
     if analysis_id is not None:
         content["analysis_id"] = analysis_id
     return JSONResponse(status_code=503, content=content)
@@ -197,7 +198,10 @@ def create_analysis(
     """Upload a chart screenshot and analyse it synchronously (can take a minute)."""
     timeframe = timeframe.strip()
     if timeframe and timeframe not in TIMEFRAMES:
-        raise HTTPException(status_code=400, detail=f"Unknown timeframe - choose one of {', '.join(TIMEFRAMES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=tr("Unknown timeframe - choose one of {options}", options=", ".join(TIMEFRAMES)),
+        )
     data = file.file.read(vision.MAX_IMAGE_BYTES + 1)
     try:
         _, width, height = vision.image_info(data)

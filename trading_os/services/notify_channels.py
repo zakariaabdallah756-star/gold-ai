@@ -24,6 +24,7 @@ import httpx
 
 from .. import __version__
 from . import webpush
+from .i18n import tr
 
 log = logging.getLogger("trading_os.notify")
 
@@ -109,20 +110,23 @@ def _text(config: dict, key: str, limit: int = 300) -> str:
     if value is None:
         return ""
     if not isinstance(value, str):
-        raise ChannelConfigError(f"{key} must be text")
+        raise ChannelConfigError(tr("{key} must be text", key=key))
     value = value.strip()
     if len(value) > limit:
-        raise ChannelConfigError(f"{key} is too long (max {limit} characters)")
+        raise ChannelConfigError(tr("{key} is too long (max {limit} characters)", key=key, limit=limit))
     return value
 
 
 def _url(value: str, *, label: str, schemes: tuple[str, ...] = ("https",)) -> str:
     parts = urlsplit(value)
     if parts.scheme not in schemes or not parts.hostname:
-        wanted = " or ".join(f"{scheme}://" for scheme in schemes)
-        raise ChannelConfigError(f"{label} must be a full {wanted} address")
+        prefixes = [f"{scheme}://" for scheme in schemes]
+        wanted = prefixes[0]
+        if len(prefixes) > 1:
+            wanted = tr("{first} or {last}", first=", ".join(prefixes[:-1]), last=prefixes[-1])
+        raise ChannelConfigError(tr("{label} must be a full {wanted} address", label=label, wanted=wanted))
     if parts.username or parts.password:
-        raise ChannelConfigError(f"{label} must not contain a user name or password")
+        raise ChannelConfigError(tr("{label} must not contain a user name or password", label=label))
     return value
 
 
@@ -138,13 +142,13 @@ def _join(*parts: str) -> str:
 
 
 def _validate_webpush(config: dict) -> dict:
-    endpoint = _url(_text(config, "endpoint", 1000), label="The push endpoint")
+    endpoint = _url(_text(config, "endpoint", 1000), label=tr("The push endpoint"))
     keys = config.get("keys") or {}
     if not isinstance(keys, dict):
-        raise ChannelConfigError("keys must contain p256dh and auth")
+        raise ChannelConfigError(tr("keys must contain p256dh and auth"))
     p256dh, auth = _text(keys, "p256dh", 200), _text(keys, "auth", 100)
     if not p256dh or not auth:
-        raise ChannelConfigError("The subscription keys p256dh and auth are required")
+        raise ChannelConfigError(tr("The subscription keys p256dh and auth are required"))
     try:
         webpush.subscription_keys_valid(p256dh, auth)
     except webpush.WebPushError as exc:
@@ -154,54 +158,54 @@ def _validate_webpush(config: dict) -> dict:
 
 def _validate_ntfy(config: dict) -> dict:
     server = (_text(config, "server", 200) or "https://ntfy.sh").rstrip("/")
-    _url(server, label="The ntfy server", schemes=("https", "http"))
+    _url(server, label=tr("The ntfy server"), schemes=("https", "http"))
     topic = _text(config, "topic", 64)
     if not topic:
-        raise ChannelConfigError("Enter the ntfy topic you subscribed to in the app")
+        raise ChannelConfigError(tr("Enter the ntfy topic you subscribed to in the app"))
     if not NTFY_TOPIC_RE.match(topic):
-        raise ChannelConfigError("The ntfy topic may only use letters, digits, - and _ (max 64)")
+        raise ChannelConfigError(tr("The ntfy topic may only use letters, digits, - and _ (max 64)"))
     token = _text(config, "token", 200)
     if token and not NTFY_TOKEN_RE.match(token):
-        raise ChannelConfigError("The ntfy access token contains invalid characters")
+        raise ChannelConfigError(tr("The ntfy access token contains invalid characters"))
     return {"server": server, "topic": topic, "token": token}
 
 
 def _validate_telegram(config: dict) -> dict:
     token, chat_id = _text(config, "bot_token", 200), _text(config, "chat_id", 40)
     if not TELEGRAM_TOKEN_RE.match(token):
-        raise ChannelConfigError("The bot token looks wrong - copy it from @BotFather (format 123456:ABC…)")
+        raise ChannelConfigError(tr("The bot token looks wrong - copy it from @BotFather (format 123456:ABC…)"))
     if not TELEGRAM_CHAT_RE.match(chat_id):
-        raise ChannelConfigError("The chat id must be a number (e.g. 123456789 or -100…) or @channelname")
+        raise ChannelConfigError(tr("The chat id must be a number (e.g. 123456789 or -100…) or @channelname"))
     return {"bot_token": token, "chat_id": chat_id}
 
 
 def _validate_discord(config: dict) -> dict:
-    url = _url(_text(config, "webhook_url", 300), label="The Discord webhook URL")
+    url = _url(_text(config, "webhook_url", 300), label=tr("The Discord webhook URL"))
     parts = urlsplit(url)
     if parts.hostname not in DISCORD_HOSTS or not parts.path.startswith("/api/webhooks/"):
-        raise ChannelConfigError("Use a Discord webhook URL (https://discord.com/api/webhooks/…)")
+        raise ChannelConfigError(tr("Use a Discord webhook URL (https://discord.com/api/webhooks/…)"))
     return {"webhook_url": url}
 
 
 def _validate_slack(config: dict) -> dict:
-    url = _url(_text(config, "webhook_url", 300), label="The Slack webhook URL")
+    url = _url(_text(config, "webhook_url", 300), label=tr("The Slack webhook URL"))
     parts = urlsplit(url)
     if parts.hostname != "hooks.slack.com" or len(parts.path) < 2:
-        raise ChannelConfigError("Use a Slack incoming webhook URL (https://hooks.slack.com/…)")
+        raise ChannelConfigError(tr("Use a Slack incoming webhook URL (https://hooks.slack.com/…)"))
     return {"webhook_url": url}
 
 
 def _validate_pushover(config: dict) -> dict:
     app_token, user_key = _text(config, "app_token", 40), _text(config, "user_key", 40)
     if not PUSHOVER_KEY_RE.match(app_token):
-        raise ChannelConfigError("The Pushover API token must be 30 letters and digits")
+        raise ChannelConfigError(tr("The Pushover API token must be 30 letters and digits"))
     if not PUSHOVER_KEY_RE.match(user_key):
-        raise ChannelConfigError("The Pushover user key must be 30 letters and digits")
+        raise ChannelConfigError(tr("The Pushover user key must be 30 letters and digits"))
     return {"app_token": app_token, "user_key": user_key}
 
 
 def _validate_webhook(config: dict) -> dict:
-    url = _url(_text(config, "url", 500), label="The webhook URL", schemes=("https", "http"))
+    url = _url(_text(config, "url", 500), label=tr("The webhook URL"), schemes=("https", "http"))
     return {"url": url, "secret": _text(config, "secret", 200)}
 
 
@@ -238,17 +242,29 @@ def _error_detail(response: httpx.Response) -> str:
 
 def post(url: str, body: bytes, headers: dict[str, str], secrets: tuple[str, ...] = ()) -> httpx.Response:
     """POST through ``_http_post`` and turn transport/HTTP failures into ``DeliveryError``."""
-    host = urlsplit(url).hostname or "the server"
+    host = urlsplit(url).hostname or tr("the server")
     try:
         response = _http_post(url, body, headers)
     except httpx.TimeoutException as exc:
-        raise DeliveryError(f"Timed out after {HTTP_TIMEOUT_SEC:g} s waiting for {host}") from exc
+        raise DeliveryError(
+            tr("Timed out after {seconds:g} s waiting for {host}", seconds=HTTP_TIMEOUT_SEC, host=host)
+        ) from exc
     except httpx.ConnectError as exc:
-        raise DeliveryError(f"Could not connect to {host} - check the address and your internet connection") from exc
+        raise DeliveryError(
+            tr("Could not connect to {host} - check the address and your internet connection", host=host)
+        ) from exc
     except httpx.HTTPError as exc:
-        raise DeliveryError(f"Network error talking to {host} ({type(exc).__name__})") from exc
+        raise DeliveryError(
+            tr("Network error talking to {host} ({error})", host=host, error=type(exc).__name__)
+        ) from exc
     if 300 <= response.status_code < 400:
-        raise DeliveryError(f"{host} answered with a redirect (HTTP {response.status_code}); use the final address")
+        raise DeliveryError(
+            tr(
+                "{host} answered with a redirect (HTTP {status}); use the final address",
+                host=host,
+                status=response.status_code,
+            )
+        )
     if response.status_code >= 400:
         detail = scrub(truncate(_error_detail(response), 160), secrets)
         raise DeliveryError(f"HTTP {response.status_code}" + (f": {detail}" if detail else ""), response.status_code)
@@ -315,7 +331,7 @@ def _send_pushover(config: dict, message: Message, _vapid: VapidKeys | None) -> 
     }
     if message.link:
         payload["url"] = message.link[:512]
-        payload["url_title"] = "Open Trading OS"
+        payload["url_title"] = tr("Open Trading OS")
     secrets = (config["app_token"], config["user_key"])
     post("https://api.pushover.net/1/messages.json", _body_from_json(payload), JSON_HEADERS, secrets)
 
@@ -362,7 +378,7 @@ def webpush_payload(message: Message) -> bytes:
 
 def _send_webpush(config: dict, message: Message, vapid: VapidKeys | None) -> None:
     if vapid is None or not vapid.private_key:
-        raise DeliveryError("Web Push keys are missing - enable notifications on this device again")
+        raise DeliveryError(tr("Web Push keys are missing - enable notifications on this device again"))
     endpoint, keys = config["endpoint"], config["keys"]
     try:
         body = webpush.encrypt(webpush_payload(message), keys["p256dh"], keys["auth"])
@@ -380,7 +396,7 @@ def _send_webpush(config: dict, message: Message, vapid: VapidKeys | None) -> No
         post(endpoint, body, headers, (endpoint, keys["auth"]))
     except DeliveryError as exc:
         if exc.status in (404, 410):
-            raise SubscriptionExpired("Subscription expired") from exc
+            raise SubscriptionExpired(tr("Subscription expired")) from exc
         raise
 
 
@@ -410,9 +426,9 @@ KINDS: dict[str, Kind] = {
 
 def validate(kind: str, config: dict) -> dict:
     if kind not in KINDS:
-        raise ChannelConfigError(f"Unknown channel type: {kind}")
+        raise ChannelConfigError(tr("Unknown channel type: {kind}", kind=kind))
     if not isinstance(config, dict):
-        raise ChannelConfigError("config must be an object")
+        raise ChannelConfigError(tr("config must be an object"))
     return KINDS[kind].validate(config)
 
 
@@ -452,8 +468,14 @@ def merge_config(kind: str, stored: dict, incoming: dict) -> dict:
     moved = [field for field in destinations if candidate.get(field) != stored.get(field)]
     carried = [key for key in restored if key not in destinations]
     if moved and carried:
+        fields = carried[0]
+        if len(carried) > 1:
+            fields = tr("{items} and {last}", items=", ".join(carried[:-1]), last=carried[-1])
         raise ChannelConfigError(
-            f"The destination changed - enter the {' and '.join(carried)} again so it isn't sent to the new address."
+            tr(
+                "The destination changed - enter the {fields} again so it isn't sent to the new address.",
+                fields=fields,
+            )
         )
     return candidate
 
@@ -462,18 +484,23 @@ def summary(kind: str, config: dict) -> str:
     """One line describing where a channel delivers, without secrets."""
     masked = masked_config(kind, config)
     if kind == "webpush":
-        return f"Browser push via {masked['push_service'] or 'push service'}"
+        service = masked["push_service"] or tr("push service")
+        return tr("Browser push via {service}", service=service)
     if kind == "ntfy":
-        return f"Topic {masked['topic']} on {urlsplit(config.get('server', '')).hostname}"
+        return tr(
+            "Topic {topic} on {server}", topic=masked["topic"], server=urlsplit(config.get("server", "")).hostname
+        )
     if kind == "telegram":
-        return f"Chat {config.get('chat_id', '')}"
+        return tr("Chat {chat_id}", chat_id=config.get("chat_id", ""))
     if kind == "pushover":
-        return f"User key {masked['user_key']}"
+        return tr("User key {user_key}", user_key=masked["user_key"])
     host = urlsplit(config.get("webhook_url") or config.get("url") or "").hostname or ""
     labels = host.split(".")
     if kind == "webhook" and len(labels) > 2 and not host.replace(".", "").isdigit():
         host = "…" + ".".join(labels[-2:])  # a custom webhook's host can be its secret: show only the site
-    return f"Webhook to {host}" + (" (signed)" if config.get("secret") else "")
+    if config.get("secret"):
+        return tr("Webhook to {host} (signed)", host=host)
+    return tr("Webhook to {host}", host=host)
 
 
 def deliver(kind: str, config: dict, message: Message, vapid: VapidKeys | None = None) -> None:

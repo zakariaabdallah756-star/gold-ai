@@ -19,6 +19,8 @@ import struct
 import time
 from urllib.parse import urlsplit
 
+from .i18n import N_, tr
+
 try:
     from cryptography.hazmat.primitives import hashes
     from cryptography.hazmat.primitives.asymmetric import ec
@@ -36,7 +38,7 @@ JWT_LIFETIME_SEC = 12 * 3600
 DEFAULT_TTL_SEC = 3600
 # Push services accept at most 4096 bytes of encrypted body; keep payloads well below.
 MAX_PAYLOAD_BYTES = 3000
-UNAVAILABLE_MESSAGE = "Web Push needs the 'cryptography' package: run pip install -r requirements.txt"
+UNAVAILABLE_MESSAGE = N_("Web Push needs the 'cryptography' package: run pip install -r requirements.txt")
 
 
 class WebPushError(ValueError):
@@ -45,7 +47,7 @@ class WebPushError(ValueError):
 
 def _require() -> None:
     if not AVAILABLE:
-        raise WebPushError(UNAVAILABLE_MESSAGE)
+        raise WebPushError(tr(UNAVAILABLE_MESSAGE))
 
 
 # ------------------------------------------------------------------- encoding
@@ -60,7 +62,7 @@ def b64url_decode(text: str) -> bytes:
     try:
         return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
     except (ValueError, TypeError) as exc:
-        raise WebPushError("Not valid base64url data") from exc
+        raise WebPushError(tr("Not valid base64url data")) from exc
 
 
 def _public_bytes(key) -> bytes:
@@ -71,11 +73,11 @@ def load_public_key(raw: bytes):
     """Parse a 65-byte uncompressed P-256 point (raises WebPushError when it is not one)."""
     _require()
     if len(raw) != 65 or raw[0] != 0x04:
-        raise WebPushError("The p256dh key must be a 65-byte uncompressed P-256 point")
+        raise WebPushError(tr("The p256dh key must be a 65-byte uncompressed P-256 point"))
     try:
         return ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), raw)
     except ValueError as exc:
-        raise WebPushError("The p256dh key is not a valid P-256 point") from exc
+        raise WebPushError(tr("The p256dh key is not a valid P-256 point")) from exc
 
 
 def load_private_key(private_b64: str):
@@ -83,7 +85,7 @@ def load_private_key(private_b64: str):
     _require()
     raw = b64url_decode(private_b64)
     if len(raw) != 32:
-        raise WebPushError("The VAPID private key is invalid")
+        raise WebPushError(tr("The VAPID private key is invalid"))
     return ec.derive_private_key(int.from_bytes(raw, "big"), ec.SECP256R1())
 
 
@@ -145,9 +147,9 @@ def encrypt(
     ua_public = b64url_decode(p256dh)
     auth_secret = b64url_decode(auth)
     if len(auth_secret) != 16:
-        raise WebPushError("The auth secret must be 16 bytes")
+        raise WebPushError(tr("The auth secret must be 16 bytes"))
     if len(payload) + 17 > record_size:
-        raise WebPushError("Payload too large for a single record")
+        raise WebPushError(tr("Payload too large for a single record"))
     salt = salt if salt is not None else os.urandom(16)
     server_key = server_key if server_key is not None else ec.generate_private_key(ec.SECP256R1())
     as_public = _public_bytes(server_key)
@@ -165,4 +167,4 @@ def subscription_keys_valid(p256dh: str, auth: str) -> None:
     """Raise WebPushError unless the browser's subscription keys are usable."""
     load_public_key(b64url_decode(p256dh))
     if len(b64url_decode(auth)) != 16:
-        raise WebPushError("The auth secret must be 16 bytes")
+        raise WebPushError(tr("The auth secret must be 16 bytes"))

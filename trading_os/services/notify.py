@@ -23,6 +23,7 @@ see plain data; channel rows and the log are updated on the caller's thread.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import logging
 import math
@@ -37,6 +38,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from ..models import AccountSettings, Market, NewsEvent, NotificationChannel, NotificationLog, TradingSession
 from . import account, news, notify_channels, webpush
+from .i18n import N_, tr
 from .notify_channels import DeliveryError, Message, SubscriptionExpired, VapidKeys, truncate
 from .sessions import in_trading_window
 
@@ -45,16 +47,16 @@ log = logging.getLogger("trading_os.notify")
 EVENTS = ("strategy_alert", "risk", "news", "test")
 USER_EVENTS = ("strategy_alert", "risk", "news")  # the ones a user can switch on and off
 QUIET_EVENTS = ("strategy_alert", "news")  # held outside the trading window when quiet hours are on
-EVENT_LABELS = {
-    "strategy_alert": "Strategy alerts",
-    "risk": "Risk events",
-    "news": "News reminders",
-    "test": "Test",
+EVENT_LABELS = {  # English source texts; translate with ``event_label`` / ``tr`` where shown
+    "strategy_alert": N_("Strategy alerts"),
+    "risk": N_("Risk events"),
+    "news": N_("News reminders"),
+    "test": N_("Test"),
 }
 EVENT_DESCRIPTIONS = {
-    "strategy_alert": "A strategy's conditions lined up - symbol, direction, confluences, entry, SL and TP.",
-    "risk": "Daily loss limit close or reached, max trades reached, kill switch, prop-firm rule breaches.",
-    "news": "A reminder shortly before economic releases that meet your news impact threshold.",
+    "strategy_alert": N_("A strategy's conditions lined up - symbol, direction, confluences, entry, SL and TP."),
+    "risk": N_("Daily loss limit close or reached, max trades reached, kill switch, prop-firm rule breaches."),
+    "news": N_("A reminder shortly before economic releases that meet your news impact threshold."),
 }
 PRIORITIES = ("low", "default", "high")
 MAX_WORKERS = 4
@@ -65,12 +67,17 @@ JOB_NAMES = (RISK_JOB, NEWS_JOB)
 WATCH_INTERVAL_SEC = 60.0
 
 RISK_TITLES = {
-    "DAILY_LOSS_LIMIT": "Daily loss limit reached",
-    "MAX_TRADES_REACHED": "Max trades for today reached",
-    "KILL_SWITCH": "Kill switch is on",
-    "PROP_DAILY_LOSS": "Prop challenge: daily loss limit hit",
-    "PROP_MAX_DRAWDOWN": "Prop challenge: max drawdown hit",
-    "PROP_CHALLENGE_ENDED": "Prop challenge ended",
+    "DAILY_LOSS_LIMIT": N_("Daily loss limit reached"),
+    "MAX_TRADES_REACHED": N_("Max trades for today reached"),
+    "KILL_SWITCH": N_("Kill switch is on"),
+    "PROP_DAILY_LOSS": N_("Prop challenge: daily loss limit hit"),
+    "PROP_MAX_DRAWDOWN": N_("Prop challenge: max drawdown hit"),
+    "PROP_CHALLENGE_ENDED": N_("Prop challenge ended"),
+}
+IMPACT_LABELS = {  # a news release's impact, in the words of the reminder text
+    "high": N_("high impact"),
+    "medium": N_("medium impact"),
+    "low": N_("low impact"),
 }
 PROP_CODES = frozenset({"PROP_DAILY_LOSS", "PROP_MAX_DRAWDOWN", "PROP_CHALLENGE_ENDED"})
 LOSS_WARNING_CODE = "DAILY_LOSS_WARNING"
@@ -105,6 +112,15 @@ class Note:
     priority: str = "default"  # low | default | high
     data: dict = field(default_factory=dict)
     tags: list[str] = field(default_factory=list)
+
+
+def event_label(event: str) -> str:
+    """The event's name in the current language (unknown events are returned as they are)."""
+    return tr(EVENT_LABELS[event]) if event in EVENT_LABELS else event
+
+
+def event_description(event: str) -> str:
+    return tr(EVENT_DESCRIPTIONS[event])
 
 
 # --------------------------------------------------------------------- send
@@ -147,8 +163,10 @@ def send_to_channel(
 def test_note() -> Note:
     return Note(
         event="test",
-        title="Test notification",
-        body="Trading OS can reach you here. Strategy alerts, risk events and news reminders will arrive the same way.",
+        title=tr("Test notification"),
+        body=tr(
+            "Trading OS can reach you here. Strategy alerts, risk events and news reminders will arrive the same way."
+        ),
         url="/#/plan",
     )
 
@@ -186,7 +204,11 @@ def _deliver_all(jobs: list[tuple[int, str, dict]], message: Message, vapid: Vap
     deadline = notify_channels.HTTP_TIMEOUT_SEC * math.ceil(len(jobs) / workers) + 5
     pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="notify")
     futures = {
-        pool.submit(notify_channels.deliver, kind, config, message, vapid): (channel_id, kind)
+        # every worker runs in its own copy of this context, so errors come back in the active language
+        pool.submit(contextvars.copy_context().run, notify_channels.deliver, kind, config, message, vapid): (
+            channel_id,
+            kind,
+        )
         for channel_id, kind, config in jobs
     }
     done, _pending = wait(futures, timeout=deadline)
@@ -194,7 +216,7 @@ def _deliver_all(jobs: list[tuple[int, str, dict]], message: Message, vapid: Vap
     outcomes = {}
     for future, (channel_id, kind) in futures.items():
         if future not in done:
-            outcomes[channel_id] = ("Timed out", False)
+            outcomes[channel_id] = (tr("Timed out"), False)
             continue
         exc = future.exception()
         if exc is None:
@@ -203,7 +225,7 @@ def _deliver_all(jobs: list[tuple[int, str, dict]], message: Message, vapid: Vap
             outcomes[channel_id] = (str(exc), isinstance(exc, SubscriptionExpired))
         else:  # a bug, not a delivery problem: keep the type only (messages may carry config values)
             log.error("Notification channel %s (%s) crashed: %s", channel_id, kind, type(exc).__name__)
-            outcomes[channel_id] = (f"Unexpected error ({type(exc).__name__})", False)
+            outcomes[channel_id] = (tr("Unexpected error ({error})", error=type(exc).__name__), False)
     return outcomes
 
 
@@ -296,7 +318,7 @@ def device_label(user_agent: str) -> str:
     """ "Chrome on Android"-style name for a browser subscription."""
     browser = next((name for marker, name in BROWSERS if marker in user_agent), "Browser")
     system = next((name for marker, name in SYSTEMS if marker in user_agent), "")
-    return f"{browser} on {system}" if system else browser
+    return tr("{browser} on {system}", browser=browser, system=system) if system else browser
 
 
 def _webpush_channels(db: Session) -> list[NotificationChannel]:
@@ -356,7 +378,7 @@ def risk_notes(status: dict) -> list[Note]:
         notes.append(
             Note(
                 event="risk",
-                title=RISK_TITLES[code],
+                title=tr(RISK_TITLES[code]),
                 body=reason.get("message", ""),
                 url="/#/prop" if code in PROP_CODES else "/#/dashboard",
                 priority="high" if block else "default",
@@ -366,15 +388,16 @@ def risk_notes(status: dict) -> list[Note]:
         )
     if status.get("state") == "warning":
         currency = status.get("currency", "")
-        body = (
-            f"You have used {status.get('loss_used_ratio', 0):.0%} of today's loss limit "
-            f"({_money(status.get('loss_used', 0), currency)} of {_money(status.get('daily_loss_limit', 0), currency)}). "
-            "Consider stopping for the day."
+        body = tr(
+            "You have used {ratio:.0%} of today's loss limit ({used} of {limit}). Consider stopping for the day.",
+            ratio=status.get("loss_used_ratio", 0),
+            used=_money(status.get("loss_used", 0), currency),
+            limit=_money(status.get("daily_loss_limit", 0), currency),
         )
         notes.append(
             Note(
                 event="risk",
-                title="Approaching your daily loss limit",
+                title=tr("Approaching your daily loss limit"),
                 body=body,
                 url="/#/dashboard",
                 data={"code": LOSS_WARNING_CODE, "severity": "warn"},
@@ -428,9 +451,16 @@ def _guardrail_text(event: NewsEvent, settings: AccountSettings) -> str:
     before, after = news.window_minutes(event, settings)
     start, end = news.event_window(event, settings)
     if settings.news_mode == "off":
-        return "The news guardrail is off."
-    effect = "are blocked" if settings.news_mode == "block" else "get a warning"
-    return f"New entries {effect} from {start:%H:%M} to {end:%H:%M} ({before} min before to {after} min after)."
+        return tr("The news guardrail is off.")
+    if settings.news_mode == "block":
+        template = N_(
+            "New entries are blocked from {start:%H:%M} to {end:%H:%M} ({before} min before to {after} min after)."
+        )
+    else:
+        template = N_(
+            "New entries get a warning from {start:%H:%M} to {end:%H:%M} ({before} min before to {after} min after)."
+        )
+    return tr(template, start=start, end=end, before=before, after=after)
 
 
 def _relevant(event: NewsEvent, settings: AccountSettings, markets: list[Market]) -> bool:
@@ -449,12 +479,27 @@ def news_notes(events: list[NewsEvent], settings: AccountSettings, markets: list
         if not _relevant(event, settings, markets):
             continue
         minutes = max(1, math.ceil((event.time - now).total_seconds() / 60))
+        if event.impact in IMPACT_LABELS:
+            impact = tr(IMPACT_LABELS[event.impact])
+        else:
+            impact = tr("{impact} impact", impact=event.impact)
         notes.append(
             Note(
                 event="news",
-                title=f"{event.currency} news in {minutes} min: {event.title}",
-                body=f"{event.title} ({event.currency}, {event.impact} impact) at {event.time:%H:%M}. "
-                + _guardrail_text(event, settings),
+                title=tr(
+                    "{currency} news in {minutes} min: {title}",
+                    currency=event.currency,
+                    minutes=minutes,
+                    title=event.title,
+                ),
+                body=tr(
+                    "{title} ({currency}, {impact}) at {time:%H:%M}. {guardrail}",
+                    title=event.title,
+                    currency=event.currency,
+                    impact=impact,
+                    time=event.time,
+                    guardrail=_guardrail_text(event, settings),
+                ),
                 url="/#/premarket",
                 data={"news_event_id": event.id, "currency": event.currency, "impact": event.impact},
                 tags=["calendar"],
@@ -491,13 +536,13 @@ def register_jobs(scheduler, config) -> None:
         RISK_JOB,
         WATCH_INTERVAL_SEC,
         risk_watch,
-        description="Checks the daily loss limit, max trades, kill switch and prop rules every minute.",
+        description=N_("Checks the daily loss limit, max trades, kill switch and prop rules every minute."),
         initial_delay=15.0,
     )
     scheduler.register(
         NEWS_JOB,
         WATCH_INTERVAL_SEC,
         news_reminders,
-        description="Sends a reminder before qualifying economic releases.",
+        description=N_("Sends a reminder before qualifying economic releases."),
         initial_delay=20.0,
     )
