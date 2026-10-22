@@ -3,30 +3,35 @@
 // ladder, event timeline and management summary are shared with the journal.
 
 import { api } from "../api.js";
-import { clear, confirmDialog, field, h, icon, modal, numberOrNull, select, toast } from "../dom.js";
+import { clear, confirmDialog, field, h, icon, modal, numberOrNull, select, toast, withNodes } from "../dom.js";
 import { fmt, pnlClass } from "../format.js";
+import { N_, t } from "../i18n.js";
 import { loadStatus, marketBySymbol, onStatus, state } from "../state.js";
 import { openTradeForm } from "./trade-form.js";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const QUICK_SPLITS = [25, 50, 75];
 
+// t("Close{_}", { _: "" }) shows the same English as t("Close") but has its own entry in the catalogs:
+// a word with two meanings (the button "Close" / the column "Close" = share closed) gets two translations.
+
 const STOP_KINDS = {
-  initial: { label: "Initial", cls: "" },
-  breakeven: { label: "Break-even", cls: "good" },
-  trail: { label: "Trailing", cls: "open" },
-  manual: { label: "Manual", cls: "warn" },
+  initial: { label: N_("Initial"), line: N_("Initial stop"), cls: "" },
+  breakeven: { label: N_("Break-even"), line: N_("Break-even stop"), cls: "good" },
+  trail: { label: N_("Trailing"), line: N_("Trailing stop"), cls: "open" },
+  manual: { label: N_("Manual"), line: N_("Manual stop"), cls: "warn" },
 };
 const STOP_KIND_BY_EVENT = { breakeven: "breakeven", trail: "trail", stop_move: "manual" };
 
+// {level} is the target number (TP1..TP4).
 const EVENT_KINDS = {
-  tp: { icon: "target", label: (event) => `TP${event.target_level} hit` },
-  partial: { icon: "scissors", label: () => "Partial close" },
-  stop: { icon: "xCircle", label: () => "Stopped out" },
-  close: { icon: "checkCircle", label: () => "Position closed" },
-  breakeven: { icon: "shield", label: () => "Stop to break-even" },
-  trail: { icon: "trending", label: () => "Trailing stop moved" },
-  stop_move: { icon: "edit", label: () => "Stop moved" },
+  tp: { icon: "target", label: N_("TP{level} hit") },
+  partial: { icon: "scissors", label: N_("Partial close") },
+  stop: { icon: "xCircle", label: N_("Stopped out") },
+  close: { icon: "checkCircle", label: N_("Position closed") },
+  breakeven: { icon: "shield", label: N_("Stop to break-even") },
+  trail: { icon: "trending", label: N_("Trailing stop moved") },
+  stop_move: { icon: "edit", label: N_("Stop moved") },
 };
 
 // --------------------------------------------------------------- shared views
@@ -45,15 +50,22 @@ export function stopKindOf(trade) {
 
 export function stopKindBadge(kind) {
   const spec = STOP_KINDS[kind] || STOP_KINDS.initial;
-  return h("span", { class: `badge ${spec.cls}` }, spec.label);
+  return h("span", { class: `badge ${spec.cls}` }, t(spec.label));
 }
 
 export function eventLabel(event) {
-  return (EVENT_KINDS[event.kind] || { label: () => event.kind }).label(event);
+  const spec = EVENT_KINDS[event.kind];
+  return spec ? t(spec.label, { level: event.target_level }) : event.kind;
+}
+
+/** The English label, as the server stores it in the default event notes. */
+function englishEventLabel(event) {
+  const spec = EVENT_KINDS[event.kind];
+  return spec ? spec.label.replace("{level}", event.target_level) : event.kind;
 }
 
 function riskFreeBadge() {
-  return h("span", { class: "badge good pm-badge" }, icon("shield"), "Risk-free");
+  return h("span", { class: "badge good pm-badge" }, icon("shield"), t("Risk-free"));
 }
 
 /** The scale-out plan; a trade without targets uses its take profit as one 100% target. */
@@ -81,22 +93,22 @@ function nextTargetLevel(trade) {
 /** TP1..TP4 with price, close %, R:R and hit / next status. */
 export function targetsLadder(trade) {
   const targets = planTargets(trade);
-  if (!targets.length) return h("p", { class: "muted small" }, "No take profit set.");
+  if (!targets.length) return h("p", { class: "muted small" }, t("No take profit set."));
   const next = nextTargetLevel(trade);
   return h(
     "div",
-    { class: "pm-ladder", role: "table", "aria-label": "Take-profit targets" },
+    { class: "pm-ladder", role: "table", "aria-label": t("Take-profit targets") },
     h(
       "div",
       { class: "pm-ladder-row head", role: "row" },
-      ["Target", "Price", "Close", "R:R", "Status"].map((label) => h("span", { role: "columnheader" }, label)),
+      [t("Target"), t("Price"), t("Close{_}", { _: "" }), t("R:R"), t("Status")].map((label) => h("span", { role: "columnheader" }, label)),
     ),
     targets.map((target) => {
       const isNext = target.level === next;
       let status;
-      if (target.hit) status = h("span", { class: "pos pm-status" }, icon("check"), "Hit");
-      else if (isNext) status = h("span", { class: "badge open" }, "Next");
-      else status = h("span", { class: "muted" }, trade.status === "open" ? "Pending" : trade.managed ? "Not reached" : "—");
+      if (target.hit) status = h("span", { class: "pos pm-status" }, icon("check"), t("Hit"));
+      else if (isNext) status = h("span", { class: "badge open" }, t("Next"));
+      else status = h("span", { class: "muted" }, trade.status === "open" ? t("Pending") : trade.managed ? t("Not reached") : "—");
       return h(
         "div",
         { class: `pm-ladder-row${target.hit ? " hit" : ""}${isNext ? " next" : ""}`, role: "row" },
@@ -115,12 +127,17 @@ export function managementSummary(trade) {
   const events = trade.events || [];
   const beDone = events.some((event) => event.kind === "breakeven");
   const trailing = events.some((event) => event.kind === "trail");
-  const offset = trade.be_offset_pips ? ` +${fmt.num(trade.be_offset_pips, 1)} pips` : "";
-  const be = trade.be_enabled ? `Break-even at TP1${offset}${beDone ? " · done" : ""}` : "Break-even off";
-  const trigger = trade.trail_trigger === "immediate" ? "from entry" : "after TP1";
-  const trail = trade.trail_enabled
-    ? `Trailing ${fmt.num(trade.trail_distance_pips, 1)} pips ${trigger}${trailing ? " · active" : ""}`
-    : "Trailing off";
+  let be = t("Break-even off");
+  if (trade.be_enabled) {
+    be = trade.be_offset_pips ? t("Break-even at TP1 +{pips} pips", { pips: fmt.num(trade.be_offset_pips, 1) }) : t("Break-even at TP1");
+    if (beDone) be = t("{setting} · done", { setting: be });
+  }
+  let trail = t("Trailing off");
+  if (trade.trail_enabled) {
+    const pips = fmt.num(trade.trail_distance_pips, 1);
+    trail = trade.trail_trigger === "immediate" ? t("Trailing {pips} pips from entry", { pips }) : t("Trailing {pips} pips after TP1", { pips });
+    if (trailing) trail = t("{setting} · active", { setting: trail });
+  }
   return h(
     "div",
     { class: "pm-manage" },
@@ -129,14 +146,15 @@ export function managementSummary(trade) {
   );
 }
 
+/** A note the server wrote itself (stored in English), which the event label already says. */
 function defaultNote(event) {
-  return [`TP${event.target_level}`, "Closed", "Partial close", eventLabel(event)].includes(event.note);
+  return [`TP${event.target_level}`, "Closed", "Partial close", englishEventLabel(event), eventLabel(event)].includes(event.note);
 }
 
 /** Compact ledger: time, kind, price, lots, signed P&L, stop before -> after. */
 export function eventTimeline(trade) {
   const events = orderedEvents(trade);
-  if (!events.length) return h("p", { class: "muted small" }, "No position events yet.");
+  if (!events.length) return h("p", { class: "muted small" }, t("No position events yet."));
   return h(
     "ol",
     { class: "pm-timeline" },
@@ -144,12 +162,12 @@ export function eventTimeline(trade) {
       const kind = EVENT_KINDS[event.kind] || { icon: "info" };
       const details = [
         event.price !== null ? h("span", { class: "num" }, `@ ${fmt.price(event.price)}`) : null,
-        event.lots ? h("span", { class: "num" }, `${fmt.lots(event.lots)} lots`) : null,
+        event.lots ? h("span", { class: "num" }, t("{lots} lots", { lots: fmt.lots(event.lots) })) : null,
         event.lots && event.pnl !== null
-          ? h("span", { class: `num ${pnlClass(event.pnl)}` }, fmt.signedMoney(event.pnl), event.pnl_manual ? " (manual)" : "")
+          ? h("span", { class: `num ${pnlClass(event.pnl)}` }, fmt.signedMoney(event.pnl), event.pnl_manual ? ` (${t("manual")})` : "")
           : null,
         event.stop_after !== null
-          ? h("span", { class: "num" }, `Stop ${fmt.price(event.stop_before)} → ${fmt.price(event.stop_after)}`)
+          ? h("span", { class: "num" }, t("Stop {before} → {after}", { before: fmt.price(event.stop_before), after: fmt.price(event.stop_after) }))
           : null,
       ];
       return h(
@@ -197,15 +215,15 @@ export function priceLadder(trade) {
   const moved = Math.abs(stop - trade.stop_loss) > 1e-9;
 
   const levels = [
-    { name: moved ? "Initial SL" : "Stop loss", price: trade.stop_loss, cls: moved ? "sl old" : "sl" },
-    { name: "Entry", price: trade.entry_price, cls: "entry" },
-    moved ? { name: `${STOP_KINDS[kind].label} stop`, price: stop, cls: trade.risk_free ? "stop safe" : "stop" } : null,
+    { name: moved ? t("Initial SL") : t("Stop loss"), price: trade.stop_loss, cls: moved ? "sl old" : "sl" },
+    { name: t("Entry"), price: trade.entry_price, cls: "entry" },
+    moved ? { name: t(STOP_KINDS[kind].line), price: stop, cls: trade.risk_free ? "stop safe" : "stop" } : null,
     ...planTargets(trade).map((target) => ({
-      name: `TP${target.level}${target.hit ? " hit" : ""}`,
+      name: target.hit ? t("TP{level} hit", { level: target.level }) : `TP${target.level}`,
       price: target.price,
       cls: target.hit ? "tp hit" : "tp",
     })),
-    trade.last_price !== null && trade.last_price !== undefined ? { name: "Last", price: trade.last_price, cls: "last" } : null,
+    trade.last_price !== null && trade.last_price !== undefined ? { name: t("Last"), price: trade.last_price, cls: "last" } : null,
   ].filter(Boolean);
 
   const prices = levels.map((level) => level.price);
@@ -217,7 +235,7 @@ export function priceLadder(trade) {
   spread(levels, 15, pad, height - pad);
 
   const summary = levels.map((level) => `${level.name} ${fmt.price(level.price)}`).join(", ");
-  const root = svg("svg", { class: "pm-svg", viewBox: `0 0 ${width} ${height}`, width, height, role: "img", "aria-label": `Price ladder: ${summary}` });
+  const root = svg("svg", { class: "pm-svg", viewBox: `0 0 ${width} ${height}`, width, height, role: "img", "aria-label": t("Price ladder: {summary}", { summary }) });
   root.append(svg("line", { class: "axis", x1: axis, x2: axis, y1: pad - 6, y2: height - pad + 6 }));
   const zoneTop = Math.min(y(stop), y(trade.entry_price));
   root.append(
@@ -271,7 +289,7 @@ function breakEvenStop(trade) {
 const numberInput = (value, attrs = {}) =>
   h("input", { type: "number", step: "any", inputmode: "decimal", value: value === null || value === undefined ? "" : String(value), ...attrs });
 const timeInput = () => h("input", { type: "datetime-local" });
-const noteInput = () => h("input", { maxlength: "200", placeholder: "optional" });
+const noteInput = () => h("input", { maxlength: "200", placeholder: t("optional") });
 const optional = (input) => (input.value ? input.value : undefined);
 
 /**
@@ -289,7 +307,7 @@ function actionModal({ title, intro, fields, submitText, danger = false, submit,
     error,
     h("button", { type: "submit", hidden: true, tabindex: "-1" }),
   );
-  const ref = modal({ title, body: form, footer: [h("button", { class: "btn ghost", type: "button", onclick: () => ref.close() }, "Cancel"), button] });
+  const ref = modal({ title, body: form, footer: [h("button", { class: "btn ghost", type: "button", onclick: () => ref.close() }, t("Cancel")), button] });
 
   async function go() {
     error.textContent = "";
@@ -308,26 +326,33 @@ function actionModal({ title, intro, fields, submitText, danger = false, submit,
 }
 
 function pnlField(input) {
-  return field(`Fill P&L (${state.plan.settings.currency})`, input, { help: "Optional - leave blank to calculate from the price" });
+  return field(t("Fill P&L ({currency})", { currency: state.plan.settings.currency }), input, { help: t("Optional - leave blank to calculate from the price") });
 }
 
 function openPriceUpdate(trade, onDone) {
-  const price = numberInput(null, { placeholder: trade.last_price ? fmt.price(trade.last_price) : "price" });
-  const high = numberInput(null, { placeholder: "optional" });
-  const low = numberInput(null, { placeholder: "optional" });
+  const price = numberInput(null, { placeholder: trade.last_price ? fmt.price(trade.last_price) : t("price") });
+  const high = numberInput(null, { placeholder: t("optional") });
+  const low = numberInput(null, { placeholder: t("optional") });
   const time = timeInput();
   actionModal({
-    title: `Update price · ${trade.symbol}`,
-    intro: "Enter the current price, and the high and low since your last update if price moved further. Targets, stop-outs, break-even and trailing moves are applied automatically.",
-    fields: [field("Last price", price), field("High", high), field("Low", low), field("Time", time, { help: "Leave empty for now" })],
-    submitText: "Apply price",
+    title: t("Update price · {symbol}", { symbol: trade.symbol }),
+    intro: t("Enter the current price, and the high and low since your last update if price moved further. Targets, stop-outs, break-even and trailing moves are applied automatically."),
+    fields: [
+      field(t("Last price"), price),
+      field(t("High{_}", { _: "" }), high),
+      field(t("Low{_}", { _: "" }), low),
+      field(t("Time"), time, { help: t("Leave empty for now") }),
+    ],
+    submitText: t("Apply price"),
     onDone,
     submit: async () => {
       const body = { price: numberOrNull(price), high: numberOrNull(high), low: numberOrNull(low), time: optional(time) };
-      if (body.price === null && (body.high === null || body.low === null)) throw new Error("Enter the last price, or both the high and the low.");
+      if (body.price === null && (body.high === null || body.low === null)) throw new Error(t("Enter the last price, or both the high and the low."));
       const result = await api.post(`/api/trades/${trade.id}/price`, body);
       const text = describeEvents(result.events);
-      return text ? { message: `${trade.symbol}: ${text}` } : { message: `${trade.symbol} price recorded - no target or stop reached`, kind: "info" };
+      return text
+        ? { message: `${trade.symbol}: ${text}` }
+        : { message: t("{symbol} price recorded - no target or stop reached", { symbol: trade.symbol }), kind: "info" };
     },
   });
 }
@@ -335,10 +360,10 @@ function openPriceUpdate(trade, onDone) {
 function openPartialClose(trade, onDone) {
   const remaining = trade.remaining_size ?? trade.position_size;
   const step = lotStep(trade.symbol);
-  const lots = numberInput(null, { placeholder: "lots", min: "0" });
+  const lots = numberInput(null, { placeholder: t("lots"), min: "0" });
   const price = numberInput(trade.last_price);
   const time = timeInput();
-  const pnl = numberInput(null, { placeholder: "auto" });
+  const pnl = numberInput(null, { placeholder: t("auto") });
   const note = noteInput();
   const quick = h(
     "div",
@@ -346,20 +371,20 @@ function openPartialClose(trade, onDone) {
     QUICK_SPLITS.map((pct) => h("button", { type: "button", class: "btn sm", onclick: () => (lots.value = String(floorToStep((remaining * pct) / 100, step))) }, `${pct}%`)),
   );
   actionModal({
-    title: `Partial close · ${trade.symbol}`,
-    intro: `${fmt.lots(remaining)} of ${fmt.lots(trade.position_size)} lots are open. Closing all of them records a full close.`,
+    title: t("Partial close · {symbol}", { symbol: trade.symbol }),
+    intro: t("{remaining} of {total} lots are open. Closing all of them records a full close.", { remaining: fmt.lots(remaining), total: fmt.lots(trade.position_size) }),
     fields: [
-      field("Lots to close", h("div", { class: "stack pm-lots-field" }, lots, quick), { help: `Rounded down to the ${fmt.lots(step)} lot step` }),
-      field("Close price", price),
-      field("Time", time, { help: "Leave empty for now" }),
+      field(t("Lots to close"), h("div", { class: "stack pm-lots-field" }, lots, quick), { help: t("Rounded down to the {step} lot step", { step: fmt.lots(step) }) }),
+      field(t("Close price"), price),
+      field(t("Time"), time, { help: t("Leave empty for now") }),
       pnlField(pnl),
-      field("Note", note, { full: true }),
+      field(t("Note"), note, { full: true }),
     ],
-    submitText: "Close lots",
+    submitText: t("Close lots"),
     onDone,
     submit: async () => {
       const body = { lots: numberOrNull(lots), price: numberOrNull(price), time: optional(time), pnl: numberOrNull(pnl), note: note.value.trim() };
-      if (!body.lots || !body.price) throw new Error("Enter the lots to close and the close price.");
+      if (!body.lots || !body.price) throw new Error(t("Enter the lots to close and the close price."));
       const result = await api.post(`/api/trades/${trade.id}/partial-close`, body);
       return { message: `${trade.symbol}: ${describeEvents(result.events)}` };
     },
@@ -372,13 +397,20 @@ function openMoveStop(trade, onDone) {
   const time = timeInput();
   const note = noteInput();
   const be = breakEvenStop(trade);
-  const side = trade.direction === "long" ? "below" : "above";
+  const introParams = {
+    price: fmt.price(current),
+    kind: t(STOP_KINDS[stopKindOf(trade)].label).toLowerCase(),
+    last: trade.last_price ? ` (${fmt.price(trade.last_price)})` : "",
+  };
   actionModal({
-    title: `Move stop · ${trade.symbol}`,
-    intro: `Current stop ${fmt.price(current)} (${STOP_KINDS[stopKindOf(trade)].label.toLowerCase()}). A ${trade.direction} stop must stay ${side} the last price${trade.last_price ? ` (${fmt.price(trade.last_price)})` : ""}.`,
+    title: t("Move stop · {symbol}", { symbol: trade.symbol }),
+    intro:
+      trade.direction === "long"
+        ? t("Current stop {price} ({kind}). A long stop must stay below the last price{last}.", introParams)
+        : t("Current stop {price} ({kind}). A short stop must stay above the last price{last}.", introParams),
     fields: [
       field(
-        "New stop",
+        t("New stop"),
         h(
           "div",
           { class: "stack pm-lots-field" },
@@ -386,20 +418,20 @@ function openMoveStop(trade, onDone) {
           h(
             "div",
             { class: "row" },
-            h("button", { type: "button", class: "btn sm", onclick: () => (stop.value = String(be)) }, icon("shield"), `Move to break-even (${fmt.price(be)})`),
+            h("button", { type: "button", class: "btn sm", onclick: () => (stop.value = String(be)) }, icon("shield"), t("Move to break-even ({price})", { price: fmt.price(be) })),
           ),
         ),
       ),
-      field("Time", time, { help: "Leave empty for now" }),
-      field("Note", note, { full: true }),
+      field(t("Time"), time, { help: t("Leave empty for now") }),
+      field(t("Note"), note, { full: true }),
     ],
-    submitText: "Move stop",
+    submitText: t("Move stop"),
     onDone,
     submit: async () => {
       const value = numberOrNull(stop);
-      if (!value) throw new Error("Enter the new stop price.");
+      if (!value) throw new Error(t("Enter the new stop price."));
       await api.post(`/api/trades/${trade.id}/move-stop`, { stop: value, time: optional(time), note: note.value.trim() });
-      return { message: `${trade.symbol}: stop moved to ${fmt.price(value)}` };
+      return { message: t("{symbol}: stop moved to {price}", { symbol: trade.symbol, price: fmt.price(value) }) };
     },
   });
 }
@@ -407,21 +439,25 @@ function openMoveStop(trade, onDone) {
 function openCloseAll(trade, onDone) {
   const price = numberInput(trade.last_price);
   const time = timeInput();
-  const pnl = numberInput(null, { placeholder: "auto" });
+  const pnl = numberInput(null, { placeholder: t("auto") });
   const note = noteInput();
   actionModal({
-    title: `Close position · ${trade.symbol}`,
-    intro: `Closes the remaining ${fmt.lots(trade.remaining_size ?? trade.position_size)} lots. Fees (${fmt.money(trade.fees)}) are deducted from the net P&L once the position is closed.`,
-    fields: [field("Close price", price), field("Time", time, { help: "Leave empty for now" }), pnlField(pnl), field("Note", note, { full: true })],
-    submitText: "Close position",
+    title: t("Close position · {symbol}", { symbol: trade.symbol }),
+    intro: t("Closes the remaining {lots} lots. Fees ({fees}) are deducted from the net P&L once the position is closed.", {
+      lots: fmt.lots(trade.remaining_size ?? trade.position_size),
+      fees: fmt.money(trade.fees),
+    }),
+    fields: [field(t("Close price"), price), field(t("Time"), time, { help: t("Leave empty for now") }), pnlField(pnl), field(t("Note"), note, { full: true })],
+    submitText: t("Close position"),
     danger: true,
     onDone,
     submit: async () => {
       const value = numberOrNull(price);
-      if (!value) throw new Error("Enter the close price.");
+      if (!value) throw new Error(t("Enter the close price."));
       const result = await api.post(`/api/trades/${trade.id}/close`, { price: value, time: optional(time), pnl: numberOrNull(pnl), note: note.value.trim() });
       const net = result.trade.pnl;
-      return { message: `${trade.symbol} closed${net === null ? "" : ` · net ${fmt.signedMoney(net)}`}`, kind: net !== null && net < 0 ? "warn" : "success" };
+      const message = net === null ? t("{symbol} closed", { symbol: trade.symbol }) : t("{symbol} closed · net {pnl}", { symbol: trade.symbol, pnl: fmt.signedMoney(net) });
+      return { message, kind: net !== null && net < 0 ? "warn" : "success" };
     },
   });
 }
@@ -430,15 +466,16 @@ async function undoLast(trade, onDone) {
   const last = orderedEvents(trade).at(-1);
   if (!last) return;
   const effect = last.lots
-    ? `The ${fmt.lots(last.lots)} closed lots return to the position.`
+    ? t("The {lots} closed lots return to the position.", { lots: fmt.lots(last.lots) })
     : last.stop_before !== null
-      ? `The stop returns to ${fmt.price(last.stop_before)}.`
+      ? t("The stop returns to {price}.", { price: fmt.price(last.stop_before) })
       : "";
-  const ok = await confirmDialog(`Undo "${eventLabel(last)}" recorded ${fmt.datetime(last.time)}? ${effect}`, { title: "Undo last event", confirmText: "Undo" });
+  const question = t('Undo "{event}" recorded {time}? {effect}', { event: eventLabel(last), time: fmt.datetime(last.time), effect });
+  const ok = await confirmDialog(question, { title: t("Undo last event"), confirmText: t("Undo") });
   if (!ok) return;
   try {
     await api.del(`/api/trades/${trade.id}/events/${last.id}`);
-    toast(`${trade.symbol}: "${eventLabel(last)}" undone`, "success");
+    toast(t('{symbol}: "{event}" undone', { symbol: trade.symbol, event: eventLabel(last) }), "success");
     await onDone();
   } catch (error) {
     toast(error.message, "error");
@@ -461,14 +498,14 @@ function positionCard(p, refresh) {
   const risk = p.remaining_risk ?? p.risk_amount;
 
   const lotsValue = sized
-    ? [h("span", { class: "num" }, `${fmt.lots(remaining)} / ${fmt.lots(original)} lots`)]
-    : [h("span", { class: "muted" }, "No size set")];
+    ? [h("span", { class: "num" }, t("{remaining} / {total} lots", { remaining: fmt.lots(remaining), total: fmt.lots(original) }))]
+    : [h("span", { class: "muted" }, t("No size set"))];
   const lotsExtra = sized
     ? [
-        h("div", { class: `progress pm-progress${closedPct >= 99.99 ? " done" : ""}`, role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(closedPct)), "aria-label": "Share of the position closed" }, h("span", { style: { width: `${closedPct}%` } })),
-        h("div", { class: "muted small" }, `${fmt.num(closedPct, 0)}% closed`),
+        h("div", { class: `progress pm-progress${closedPct >= 99.99 ? " done" : ""}`, role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(closedPct)), "aria-label": t("Share of the position closed") }, h("span", { style: { width: `${closedPct}%` } })),
+        h("div", { class: "muted small" }, t("{pct}% closed", { pct: fmt.num(closedPct, 0) })),
       ]
-    : h("div", { class: "muted small" }, "Edit the trade to add lots");
+    : h("div", { class: "muted small" }, t("Edit the trade to add lots"));
 
   const unrealized =
     p.unrealized_pnl === null
@@ -478,34 +515,41 @@ function positionCard(p, refresh) {
   const facts = h(
     "div",
     { class: "pm-facts" },
-    fact("Entry", h("span", { class: "num" }, fmt.price(p.entry_price))),
-    fact("Stop", h("span", { class: "row pm-inline" }, h("span", { class: "num" }, fmt.price(stop)), stopKindBadge(p.stop_kind))),
-    fact("Remaining", lotsValue, lotsExtra),
-    fact("Realised (gross)", h("span", { class: `num ${pnlClass(p.realized_pnl)}` }, fmt.signedMoney(p.realized_pnl))),
+    fact(t("Entry"), h("span", { class: "num" }, fmt.price(p.entry_price))),
+    fact(t("Stop"), h("span", { class: "row pm-inline" }, h("span", { class: "num" }, fmt.price(stop)), stopKindBadge(p.stop_kind))),
+    fact(t("Remaining"), lotsValue, lotsExtra),
+    fact(t("Realised (gross)"), h("span", { class: `num ${pnlClass(p.realized_pnl)}` }, fmt.signedMoney(p.realized_pnl))),
     fact(
-      "Unrealized",
+      t("Unrealized"),
       unrealized,
-      h("div", { class: "muted small" }, p.last_price === null ? "Update the price to see it" : `at ${fmt.price(p.last_price)} · ${fmt.time(p.last_price_at)}`),
+      h(
+        "div",
+        { class: "muted small" },
+        p.last_price === null ? t("Update the price to see it") : t("at {price} · {time}", { price: fmt.price(p.last_price), time: fmt.time(p.last_price_at) }),
+      ),
     ),
-    fact("Remaining risk", p.risk_free ? riskFreeBadge() : h("span", { class: "num" }, risk === null ? "—" : fmt.money(risk))),
+    fact(t("Remaining risk"), p.risk_free ? riskFreeBadge() : h("span", { class: "num" }, risk === null ? "—" : fmt.money(risk))),
   );
 
   const events = p.events || [];
   const actions = h(
     "div",
     { class: "pm-actions" },
-    h("button", { class: "btn sm primary", type: "button", disabled: !sized, onclick: () => openPriceUpdate(p, refresh) }, icon("refresh"), "Update price"),
-    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openPartialClose(p, refresh) }, icon("scissors"), "Partial close"),
-    h("button", { class: "btn sm", type: "button", onclick: () => openMoveStop(p, refresh) }, icon("shield"), "Move stop"),
-    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openCloseAll(p, refresh) }, icon("x"), "Close all"),
+    h("button", { class: "btn sm primary", type: "button", disabled: !sized, onclick: () => openPriceUpdate(p, refresh) }, icon("refresh"), t("Update price")),
+    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openPartialClose(p, refresh) }, icon("scissors"), t("Partial close")),
+    h("button", { class: "btn sm", type: "button", onclick: () => openMoveStop(p, refresh) }, icon("shield"), t("Move stop")),
+    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openCloseAll(p, refresh) }, icon("x"), t("Close all")),
     h("span", { class: "spacer" }),
-    h("button", { class: "btn sm ghost", type: "button", disabled: !events.length, title: events.length ? "Undo the most recent event" : "No events to undo", onclick: () => undoLast(p, refresh) }, icon("undo"), "Undo last"),
-    h("button", { class: "btn sm ghost", type: "button", onclick: () => openTradeForm({ trade: p, onSaved: () => refresh() }) }, icon("edit"), "Edit"),
+    h("button", { class: "btn sm ghost", type: "button", disabled: !events.length, title: events.length ? t("Undo the most recent event") : t("No events to undo"), onclick: () => undoLast(p, refresh) }, icon("undo"), t("Undo last")),
+    h("button", { class: "btn sm ghost", type: "button", onclick: () => openTradeForm({ trade: p, onSaved: () => refresh() }) }, icon("edit"), t("Edit")),
   );
 
   return h(
     "article",
-    { class: "card pm-card", "aria-label": `${p.symbol} ${p.direction} position` },
+    {
+      class: "card pm-card",
+      "aria-label": p.direction === "long" ? t("{symbol} long position", { symbol: p.symbol }) : t("{symbol} short position", { symbol: p.symbol }),
+    },
     h(
       "div",
       { class: "pm-head" },
@@ -513,19 +557,30 @@ function positionCard(p, refresh) {
         "div",
         { class: "pm-title" },
         h("h2", {}, p.symbol),
-        h("span", { class: `badge ${p.direction}` }, p.direction === "long" ? "Long" : "Short"),
-        p.source === "signal" ? h("span", { class: "badge open pm-badge" }, icon("signal"), "Signal") : null,
+        h("span", { class: `badge ${p.direction}` }, p.direction === "long" ? t("Long") : t("Short")),
+        p.source === "signal" ? h("span", { class: "badge open pm-badge" }, icon("signal"), t("Signal")) : null,
         p.risk_free ? riskFreeBadge() : null,
       ),
-      h("div", { class: "muted small" }, [p.strategy || "No strategy", `opened ${fmt.datetime(p.entry_time)}`, `#${p.id}`].join(" · ")),
+      h("div", { class: "muted small" }, [p.strategy || t("No strategy"), t("opened {time}", { time: fmt.datetime(p.entry_time) }), `#${p.id}`].join(" · ")),
       next
-        ? h("div", { class: "chip pm-next" }, icon("target"), "Next: ", h("strong", {}, `TP${next.level} ${fmt.price(next.price)}`), ` · ${fmt.num(next.close_pct, 0)}%`)
-        : h("div", { class: "chip pm-next" }, icon("check"), "No open target"),
+        ? h(
+            "div",
+            { class: "chip pm-next" },
+            icon("target"),
+            withNodes(t("Next: {target}"), { target: h("strong", {}, `TP${next.level} ${fmt.price(next.price)}`) }),
+            ` · ${fmt.num(next.close_pct, 0)}%`,
+          )
+        : h("div", { class: "chip pm-next" }, icon("check"), t("No open target")),
     ),
     h("div", { class: "pm-split" }, h("div", { class: "stack pm-main" }, facts, managementSummary(p)), h("div", { class: "pm-chart" }, priceLadder(p))),
-    h("div", {}, h("div", { class: "section-title" }, "Targets"), targetsLadder(p)),
+    h("div", {}, h("div", { class: "section-title" }, t("Targets")), targetsLadder(p)),
     actions,
-    h("div", {}, h("div", { class: "section-title" }, `Events (${events.length})`), events.length ? eventTimeline(p) : h("p", { class: "muted small" }, "No events yet - update the price as the market moves.")),
+    h(
+      "div",
+      {},
+      h("div", { class: "section-title" }, t("Events ({count})", { count: events.length })),
+      events.length ? eventTimeline(p) : h("p", { class: "muted small" }, t("No events yet - update the price as the market moves.")),
+    ),
   );
 }
 
@@ -547,11 +602,20 @@ export async function render(root) {
     const today = status?.realized_pnl_today ?? null;
     clear(
       totalsBox,
-      kpi("Open positions", String(totals.open_positions), `${new Set(data.positions.map((p) => p.symbol)).size} symbol(s)`),
-      kpi("Remaining risk", fmt.money(totals.remaining_risk), equity ? `${fmt.pct((totals.remaining_risk / equity) * 100, 2)} of equity` : null),
-      kpi("Unrealized P&L", fmt.signedMoney(totals.unrealized_pnl), totals.unrealized_pnl === null ? "Update prices to see it" : "At last prices, before fees", pnlClass(totals.unrealized_pnl)),
-      kpi("Realised today", fmt.signedMoney(today), `${fmt.signedMoney(totals.realized_open)} banked on open positions`, pnlClass(today)),
-      kpi("Risk-free", h("span", { class: "row pm-inline" }, icon("shield"), `${totals.risk_free_count} / ${totals.open_positions}`), "Stop at or beyond entry"),
+      kpi(t("Open positions"), String(totals.open_positions), t("{n} symbol(s)", { n: new Set(data.positions.map((p) => p.symbol)).size })),
+      kpi(
+        t("Remaining risk"),
+        fmt.money(totals.remaining_risk),
+        equity ? t("{pct} of equity", { pct: fmt.pct((totals.remaining_risk / equity) * 100, 2) }) : null,
+      ),
+      kpi(
+        t("Unrealized P&L"),
+        fmt.signedMoney(totals.unrealized_pnl),
+        totals.unrealized_pnl === null ? t("Update prices to see it") : t("At last prices, before fees"),
+        pnlClass(totals.unrealized_pnl),
+      ),
+      kpi(t("Realised today"), fmt.signedMoney(today), t("{amount} banked on open positions", { amount: fmt.signedMoney(totals.realized_open) }), pnlClass(today)),
+      kpi(t("Risk-free"), h("span", { class: "row pm-inline" }, icon("shield"), `${totals.risk_free_count} / ${totals.open_positions}`), t("Stop at or beyond entry")),
     );
   }
 
@@ -561,16 +625,16 @@ export async function render(root) {
       clear(quickBox);
       return;
     }
-    const symbol = select(symbols, symbols[0], { "aria-label": "Symbol" });
-    const price = numberInput(null, { placeholder: "price", "aria-label": "Last price" });
-    const high = numberInput(null, { placeholder: "optional", "aria-label": "High" });
-    const low = numberInput(null, { placeholder: "optional", "aria-label": "Low" });
-    const apply = h("button", { class: "btn primary", type: "submit" }, icon("refresh"), "Apply price");
+    const symbol = select(symbols, symbols[0], { "aria-label": t("Symbol") });
+    const price = numberInput(null, { placeholder: t("price"), "aria-label": t("Last price") });
+    const high = numberInput(null, { placeholder: t("optional"), "aria-label": t("High{_}", { _: "" }) });
+    const low = numberInput(null, { placeholder: t("optional"), "aria-label": t("Low{_}", { _: "" }) });
+    const apply = h("button", { class: "btn primary", type: "submit" }, icon("refresh"), t("Apply price"));
     const submit = async (event) => {
       event.preventDefault();
       const body = { symbol: symbol.value, price: numberOrNull(price), high: numberOrNull(high), low: numberOrNull(low) };
       if (body.price === null && (body.high === null || body.low === null)) {
-        toast("Enter the last price, or both the high and the low", "warn");
+        toast(t("Enter the last price, or both the high and the low"), "warn");
         return;
       }
       apply.disabled = true;
@@ -582,10 +646,14 @@ export async function render(root) {
           .map((r) => `#${r.trade_id} ${describeEvents(r.events)}`)
           .join("; ");
         toast(
-          text ? `${body.symbol}: ${text}` : `${body.symbol} price recorded on ${applied.length} position(s) - no target or stop reached`,
+          text
+            ? `${body.symbol}: ${text}`
+            : t("{symbol} price recorded on {n} position(s) - no target or stop reached", { symbol: body.symbol, n: applied.length }),
           text ? "success" : "info",
         );
-        for (const skipped of result.results.filter((r) => r.skipped)) toast(`Trade #${skipped.trade_id} skipped: ${skipped.skipped}`, "warn");
+        for (const skipped of result.results.filter((r) => r.skipped)) {
+          toast(t("Trade #{id} skipped: {reason}", { id: skipped.trade_id, reason: skipped.skipped }), "warn");
+        }
         await refresh();
       } catch (error) {
         toast(error.message, "error");
@@ -598,8 +666,21 @@ export async function render(root) {
       h(
         "form",
         { class: "card pm-quick", onsubmit: submit },
-        h("div", { class: "pm-quick-head" }, h("h3", {}, icon("zap"), "Quick price update"), h("p", { class: "muted small" }, "Applies one price to every open position of the symbol.")),
-        h("div", { class: "pm-quick-fields" }, field("Symbol", symbol), field("Last", price), field("High", high), field("Low", low), apply),
+        h(
+          "div",
+          { class: "pm-quick-head" },
+          h("h3", {}, icon("zap"), t("Quick price update")),
+          h("p", { class: "muted small" }, t("Applies one price to every open position of the symbol.")),
+        ),
+        h(
+          "div",
+          { class: "pm-quick-fields" },
+          field(t("Symbol"), symbol),
+          field(t("Last"), price),
+          field(t("High{_}", { _: "" }), high),
+          field(t("Low{_}", { _: "" }), low),
+          apply,
+        ),
       ),
     );
   }
@@ -612,13 +693,13 @@ export async function render(root) {
           "div",
           { class: "card empty pm-empty" },
           icon("layers", "icon pm-empty-icon"),
-          h("strong", {}, "No open positions"),
-          h("p", {}, "Take a trade from a signal or log one in the journal - its targets, stops and partial closes are managed here."),
+          h("strong", {}, t("No open positions")),
+          h("p", {}, t("Take a trade from a signal or log one in the journal - its targets, stops and partial closes are managed here.")),
           h(
             "div",
             { class: "row pm-empty-actions" },
-            h("a", { class: "btn primary", href: "#/signals" }, icon("signal"), "Paste a signal"),
-            h("a", { class: "btn", href: "#/journal" }, icon("journal"), "Open the journal"),
+            h("a", { class: "btn primary", href: "#/signals" }, icon("signal"), t("Paste a signal")),
+            h("a", { class: "btn", href: "#/journal" }, icon("journal"), t("Open the journal")),
           ),
         ),
       );
@@ -635,7 +716,7 @@ export async function render(root) {
       drawQuick();
       drawList();
     } catch (error) {
-      clear(listBox, h("div", { class: "card empty" }, h("strong", {}, "Positions could not be loaded"), error.message));
+      clear(listBox, h("div", { class: "card empty" }, h("strong", {}, t("Positions could not be loaded")), error.message));
     } finally {
       listBox.classList.remove("refreshing");
     }
@@ -650,8 +731,13 @@ export async function render(root) {
     h(
       "div",
       { class: "page-head" },
-      h("div", {}, h("h1", {}, "Positions"), h("p", {}, "Scale out at your targets, protect profits with break-even and trailing stops, and keep every fill on record.")),
-      h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => refresh() }, icon("refresh"), "Refresh")),
+      h(
+        "div",
+        {},
+        h("h1", {}, t("Positions")),
+        h("p", {}, t("Scale out at your targets, protect profits with break-even and trailing stops, and keep every fill on record.")),
+      ),
+      h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => refresh() }, icon("refresh"), t("Refresh"))),
     ),
     totalsBox,
     quickBox,
