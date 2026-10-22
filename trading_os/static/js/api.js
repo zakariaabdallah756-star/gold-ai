@@ -1,5 +1,7 @@
 // Thin fetch wrapper around the REST API.
 
+import { t } from "./i18n.js";
+
 export class ApiError extends Error {
   constructor(status, message, payload) {
     super(message);
@@ -9,20 +11,20 @@ export class ApiError extends Error {
 }
 
 function describe(payload) {
-  if (!payload) return "Request failed";
+  if (!payload) return t("Request failed");
   if (typeof payload === "string") return payload;
   const { detail } = payload;
   if (typeof detail === "string") return detail;
   if (Array.isArray(detail)) {
     return detail
       .map((err) => {
-        const msg = String(err.msg || "Invalid value").replace(/^Value error, /, "");
+        const msg = String(err.msg || t("Invalid value")).replace(/^Value error, /, "");
         const field = (err.loc || []).filter((part) => part !== "body").join(".");
         return field && !/^\d+$/.test(field) && err.type !== "value_error" ? `${field}: ${msg}` : msg;
       })
       .join(" · ");
   }
-  return "Request failed";
+  return t("Request failed");
 }
 
 async function request(method, path, body, { form } = {}) {
@@ -37,7 +39,7 @@ async function request(method, path, body, { form } = {}) {
   try {
     response = await fetch(path, options);
   } catch {
-    throw new ApiError(0, "Cannot reach the Trading OS server. Is it still running?");
+    throw new ApiError(0, t("Cannot reach the Trading OS server. Is it still running?"));
   }
   if (response.status === 204) return null;
   const type = response.headers.get("content-type") || "";

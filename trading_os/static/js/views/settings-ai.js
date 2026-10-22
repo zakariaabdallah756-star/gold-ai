@@ -1,14 +1,15 @@
 // Trading plan -> AI assistant: the Claude model, effort and API key used by Vision AI.
 
 import { api } from "../api.js";
-import { clear, confirmDialog, field, h, icon, select, toast } from "../dom.js";
+import { clear, confirmDialog, field, h, icon, select, toast, withNodes } from "../dom.js";
+import { N_, t } from "../i18n.js";
 
 const SOURCES = {
-  saved: { cls: "ok", icon: "lock", text: "Connected - using the API key saved in this journal" },
-  environment: { cls: "ok", icon: "checkCircle", text: "Connected - using ANTHROPIC_API_KEY or an ant auth login profile" },
-  none: { cls: "warn", icon: "alert", text: "Not connected - no API key or login found" },
+  saved: { cls: "ok", icon: "lock", text: N_("Connected - using the API key saved in this journal") },
+  environment: { cls: "ok", icon: "checkCircle", text: N_("Connected - using ANTHROPIC_API_KEY or an ant auth login profile") },
+  none: { cls: "warn", icon: "alert", text: N_("Not connected - no API key or login found") },
 };
-const EFFORT_LABELS = { low: "Low", medium: "Medium", high: "High (recommended)", xhigh: "Extra high", max: "Max" };
+const EFFORT_LABELS = { low: N_("Low"), medium: N_("Medium"), high: N_("High (recommended)"), xhigh: N_("Extra high"), max: N_("Max") };
 
 const usd = (value) => (Number.isInteger(value) ? `$${value}` : `$${value.toFixed(2)}`);
 
@@ -23,7 +24,7 @@ function draw(container, settings) {
     settings.model,
   );
   const effortSelect = select(
-    settings.efforts.map((e) => [e.id, EFFORT_LABELS[e.id] || e.id]),
+    settings.efforts.map((e) => [e.id, EFFORT_LABELS[e.id] ? t(EFFORT_LABELS[e.id]) : e.id]),
     settings.effort,
   );
   const effortHelp = h("span");
@@ -38,9 +39,9 @@ function draw(container, settings) {
     name: "api_key",
     autocomplete: "off",
     spellcheck: false,
-    placeholder: settings.key_source === "saved" ? "A key is saved - paste a new one to replace it" : "sk-ant-…",
+    placeholder: settings.key_source === "saved" ? t("A key is saved - paste a new one to replace it") : "sk-ant-…",
   });
-  const saveBtn = h("button", { class: "btn primary", type: "submit" }, icon("check"), "Save");
+  const saveBtn = h("button", { class: "btn primary", type: "submit" }, icon("check"), t("Save"));
 
   async function save(event) {
     event.preventDefault();
@@ -50,7 +51,7 @@ function draw(container, settings) {
     saveBtn.disabled = true;
     try {
       const next = await api.put("/api/ai/settings", body);
-      toast(key ? "AI settings and API key saved" : "AI settings saved", "success");
+      toast(key ? t("AI settings and API key saved") : t("AI settings saved"), "success");
       draw(container, next);
     } catch (error) {
       toast(error.message, "error");
@@ -59,15 +60,15 @@ function draw(container, settings) {
   }
 
   async function removeKey() {
-    const ok = await confirmDialog("Remove the saved API key? Vision AI then uses ANTHROPIC_API_KEY or an ant auth login profile if one is available.", {
-      title: "Remove API key",
-      confirmText: "Remove key",
+    const ok = await confirmDialog(t("Remove the saved API key? Vision AI then uses ANTHROPIC_API_KEY or an ant auth login profile if one is available."), {
+      title: t("Remove API key"),
+      confirmText: t("Remove key"),
       danger: true,
     });
     if (!ok) return;
     try {
       const next = await api.put("/api/ai/settings", { clear_key: true });
-      toast("Saved API key removed", "success");
+      toast(t("Saved API key removed"), "success");
       draw(container, next);
     } catch (error) {
       toast(error.message, "error");
@@ -82,41 +83,46 @@ function draw(container, settings) {
       h(
         "div",
         { class: "card-head" },
-        h("div", {}, h("h2", {}, "AI assistant"), h("p", {}, "Claude reads your chart screenshots in Vision AI and answers follow-up questions about them.")),
-        h("a", { class: "btn sm", href: "#/vision" }, icon("brain"), "Open Vision AI"),
+        h("div", {}, h("h2", {}, t("AI assistant")), h("p", {}, t("Claude reads your chart screenshots in Vision AI and answers follow-up questions about them."))),
+        h("a", { class: "btn sm", href: "#/vision" }, icon("brain"), t("Open Vision AI")),
       ),
-      h("div", { class: "row ai-status" }, h("span", { class: `chip ${source.cls}` }, icon(source.icon), source.text)),
+      h("div", { class: "row ai-status" }, h("span", { class: `chip ${source.cls}` }, icon(source.icon), t(source.text))),
       settings.package_installed
         ? null
         : h(
             "div",
             { class: "vi-callout bad" },
             icon("xCircle"),
-            h("div", {}, h("strong", {}, 'The "anthropic" Python package is not installed'), "Run ", h("code", {}, "pip install anthropic"), " and restart Trading OS."),
+            h(
+              "div",
+              {},
+              h("strong", {}, t('The "anthropic" Python package is not installed')),
+              withNodes(t("Run {command} and restart Trading OS."), { command: h("code", {}, "pip install anthropic") }),
+            ),
           ),
       h(
         "div",
         { class: "form-grid ai-form" },
-        field("Model", modelSelect, { help: "Price per 1M tokens (input / output). A chart image costs up to about 4,800 input tokens." }),
-        field("Effort", effortSelect, { help: effortHelp }),
+        field(t("Model"), modelSelect, { help: t("Price per 1M tokens (input / output). A chart image costs up to about 4,800 input tokens.") }),
+        field(t("Effort"), effortSelect, { help: effortHelp }),
         h(
           "p",
           { class: "full muted small" },
-          "Higher effort reasons more deeply but is slower and uses more output tokens. Follow-up questions run at medium effort at most to keep chat quick.",
+          t("Higher effort reasons more deeply but is slower and uses more output tokens. Follow-up questions run at medium effort at most to keep chat quick."),
         ),
-        field("Anthropic API key", keyInput, {
+        field(t("Anthropic API key"), keyInput, {
           full: true,
           help:
             settings.key_source === "saved"
-              ? "A key is saved. It is never shown again - paste a new key to replace it."
-              : "Optional when ANTHROPIC_API_KEY is set or you ran ant auth login. Get a key at platform.claude.com.",
+              ? t("A key is saved. It is never shown again - paste a new key to replace it.")
+              : t("Optional when ANTHROPIC_API_KEY is set or you ran ant auth login. Get a key at platform.claude.com."),
         }),
       ),
       h(
         "div",
         { class: "row ai-actions" },
         saveBtn,
-        settings.key_source === "saved" ? h("button", { class: "btn danger", type: "button", onclick: removeKey }, icon("trash"), "Remove saved key") : null,
+        settings.key_source === "saved" ? h("button", { class: "btn danger", type: "button", onclick: removeKey }, icon("trash"), t("Remove saved key")) : null,
       ),
       h(
         "div",
@@ -125,8 +131,10 @@ function draw(container, settings) {
         h(
           "div",
           {},
-          h("strong", {}, "Privacy"),
-          "When you analyse a chart, the screenshot, your notes and the selected strategy's rules are sent to Anthropic's API. Nothing is sent until you click Analyze chart. The API key stays in this journal's local database, is never displayed and is excluded from backups.",
+          h("strong", {}, t("Privacy")),
+          t(
+            "When you analyse a chart, the screenshot, your notes and the selected strategy's rules are sent to Anthropic's API. Nothing is sent until you click Analyze chart. The API key stays in this journal's local database, is never displayed and is excluded from backups.",
+          ),
         ),
       ),
     ),

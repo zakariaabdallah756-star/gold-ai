@@ -4,6 +4,7 @@
 // every tooltip value is signed.
 
 import { fmt } from "./format.js";
+import { t, tn } from "./i18n.js";
 
 const C = {
   surface: "#16171a",
@@ -142,22 +143,22 @@ export function equityChart(canvas, points) {
         x: {
           grid: { display: false },
           border: { color: C.axis },
-          ticks: { maxTicksLimit: 8, maxRotation: 0, callback: (_v, i) => (i === 0 ? "Start" : `#${points[i]?.n}`) },
+          ticks: { maxTicksLimit: 8, maxRotation: 0, callback: (_v, i) => (i === 0 ? t("Start") : `#${points[i]?.n}`) },
         },
         y: moneyAxis(),
       },
       plugins: {
-        referenceLine: { value: base, label: "Starting balance" },
+        referenceLine: { value: base, label: t("Starting balance") },
         tooltip: {
           callbacks: {
             title: (items) => {
               const p = points[items[0].dataIndex];
-              return p.n === 0 ? "Starting balance" : `Trade #${p.n} · ${p.symbol} · ${fmt.date(p.t)}`;
+              return p.n === 0 ? t("Starting balance") : t("Trade #{n} · {symbol} · {date}", { n: p.n, symbol: p.symbol, date: fmt.date(p.t) });
             },
-            label: (item) => `Equity ${fmt.money(item.parsed.y)}`,
+            label: (item) => t("Equity {value}", { value: fmt.money(item.parsed.y) }),
             footer: (items) => {
               const p = points[items[0].dataIndex];
-              return p.pnl === null ? "" : `Trade P&L ${fmt.signedMoney(p.pnl)}`;
+              return p.pnl === null ? "" : t("Trade P&L {pnl}", { pnl: fmt.signedMoney(p.pnl) });
             },
           },
         },
@@ -202,10 +203,10 @@ export function dailyPnlChart(canvas, days) {
         tooltip: {
           callbacks: {
             title: (items) => fmt.longDate(days[items[0].dataIndex].date),
-            label: (item) => `Day P&L ${fmt.signedMoney(item.parsed.y)}`,
+            label: (item) => t("Day P&L {pnl}", { pnl: fmt.signedMoney(item.parsed.y) }),
             footer: (items) => {
               const d = days[items[0].dataIndex];
-              return `${d.trades} trade${d.trades === 1 ? "" : "s"} · ${d.wins}W / ${d.losses}L`;
+              return `${tn(d.trades, "{n} trade", "{n} trades")} · ${t("{wins}W / {losses}L", { wins: d.wins, losses: d.losses })}`;
             },
           },
         },
@@ -237,11 +238,11 @@ export function distributionChart(canvas, bins) {
       plugins: {
         tooltip: {
           callbacks: {
-            title: (items) => `R-multiple ${bins[items[0].dataIndex].label}`,
-            label: (item) => `${item.parsed.y} trade${item.parsed.y === 1 ? "" : "s"}`,
+            title: (items) => t("R-multiple {label}", { label: bins[items[0].dataIndex].label }),
+            label: (item) => tn(item.parsed.y, "{n} trade", "{n} trades"),
             footer: (items) => {
               const b = bins[items[0].dataIndex];
-              return b.count ? `${b.wins} win${b.wins === 1 ? "" : "s"} · ${b.losses} loss${b.losses === 1 ? "" : "es"}` : "";
+              return b.count ? `${tn(b.wins, "{n} win", "{n} wins")} · ${tn(b.losses, "{n} loss", "{n} losses")}` : "";
             },
           },
         },
@@ -287,7 +288,7 @@ export function balanceChart(canvas, days, { start, target }) {
       labels: days.map((d) => d.date),
       datasets: [
         {
-          label: "Balance",
+          label: t("Balance"),
           data: balances,
           borderColor: C.accent,
           borderWidth: 2,
@@ -303,7 +304,7 @@ export function balanceChart(canvas, days, { start, target }) {
           pointHitRadius: 12,
         },
         {
-          label: "Drawdown floor",
+          label: t("Drawdown floor"),
           data: floors,
           borderColor: C.loss,
           borderWidth: 1,
@@ -332,15 +333,15 @@ export function balanceChart(canvas, days, { start, target }) {
       plugins: {
         referenceLines: {
           lines: [
-            { value: target, label: "Profit target", color: C.profit },
-            { value: start, label: "Starting balance" },
+            { value: target, label: t("Profit target"), color: C.profit },
+            { value: start, label: t("Starting balance") },
           ],
         },
         tooltip: {
           callbacks: {
             title: (items) => fmt.date(days[items[0].dataIndex].date),
             label: (item) => `${item.dataset.label} ${fmt.money(item.parsed.y)}`,
-            footer: (items) => `Day P&L ${fmt.signedMoney(days[items[0].dataIndex].pnl)}`,
+            footer: (items) => t("Day P&L {pnl}", { pnl: fmt.signedMoney(days[items[0].dataIndex].pnl) }),
           },
         },
       },
