@@ -9,6 +9,7 @@ from ..config import AppConfig
 from ..database import get_db
 from ..models import AccountSettings
 from ..services import account
+from ..services.i18n import tr
 
 DbDep = Annotated[Session, Depends(get_db)]
 
@@ -28,5 +29,7 @@ SettingsDep = Annotated[AccountSettings, Depends(get_account_settings)]
 def get_or_404(db: Session, model, item_id):
     obj = db.get(model, item_id)
     if obj is None:
-        raise HTTPException(status_code=404, detail=f"{model.__name__} {item_id} not found")
+        raise HTTPException(
+            status_code=404, detail=tr("{model} {item_id} not found", model=model.__name__, item_id=item_id)
+        )
     return obj

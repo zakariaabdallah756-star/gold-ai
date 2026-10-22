@@ -32,6 +32,7 @@ from .guardrails import (
     is_blocking,
     trade_rule_violations,
 )
+from .i18n import tr
 from .position_engine import outcome_for
 from .sessions import classify_session, in_trading_window, open_sessions
 from .sizing import blended_rr, conversion_hint, executed_rr, gross_pnl, planned_rr, risk_for_lots
@@ -124,7 +125,7 @@ def evaluate(
     entry_time = normalize_time(data.entry_time, tz)
     exit_time = normalize_time(data.exit_time, tz)
     if exit_time is not None and exit_time < entry_time:
-        raise TradeError("Exit time cannot be before entry time")
+        raise TradeError(tr("Exit time cannot be before entry time"))
 
     market = db.scalar(select(Market).where(Market.symbol == data.symbol))
     risk_amount = data.risk_amount
@@ -339,13 +340,15 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
     else:
         if ev.market is None or not data.position_size:
             raise TradeError(
-                "Enter the net P&L, or set a position size on a configured market so it can be auto-calculated."
+                tr("Enter the net P&L, or set a position size on a configured market so it can be auto-calculated.")
             )
         gross = gross_pnl(
             ev.market, settings.currency, data.direction, data.entry_price, data.exit_price, data.position_size
         )
         if gross is None:
-            raise TradeError(conversion_hint(ev.market, settings.currency) + " - or enter the net P&L manually.")
+            raise TradeError(
+                tr("{hint} - or enter the net P&L manually.", hint=conversion_hint(ev.market, settings.currency))
+            )
         pnl, manual = gross - data.fees, False
 
     rr = executed_rr(data.direction, data.entry_price, data.stop_loss, data.exit_price)
