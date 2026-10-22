@@ -30,6 +30,7 @@ from dataclasses import asdict, dataclass, field
 from decimal import ROUND_DOWN, Decimal
 
 from ..constants import DEFAULT_TP_SPLITS, MAX_TARGETS
+from .i18n import tr, tr_n
 
 
 @dataclass
@@ -71,7 +72,10 @@ def _fmt(value: float) -> str:
 def _fmt_list(values: list, limit: int = 6) -> str:
     """``2680, 2690`` - at most ``limit`` items, so a garbage paste cannot flood the warnings."""
     items = [_fmt(v) if isinstance(v, float) else str(v) for v in values]
-    return ", ".join(items[:limit]) + (f" and {len(items) - limit} more" if len(items) > limit else "")
+    shown = ", ".join(items[:limit])
+    if len(items) > limit:
+        return tr("{items} and {count} more", items=shown, count=len(items) - limit)
+    return shown
 
 
 # --------------------------------------------------------------------------- symbols
@@ -413,7 +417,12 @@ def _direction(regions: list[_Region], text: str, warnings: list[str]) -> str | 
                     found.append((tier[stem], stem))
         if found:
             if len({direction for direction, _ in found}) > 1:
-                warnings.append(f"Both buy and sell words found - using '{found[0][1].upper()}' (first mention).")
+                warnings.append(
+                    tr(
+                        "Both buy and sell words found - using '{word}' (first mention).",
+                        word=found[0][1].upper(),
+                    )
+                )
             return found[0][0]
     longs = sum(text.count(e) for e in _LONG_EMOJI)
     shorts = sum(text.count(e) for e in _SHORT_EMOJI)
@@ -445,7 +454,7 @@ def parse_signal(text: str, symbols: Iterable[str] = ()) -> ParsedSignal:
     warnings = result.warnings
     text = _normalise(text or "")
     if not text.strip():
-        warnings.append("Nothing to parse - paste a signal message.")
+        warnings.append(tr("Nothing to parse - paste a signal message."))
         return result
 
     book = _SymbolBook(list(symbols))
@@ -458,14 +467,20 @@ def parse_signal(text: str, symbols: Iterable[str] = ()) -> ParsedSignal:
         chosen = _unknown_symbol(text, hidden)
         if chosen:
             hidden.append((chosen.start, chosen.end))
-            warnings.append(f"'{chosen.raw}' is not a known instrument - check the symbol.")
+            warnings.append(tr("'{raw}' is not a known instrument - check the symbol.", raw=chosen.raw))
     elif chosen is not None and not chosen.configured and book.configured:
-        warnings.append(f"{chosen.symbol} is not one of your configured markets.")
+        warnings.append(tr("{symbol} is not one of your configured markets.", symbol=chosen.symbol))
     if chosen:
         result.symbol, result.symbol_raw = chosen.symbol, chosen.raw
         others = sorted({hit.symbol for hit in hits} - {chosen.symbol})
         if others:
-            warnings.append(f"Several instruments mentioned ({', '.join(others)}) - using {chosen.symbol}.")
+            warnings.append(
+                tr(
+                    "Several instruments mentioned ({others}) - using {symbol}.",
+                    others=", ".join(others),
+                    symbol=chosen.symbol,
+                )
+            )
 
     work = lower
     for start, end in hidden:
@@ -486,12 +501,17 @@ def parse_signal(text: str, symbols: Iterable[str] = ()) -> ParsedSignal:
 
     if not (result.symbol or result.direction or result.stop_loss or result.stop_pips or result.take_profits):
         # A stray number or label is not a signal: report nothing but the reason.
-        return ParsedSignal(warnings=["No trade signal recognised - expected a symbol, BUY/SELL, entry, SL and TP."])
+        return ParsedSignal(
+            warnings=[tr("No trade signal recognised - expected a symbol, BUY/SELL, entry, SL and TP.")]
+        )
     if open_targets:
-        one = len(open_targets) == 1
         warnings.append(
-            f"{_fmt_list(open_targets)} {'has' if one else 'have'} no price (open / runner) - skipped; "
-            f"manage {'it' if one else 'them'} manually."
+            tr_n(
+                len(open_targets),
+                "{targets} has no price (open / runner) - skipped; manage it manually.",
+                "{targets} have no price (open / runner) - skipped; manage them manually.",
+                targets=_fmt_list(open_targets),
+            )
         )
     return result
 
@@ -516,8 +536,12 @@ def _assemble_entry(result: ParsedSignal, regions: list[_Region]) -> None:
     ]
     if others:
         result.warnings.append(
-            f"Entry {_fmt_list(prices)} used; '{others[0].label} {_fmt_list(others[0].prices)}' also looks like a "
-            "price to enter at - check the entry."
+            tr(
+                "Entry {used} used; '{label} {other_prices}' also looks like a price to enter at - check the entry.",
+                used=_fmt_list(prices),
+                label=others[0].label,
+                other_prices=_fmt_list(others[0].prices),
+            )
         )
     if len(prices) == 1:
         result.entry = prices[0]
@@ -525,7 +549,12 @@ def _assemble_entry(result: ParsedSignal, regions: list[_Region]) -> None:
     result.entry_low, result.entry_high = min(prices), max(prices)
     if len(prices) > 2:
         result.warnings.append(
-            f"{len(prices)} entry prices found - treated as the zone {_fmt(result.entry_low)}-{_fmt(result.entry_high)}."
+            tr(
+                "{count} entry prices found - treated as the zone {low}-{high}.",
+                count=len(prices),
+                low=_fmt(result.entry_low),
+                high=_fmt(result.entry_high),
+            )
         )
 
 
@@ -540,8 +569,11 @@ def _assemble_stop(result: ParsedSignal, regions: list[_Region]) -> None:
         result.stop_pips = first.pips[0]
     values = {v for region in stops for v in (region.prices or region.pips)}
     if len(values) > 1:
-        used = _fmt(result.stop_loss) if result.stop_loss is not None else f"{_fmt(result.stop_pips)} pips"
-        result.warnings.append(f"Several stop-loss values found - using the first ({used}).")
+        if result.stop_loss is not None:
+            used = _fmt(result.stop_loss)
+        else:
+            used = tr("{value} pips", value=_fmt(result.stop_pips))
+        result.warnings.append(tr("Several stop-loss values found - using the first ({used}).", used=used))
 
 
 def _assemble_targets(result: ParsedSignal, regions: list[_Region]) -> list[str]:
@@ -569,12 +601,12 @@ def _relative_by_scale(result: ParsedSignal) -> None:
     limit = ref * 0.25
     if result.stop_loss is not None and result.stop_loss < limit:
         result.warnings.append(
-            f"SL {_fmt(result.stop_loss)} looks like a distance - read as {_fmt(result.stop_loss)} pips."
+            tr("SL {value} looks like a distance - read as {value} pips.", value=_fmt(result.stop_loss))
         )
         result.stop_pips, result.stop_loss = result.stop_loss, None
     small = [tp for tp in result.take_profits if tp < limit]
     if small:
-        result.warnings.append(f"TP {_fmt_list(small)} looks like a distance - read as pips.")
+        result.warnings.append(tr("TP {values} looks like a distance - read as pips.", values=_fmt_list(small)))
         result.take_profits = [tp for tp in result.take_profits if tp >= limit]
         result.target_pips += small
 
@@ -589,7 +621,12 @@ def _resolve_zone(result: ParsedSignal) -> None:
     if result.stop_loss is not None:
         if low < result.stop_loss < high:
             result.warnings.append(
-                f"Stop loss {_fmt(result.stop_loss)} lies inside the entry zone {_fmt(low)}-{_fmt(high)}."
+                tr(
+                    "Stop loss {stop} lies inside the entry zone {low}-{high}.",
+                    stop=_fmt(result.stop_loss),
+                    low=_fmt(low),
+                    high=_fmt(high),
+                )
             )
         result.entry = max((low, high), key=lambda edge: abs(edge - result.stop_loss))
     elif result.stop_pips is not None and result.direction:
@@ -597,7 +634,9 @@ def _resolve_zone(result: ParsedSignal) -> None:
     else:
         result.entry = round((low + high) / 2, 10)
     if high > 0 and (high - low) / high > 0.05:
-        result.warnings.append(f"Entry zone {_fmt(low)}-{_fmt(high)} is unusually wide - check the prices.")
+        result.warnings.append(
+            tr("Entry zone {low}-{high} is unusually wide - check the prices.", low=_fmt(low), high=_fmt(high))
+        )
 
 
 def _check_geometry(result: ParsedSignal) -> None:
@@ -614,11 +653,23 @@ def _check_geometry(result: ParsedSignal) -> None:
             result.direction = "long" if stop < result.take_profits[0] else "short"
     elif entry is not None and stop is not None:
         if (result.direction == "long" and stop >= entry) or (result.direction == "short" and stop <= entry):
-            side = "above" if stop > entry else "below" if stop < entry else "at"
-            warnings.append(
-                f"{word[result.direction]} signal but the stop loss ({_fmt(stop)}) is {side} the entry "
-                f"({_fmt(entry)}) - check the direction."
-            )
+            params = {"word": word[result.direction], "stop": _fmt(stop), "entry": _fmt(entry)}
+            if stop > entry:
+                message = tr(
+                    "{word} signal but the stop loss ({stop}) is above the entry ({entry}) - check the direction.",
+                    **params,
+                )
+            elif stop < entry:
+                message = tr(
+                    "{word} signal but the stop loss ({stop}) is below the entry ({entry}) - check the direction.",
+                    **params,
+                )
+            else:
+                message = tr(
+                    "{word} signal but the stop loss ({stop}) is at the entry ({entry}) - check the direction.",
+                    **params,
+                )
+            warnings.append(message)
 
     _order_targets(result)
     if result.direction and result.take_profits:
@@ -626,35 +677,47 @@ def _check_geometry(result: ParsedSignal) -> None:
         if entry is not None:
             wrong = [tp for tp in result.take_profits if (tp - entry) * sign <= 0]
             if wrong:
-                side = "below" if sign > 0 else "above"
-                warnings.append(
-                    f"Take profit {_fmt_list(wrong)} is {side} the entry for a "
-                    f"{word[result.direction]} - check the signal."
-                )
+                params = {"wrong": _fmt_list(wrong), "word": word[result.direction]}
+                if sign > 0:
+                    message = tr("Take profit {wrong} is below the entry for a {word} - check the signal.", **params)
+                else:
+                    message = tr("Take profit {wrong} is above the entry for a {word} - check the signal.", **params)
+                warnings.append(message)
         elif stop is not None and (result.take_profits[0] - stop) * sign <= 0:
-            warnings.append(f"Stop loss {_fmt(stop)} is beyond the take profit - check the signal.")
+            warnings.append(tr("Stop loss {stop} is beyond the take profit - check the signal.", stop=_fmt(stop)))
 
 
 def _order_targets(result: ParsedSignal) -> None:
     targets = list(dict.fromkeys(result.take_profits))
     if len(targets) < len(result.take_profits):
-        result.warnings.append("Duplicate take-profit prices removed.")
+        result.warnings.append(tr("Duplicate take-profit prices removed."))
     if result.direction:
         ordered = sorted(targets, reverse=result.direction == "short")
         if ordered != targets:
-            result.warnings.append("Take profits re-ordered nearest to farthest.")
+            result.warnings.append(tr("Take profits re-ordered nearest to farthest."))
         targets = ordered
     if len(targets) > MAX_TARGETS:
         dropped = targets[MAX_TARGETS:]
         result.warnings.append(
-            f"{len(targets)} take profits found - kept TP1-TP{MAX_TARGETS}, dropped {_fmt_list(dropped)}."
+            tr(
+                "{count} take profits found - kept TP1-TP{maximum}, dropped {dropped}.",
+                count=len(targets),
+                maximum=MAX_TARGETS,
+                dropped=_fmt_list(dropped),
+            )
         )
         targets = targets[:MAX_TARGETS]
     result.take_profits = targets
     room = MAX_TARGETS - len(targets)
     pips = sorted(dict.fromkeys(result.target_pips))
     if len(pips) > room:
-        result.warnings.append(f"Relative targets beyond TP{MAX_TARGETS} dropped ({_fmt_list(pips[room:])} pips).")
+        result.warnings.append(
+            tr(
+                "Relative targets beyond TP{maximum} dropped ({dropped} pips).",
+                maximum=MAX_TARGETS,
+                dropped=_fmt_list(pips[room:]),
+            )
+        )
     result.target_pips = pips[:room]
 
 
@@ -677,9 +740,11 @@ def resolve_close_pcts(given: list[float | None]) -> list[float]:
     remainder = 100.0 - sum(pct for pct in given if pct is not None)
     if remainder <= 0.005:
         raise ValueError(
-            f"The close % already set add up to {100 - remainder:g}% - nothing is left for "
-            + ", ".join(f"TP{i + 1}" for i in blanks)
-            + "."
+            tr(
+                "The close % already set add up to {total:g}% - nothing is left for {targets}.",
+                total=100 - remainder,
+                targets=", ".join(f"TP{i + 1}" for i in blanks),
+            )
         )
     share = round(remainder / len(blanks), 2)
     out = [float(pct) if pct is not None else share for pct in given]

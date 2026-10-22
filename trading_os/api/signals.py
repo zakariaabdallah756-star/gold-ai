@@ -25,6 +25,7 @@ from ..models import AccountSettings, Market
 from ..schemas import FiniteModel, MarketOut, TradeCheckOut, TradeIn
 from ..services import account
 from ..services import trades as trade_service
+from ..services.i18n import N_, tr
 from ..services.signal_parser import ParsedSignal, parse_signal, resolve_close_pcts, split_lots
 from ..services.sizing import SizingError, blended_rr, calculate_position_size, gross_pnl, risk_for_lots, round_lots
 from .deps import DbDep, SettingsDep
@@ -37,7 +38,7 @@ Number = Annotated[float, Field(allow_inf_nan=False)]
 StrategyName = Annotated[str, StringConstraints(max_length=60, strip_whitespace=True)]
 Timeframe = Annotated[str, StringConstraints(max_length=10, strip_whitespace=True)]
 Confluences = Annotated[list[Annotated[str, StringConstraints(max_length=80)]], Field(max_length=50)]
-NOTHING_RECOGNISED = "No trade signal recognised - paste a message with a symbol, BUY/SELL, entry, SL and TP."
+NOTHING_RECOGNISED = N_("No trade signal recognised - paste a message with a symbol, BUY/SELL, entry, SL and TP.")
 
 
 # --------------------------------------------------------------------------- request / response models
@@ -147,7 +148,7 @@ def parse(payload: ParseIn, settings: SettingsDep, db: DbDep):
     parsed = parse_signal(payload.text, db.scalars(select(Market.symbol).order_by(Market.symbol)))
     draft = draft_from_parsed(parsed, payload, settings)
     if not (parsed.symbol or parsed.direction or parsed.stop_loss or parsed.stop_pips or parsed.take_profits):
-        preview = _empty_preview([NOTHING_RECOGNISED if payload.text.strip() else "Paste a signal to start."])
+        preview = _empty_preview([tr(NOTHING_RECOGNISED) if payload.text.strip() else tr("Paste a signal to start.")])
     else:
         preview = build_preview(db, settings, draft)
     return {**preview, "parsed": parsed.to_dict(), "draft": draft}
@@ -194,19 +195,28 @@ def build_preview(db: Session, settings: AccountSettings, draft: TicketDraft) ->
 
     market = db.scalar(select(Market).where(Market.symbol == draft.symbol)) if draft.symbol else None
     if not draft.symbol:
-        errors.append("No symbol - choose the instrument.")
+        errors.append(tr("No symbol - choose the instrument."))
     elif market is None:
-        errors.append(f"{draft.symbol} is not one of your markets - add it in Trading Plan → Markets to trade it.")
+        errors.append(
+            tr(
+                "{symbol} is not one of your markets - add it in Trading Plan → Markets to trade it.",
+                symbol=draft.symbol,
+            )
+        )
     if market is not None:
         out["market"] = MarketOut.model_validate(market)
         out["needs_fx"] = market.quote_currency != currency and market.base_currency != currency
         if not market.active:
-            errors.append(f"{market.symbol} is inactive - re-activate it in Trading Plan → Markets.")
+            errors.append(tr("{symbol} is inactive - re-activate it in Trading Plan → Markets.", symbol=market.symbol))
             market = None
     if market is not None and out["needs_fx"] and not draft.fx_rate:
         errors.append(
-            f"{market.symbol} is quoted in {market.quote_currency} - enter the "
-            f"{market.quote_currency}→{currency} rate to size it."
+            tr(
+                "{symbol} is quoted in {quote} - enter the {quote}→{currency} rate to size it.",
+                symbol=market.symbol,
+                quote=market.quote_currency,
+                currency=currency,
+            )
         )
     pip = market.pip_size if market else None
 
@@ -219,13 +229,13 @@ def build_preview(db: Session, settings: AccountSettings, draft: TicketDraft) ->
     if stop is None and stop_pips and entry and sign and pip:
         stop = _price(entry - sign * stop_pips * pip)
     if entry is None:
-        errors.append("No entry price - enter your fill price.")
+        errors.append(tr("No entry price - enter your fill price."))
     if stop is None and not stop_pips:
-        errors.append("No stop loss found - cannot size the position.")
+        errors.append(tr("No stop loss found - cannot size the position."))
     elif entry is not None and stop == entry:
-        errors.append("Stop loss equals the entry price.")
+        errors.append(tr("Stop loss equals the entry price."))
     if direction is None and not (stop_pips and entry is None):
-        errors.append("Choose a direction (long or short).")
+        errors.append(tr("Choose a direction (long or short)."))
 
     # ------------------------------------------------------------ sizing
     sizing = None
@@ -259,8 +269,13 @@ def build_preview(db: Session, settings: AccountSettings, draft: TicketDraft) ->
             )
             if part == 0:
                 warnings.append(
-                    f"At {lots:g} lots TP{level} closes nothing (its {pct:g}% is below the "
-                    f"{market.lot_step:g} lot step)."
+                    tr(
+                        "At {lots:g} lots TP{level} closes nothing (its {pct:g}% is below the {lot_step:g} lot step).",
+                        lots=lots,
+                        level=level,
+                        pct=pct,
+                        lot_step=market.lot_step,
+                    )
                 )
         if risk:
             out["blended_rr"] = blended_rr(entry, stop, plan)
@@ -273,9 +288,9 @@ def build_preview(db: Session, settings: AccountSettings, draft: TicketDraft) ->
     trail_enabled = settings.default_trail_pips > 0 if draft.trail_enabled is None else draft.trail_enabled
     trail_distance = draft.trail_distance_pips or settings.default_trail_pips or None
     if be_enabled and not plan:
-        warnings.append("Break-even moves the stop when TP1 is hit - add a target or it never triggers.")
+        warnings.append(tr("Break-even moves the stop when TP1 is hit - add a target or it never triggers."))
     if trail_enabled and draft.trail_trigger == "tp1" and not plan:
-        warnings.append("The trailing stop starts at TP1 - add a target or start it immediately.")
+        warnings.append(tr("The trailing stop starts at TP1 - add a target or start it immediately."))
 
     # ------------------------------------------------------------ ticket + guardrails
     if errors or lots is None or entry is None or stop is None:
@@ -353,15 +368,26 @@ def _sizing(
     if draft.lots is not None:
         lots = round_lots(draft.lots, market)
         if lots == 0:
-            errors.append(f"{draft.lots:g} lots is below the minimum lot size of {market.min_lot:g}.")
+            errors.append(
+                tr(
+                    "{lots:g} lots is below the minimum lot size of {min_lot:g}.",
+                    lots=draft.lots,
+                    min_lot=market.min_lot,
+                )
+            )
         elif abs(lots - draft.lots) > 1e-9:
             notes.append(
-                f"Manual size adjusted to {lots:g} lots (lot step {market.lot_step:g}, max {market.max_lot:g})."
+                tr(
+                    "Manual size adjusted to {lots:g} lots (lot step {lot_step:g}, max {max_lot:g}).",
+                    lots=lots,
+                    lot_step=market.lot_step,
+                    max_lot=market.max_lot,
+                )
             )
         manual_loss = risk_for_lots(market, settings.currency, entry, stop, lots) if entry and stop else None
         max_loss = manual_loss if manual_loss is not None else lots * result.stop_pips * result.pip_value_per_lot
     elif lots == 0:
-        errors.append("Position size rounds to 0 lots at this risk - raise the risk % or enter the lots manually.")
+        errors.append(tr("Position size rounds to 0 lots at this risk - raise the risk % or enter the lots manually."))
 
     return {
         "lots": lots,
@@ -394,7 +420,7 @@ def _target_plan(
         price = target.price
         if price is None and target.pips:
             if not (entry and sign and pip):
-                errors.append("Relative targets (pips) need the entry price, direction and a configured market.")
+                errors.append(tr("Relative targets (pips) need the entry price, direction and a configured market."))
                 return []
             price = _price(entry + sign * target.pips * pip)
         if price is not None:
@@ -412,44 +438,48 @@ def _target_plan(
 
 
 _POSITIVE_FIELDS = (
-    ("entry", "Entry price"),
-    ("stop_loss", "Stop loss"),
-    ("stop_pips", "Stop distance"),
-    ("risk_pct", "Risk %"),
-    ("account_equity", "Account equity"),
-    ("lots", "Lots"),
-    ("fx_rate", "Conversion rate"),
-    ("trail_distance_pips", "Trail distance"),
+    ("entry", N_("Entry price must be greater than 0.")),
+    ("stop_loss", N_("Stop loss must be greater than 0.")),
+    ("stop_pips", N_("Stop distance must be greater than 0.")),
+    ("risk_pct", N_("Risk % must be greater than 0.")),
+    ("account_equity", N_("Account equity must be greater than 0.")),
+    ("lots", N_("Lots must be greater than 0.")),
+    ("fx_rate", N_("Conversion rate must be greater than 0.")),
+    ("trail_distance_pips", N_("Trail distance must be greater than 0.")),
 )
-_TARGET_FIELDS = (("price", "price"), ("pips", "distance"), ("close_pct", "close %"))
+_TARGET_FIELDS = (
+    ("price", N_("TP{level} price must be greater than 0.")),
+    ("pips", N_("TP{level} distance must be greater than 0.")),
+    ("close_pct", N_("TP{level} close % must be greater than 0.")),
+)
 
 
 def _checked_numbers(draft: TicketDraft, errors: list[str]) -> TicketDraft:
     """Report impossible numbers (0, negative, > 100 %) as content errors and leave them out of the preview."""
     update: dict = {}
-    for name, label in _POSITIVE_FIELDS:
+    for name, message in _POSITIVE_FIELDS:
         value = getattr(draft, name)
         if value is not None and value <= 0:
-            errors.append(f"{label} must be greater than 0.")
+            errors.append(tr(message))
             update[name] = None
     if draft.risk_pct is not None and draft.risk_pct > 100:
-        errors.append("Risk % cannot be more than 100.")
+        errors.append(tr("Risk % cannot be more than 100."))
         update["risk_pct"] = None
     if draft.be_offset_pips < 0:
-        errors.append("Break-even offset cannot be negative.")
+        errors.append(tr("Break-even offset cannot be negative."))
         update["be_offset_pips"] = 0.0
     targets = []
     for level, target in enumerate(draft.targets, start=1):
         fixes = {}
-        for name, label in _TARGET_FIELDS:
+        for name, message in _TARGET_FIELDS:
             value = getattr(target, name)
             if value is None:
                 continue
             if name == "close_pct" and not 0 < value <= 100:
-                errors.append(f"TP{level} {label} must be between 0 and 100.")
+                errors.append(tr("TP{level} close % must be between 0 and 100.", level=level))
                 fixes[name] = None
             elif value <= 0:
-                errors.append(f"TP{level} {label} must be greater than 0.")
+                errors.append(tr(message, level=level))
                 fixes[name] = None
         targets.append(target.model_copy(update=fixes) if fixes else target)
     return draft.model_copy(update={**update, "targets": targets})
@@ -482,7 +512,7 @@ def _price(value: float) -> float:
 def _validation_messages(exc: ValidationError) -> list[str]:
     messages = []
     for error in exc.errors():
-        message = str(error.get("msg", "Invalid value")).removeprefix("Value error, ")
+        message = str(error.get("msg", tr("Invalid value"))).removeprefix("Value error, ")
         loc = ".".join(str(part) for part in error.get("loc", ()))
         messages.append(f"{loc}: {message}" if loc and error.get("type") != "value_error" else message)
     return messages
