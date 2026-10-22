@@ -20,6 +20,7 @@ from ..models import AlertRule, Candle, Market, NotificationLog, Strategy, Strat
 from ..schemas import FiniteModel
 from ..services import alerts, detectors, market_data
 from ..services.account import local_now
+from ..services.i18n import N_, tr
 from ..services.trades import normalize_time
 from .deps import DbDep, SettingsDep, get_or_404
 
@@ -33,9 +34,13 @@ KEEP_PUSHED_BARS = 5000  # newest candles kept per symbol and timeframe
 KEY_PROVIDERS = {"twelvedata": "twelvedata", "push": "push_token"}  # provider -> market_api_keys entry
 INTERVAL_CHOICES = (60, 300, 900, 1800, 3600)
 STOP_METHOD_INFO = (
-    ("swing", "Swing", "Beyond the latest swing low (long) or high (short) within 20 candles."),
-    ("signal", "Signal structure", "Beyond the structure the conditions found (swept wick, opposite swing, gap)."),
-    ("atr", "ATR", "Entry minus / plus a multiple of ATR 14."),
+    ("swing", N_("Swing"), N_("Beyond the latest swing low (long) or high (short) within 20 candles.")),
+    (
+        "signal",
+        N_("Signal structure"),
+        N_("Beyond the structure the conditions found (swept wick, opposite swing, gap)."),
+    ),
+    ("atr", N_("ATR"), N_("Entry minus / plus a multiple of ATR 14.")),
 )
 PUSH_EXAMPLE = {
     "symbol": "XAUUSD",
@@ -49,7 +54,7 @@ Symbol = Annotated[str, StringConstraints(strip_whitespace=True, to_upper=True, 
 
 def _check_symbol(value: str) -> str:
     if not SYMBOL_RE.match(value):
-        raise ValueError(f"'{value}' is not a valid symbol (2-20 letters, digits, '.', '_' or '-')")
+        raise ValueError(tr("'{value}' is not a valid symbol (2-20 letters, digits, '.', '_' or '-')", value=value))
     return value
 
 
@@ -94,29 +99,32 @@ class RuleIn(FiniteModel):
     @classmethod
     def _targets(cls, values: list[float]) -> list[float]:
         if any(not 0 < value <= 50 for value in values):
-            raise ValueError("Targets must be between 0 and 50 R")
+            raise ValueError(tr("Targets must be between 0 and 50 R"))
         if any(b <= a for a, b in zip(values, values[1:], strict=False)):
-            raise ValueError("Targets must be in ascending order (e.g. 1, 2, 3 R)")
+            raise ValueError(tr("Targets must be in ascending order (e.g. 1, 2, 3 R)"))
         return values
 
     @model_validator(mode="after")
     def _consistent(self) -> "RuleIn":
         if self.min_conditions > len(self.conditions):
-            raise ValueError("Minimum conditions cannot exceed the number of conditions")
+            raise ValueError(tr("Minimum conditions cannot exceed the number of conditions"))
         mapped = {}
         for symbol, ticker in self.provider_symbols.items():
             if not ticker:
                 continue
             if symbol not in self.symbols:
-                raise ValueError(f"Provider symbol given for {symbol}, which the rule does not watch")
+                raise ValueError(tr("Provider symbol given for {symbol}, which the rule does not watch", symbol=symbol))
             if self.provider == "push":  # must match what POST /candles stores (upper-cased symbols)
                 ticker = ticker.upper()
                 if not SYMBOL_RE.match(ticker):
                     raise ValueError(
-                        f"'{ticker}' cannot be pushed - pushed symbols use 2-20 letters, digits, '.', '_' or '-'"
+                        tr(
+                            "'{ticker}' cannot be pushed - pushed symbols use 2-20 letters, digits, '.', '_' or '-'",
+                            ticker=ticker,
+                        )
                     )
             elif not PROVIDER_SYMBOL_RE.match(ticker):
-                raise ValueError(f"'{ticker}' is not a valid provider symbol")
+                raise ValueError(tr("'{ticker}' is not a valid provider symbol", ticker=ticker))
             mapped[symbol] = ticker
         self.provider_symbols = mapped
         return self
@@ -143,7 +151,9 @@ class BarIn(FiniteModel):
     @model_validator(mode="after")
     def _ohlc(self) -> "BarIn":
         if self.high < max(self.open, self.close, self.low) or self.low > min(self.open, self.close):
-            raise ValueError(f"Bar {self.time.isoformat()}: high must be the highest and low the lowest price")
+            raise ValueError(
+                tr("Bar {time}: high must be the highest and low the lowest price", time=self.time.isoformat())
+            )
         return self
 
 
@@ -176,7 +186,9 @@ def _rule_out(rule: AlertRule, strategy: Strategy | None) -> dict:
         "symbols": list(rule.symbols or []),
         "timeframe": rule.timeframe,
         "provider": rule.provider,
-        "provider_label": market_data.PROVIDERS[rule.provider].label if rule.provider in market_data.PROVIDERS else "",
+        "provider_label": (
+            tr(market_data.PROVIDERS[rule.provider].label) if rule.provider in market_data.PROVIDERS else ""
+        ),
         "provider_symbols": dict(rule.provider_symbols or {}),
         "direction": rule.direction,
         "conditions": list(rule.conditions or []),
@@ -237,7 +249,7 @@ def _strategy_or_422(db, strategy_id: int | None) -> Strategy | None:
         return None
     strategy = db.get(Strategy, strategy_id)
     if strategy is None:
-        raise HTTPException(status_code=422, detail=f"Strategy {strategy_id} not found")
+        raise HTTPException(status_code=422, detail=tr("Strategy {id} not found", id=strategy_id))
     return strategy
 
 
@@ -259,8 +271,8 @@ def meta(settings: SettingsDep, db: DbDep):
         providers.append(
             {
                 "key": provider.key,
-                "label": provider.label,
-                "description": provider.description,
+                "label": tr(provider.label),
+                "description": tr(provider.description),
                 "needs_key": provider.needs_key,
                 "key_configured": bool(secret),
                 "key_hint": market_data.mask_secret(secret),
@@ -271,7 +283,9 @@ def meta(settings: SettingsDep, db: DbDep):
         "condition_types": [spec.to_dict() for spec in detectors.CONDITION_TYPES.values()],
         "providers": providers,
         "timeframes": list(market_data.TIMEFRAMES),
-        "stop_methods": [{"key": key, "label": label, "description": text} for key, label, text in STOP_METHOD_INFO],
+        "stop_methods": [
+            {"key": key, "label": tr(label), "description": tr(text)} for key, label, text in STOP_METHOD_INFO
+        ],
         "directions": list(alerts.DIRECTION_FILTERS),
         "statuses": list(alerts.ALERT_STATUSES),
         "interval_choices": list(INTERVAL_CHOICES),
@@ -290,7 +304,7 @@ def set_provider_key(key: str, data: ProviderKeyIn, settings: SettingsDep, db: D
     """Store (or, with an empty value, remove) a provider API key or the push token. Never returned."""
     entry = KEY_PROVIDERS.get(key)
     if entry is None:
-        raise HTTPException(status_code=404, detail=f"Provider '{key}' does not take a key")
+        raise HTTPException(status_code=404, detail=tr("Provider '{key}' does not take a key", key=key))
     keys = dict(settings.market_api_keys or {})
     if data.api_key:
         keys[entry] = data.api_key
@@ -360,7 +374,7 @@ def test_rule(rule_id: int, settings: SettingsDep, db: DbDep):
         "rule_id": rule.id,
         "ran_at": now,
         "provider": rule.provider,
-        "provider_label": market_data.PROVIDERS[rule.provider].label,
+        "provider_label": tr(market_data.PROVIDERS[rule.provider].label),
         "results": alerts.dry_run(db, settings, rule, now),
     }
 
@@ -418,7 +432,9 @@ def scan_now(request: Request):
     """Scan every enabled rule now (also when the background scanner is off)."""
     job = alerts.scan_now(request.app.state.scheduler)
     if job.last_error or not isinstance(job.last_result, dict):
-        raise HTTPException(status_code=500, detail=f"The scan failed: {job.last_error or 'no result'}")
+        raise HTTPException(
+            status_code=500, detail=tr("The scan failed: {error}", error=job.last_error or tr("no result"))
+        )
     return job.last_result
 
 
@@ -434,7 +450,7 @@ def push_candles(data: CandlesIn, settings: SettingsDep, db: DbDep):
     """
     expected = (settings.market_api_keys or {}).get("push_token", "")
     if expected and not hmac.compare_digest((data.token or "").encode(), expected.encode()):
-        raise HTTPException(status_code=401, detail="Invalid or missing push token")
+        raise HTTPException(status_code=401, detail=tr("Invalid or missing push token"))
     now = local_now(settings)
     delta = market_data.timeframe_delta(data.timeframe)
     rows = {}
@@ -467,7 +483,7 @@ def push_candles(data: CandlesIn, settings: SettingsDep, db: DbDep):
             "updated": 0,
             "first": None,
             "last": None,
-            "note": "Every bar was still forming (or is in the future - check the time zone of the bar times).",
+            "note": tr("Every bar was still forming (or is in the future - check the time zone of the bar times)."),
         }
     existing = set(
         db.scalars(
@@ -540,7 +556,7 @@ def set_alert_status(alert_id: int, data: AlertStatusIn, db: DbDep):
     alert = get_or_404(db, StrategyAlert, alert_id)
     if data.trade_id is not None:
         if data.status != "taken":
-            raise HTTPException(status_code=422, detail="A trade can only be linked to a taken alert")
+            raise HTTPException(status_code=422, detail=tr("A trade can only be linked to a taken alert"))
         get_or_404(db, Trade, data.trade_id)
         alert.trade_id = data.trade_id
     alert.status = data.status
