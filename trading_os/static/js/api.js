@@ -44,6 +44,7 @@ async function request(method, path, body, { form } = {}) {
   if (response.status === 204) return null;
   const type = response.headers.get("content-type") || "";
   const payload = type.includes("json") ? await response.json() : await response.text();
+  if (response.status === 401 && payload?.code === "login_required") window.dispatchEvent(new Event("tos:login-required"));
   if (!response.ok) throw new ApiError(response.status, describe(payload), payload);
   return payload;
 }

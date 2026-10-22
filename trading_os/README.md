@@ -41,9 +41,59 @@ strategies. Your real journal is not touched.
 |---|---|---|
 | `--port` | `8765` | HTTP port |
 | `--host` | `127.0.0.1` | Bind address (keep it local unless you know why) |
+| `--lan` | off | Let phones and other computers on your network open the app (same as `--host 0.0.0.0`) |
+| `--allow-host NAME` | — | Also answer to this host name, e.g. `trading.lan` or `*.trycloudflare.com` (repeatable) |
 | `--data-dir` | `trading_os/data` | Database, screenshots and backups folder (env: `TRADING_OS_DATA_DIR`) |
 | `--demo` | off | Use `trading_os/demo_data` and seed sample data |
 | `--no-browser` | off | Don't open the browser |
+
+### "This site can't be reached" or a Google search instead of the app
+
+- Type `http://localhost:8765` in the browser's **address bar** (the bar at the very top), not in the
+  Google search box on the page. Without `http://` some browsers search for the words instead of opening
+  the address. A bookmark avoids the problem.
+- The page only opens while the server is running: keep the `run.bat` / `run.sh` window open. Closing it
+  (or pressing Ctrl+C) stops Trading OS.
+- If the window says the port is already in use, another copy is running (open the address above), or
+  start this one on another port: `run.bat --port 8766`, then open `http://localhost:8766`.
+- On first start the window shows the exact address to open, plus the network addresses when `--lan` is on.
+
+## Open it from your phone or another computer
+
+Trading OS runs on your computer; there is no cloud copy. To use it from another device, that device has to
+reach your computer:
+
+| Where the other device is | What to do |
+|---|---|
+| Same Wi-Fi / network | Start with `run.bat --lan` (or `run.sh --lan`) and open one of the *On your network* addresses the window prints, e.g. `http://192.168.1.20:8765`. If Windows Firewall asks, allow Python on **Private** networks. |
+| Same network, by name | Your computer's own name (`mypc`, `mypc.local`) works automatically. Other names, e.g. `trading.lan` from your router's DNS, go in *Trading Plan → Network & access → Allowed host names*. |
+| Anywhere (mobile data, office) | Keep the app local and run a tunnel on the same computer. *Trading Plan → Network & access* has copyable commands: `cloudflared tunnel --url http://localhost:8765` (Cloudflare quick tunnel), `ngrok http 8765`, `tailscale serve --bg 8765` (private to your own Tailscale devices, with HTTPS), or an SSH port forward (`ssh -L 8765:localhost:8765 you@this-computer`, which counts as this computer). Then allow the tunnel's name, e.g. `*.trycloudflare.com`, `*.ngrok-free.app` or `*.ts.net`. |
+
+**Allowed host names.** Trading OS answers to `localhost`, IP addresses, your computer's own name and the
+names you allow; any other name gets a short page explaining how to allow it (this blocks DNS-rebinding
+attacks from websites). Allow names in any of three places:
+- *Trading Plan → Network & access* (saved in the journal, takes effect immediately);
+- the start-up option `--allow-host NAME` (repeatable);
+- the environment variable `TRADING_OS_ALLOWED_HOSTS`, comma separated, e.g.
+  `TRADING_OS_ALLOWED_HOSTS=trading.lan,*.trycloudflare.com` (Windows: `set TRADING_OS_ALLOWED_HOSTS=...`
+  before `run.bat`; macOS/Linux: `TRADING_OS_ALLOWED_HOSTS=... trading_os/run.sh`).
+
+Entries can be pasted as full URLs (`https://abc.ngrok-free.app/` becomes `abc.ngrok-free.app`). A `*`
+replaces the first part only: `*.example.com` matches `a.example.com` but not `example.com`. A `*` before a
+single name is allowed only for local network suffixes (`*.lan`, `*.local`, `*.home`, `*.internal`,
+`*.home.arpa`, `*.localdomain`). Entries that cannot be used are listed in the start-up window and on the
+settings tab.
+
+**Remote-access password (recommended).** Anyone who can open the address can read and change your journal.
+Set a password in *Trading Plan → Network & access*: other devices then see a sign-in form, and stay signed
+in for 30 days (a cookie that scripts cannot read). The computer running Trading OS never needs it. After 5
+wrong passwords from one address, sign-in pauses for a few minutes. *Sign out everywhere* and changing the
+password end every other device's session. With a password set, a candle push from outside this computer
+needs the push token from *Strategy Alerts → Data providers*.
+
+Allowed names, the password and sign-outs can be changed only on the computer running Trading OS
+(at `http://localhost:8765`), never from a phone or through a tunnel, so a remote visitor cannot lock you
+out or widen access. The tab also shows how the current device is connected and which rule let it in.
 
 ## What's inside
 
@@ -160,6 +210,7 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 - AI assistant
 - Notifications
 - Partners
+- Network & access (other devices, allowed host names, remote-access password)
 
 **Partners.** A reference list of brokers and prop firms, shown with a plain trading-risk disclaimer. Edit the list in *Trading Plan → Partners*, where you can also give a partner a custom link that replaces its official website link.
 
@@ -307,6 +358,7 @@ Notes:
 - Tables are created on startup, and older databases are upgraded in place: new columns are added with their defaults and the schema version is kept in `PRAGMA user_version`. Backups from v1.0 onwards can be restored.
 - The test suite never calls the network. The Claude client, the calendar feed, market data sources and notification channels are replaced with fakes.
 - Background jobs (alert scanner, risk and news watchers) run on one thread inside the server. Set `TRADING_OS_BACKGROUND_JOBS=0` to switch them off; the tests do this and run jobs on demand.
-- The server binds to `127.0.0.1` by default and has no authentication. Don't expose it to a network. If you open it on your LAN (`--host 0.0.0.0`) so a phone can open notification links, do it only on a network you trust.
-- Requests are answered only for `localhost` and IP addresses, which protects against DNS rebinding. To use a host name (a LAN name, or a tunnel or reverse proxy), list it in `TRADING_OS_ALLOWED_HOSTS`, e.g. `TRADING_OS_ALLOWED_HOSTS=trading.lan,my-tunnel.example`. Changes from other websites are refused: a write whose `Origin` or `Sec-Fetch-Site` header shows another site gets 403. Scripts that send no `Origin` header, such as the candle push, keep working.
+- The server binds to `127.0.0.1` by default. `--lan` listens on every network; set a remote-access password before you do, or use it only on a network you trust (see *Open it from your phone or another computer*).
+- Requests are answered only for `localhost`, IP addresses, the computer's own name and allowed host names, which protects against DNS rebinding. Changes from other websites are refused: a write whose `Origin` or `Sec-Fetch-Site` header shows another site gets 403 (wildcard entries are never trusted as an `Origin`). Scripts that send no `Origin` header, such as the candle push, keep working.
+- A request counts as coming from this computer only when it arrives on a loopback connection, with a `localhost` host name and without proxy or tunnel headers (`X-Forwarded-*`, `Forwarded`, `CF-Connecting-IP`, `Via`, ...). `X-Forwarded-Host` / `X-Forwarded-Proto` are read only from a proxy or tunnel on this computer. The password is stored as a salted scrypt hash and is never included in backups, like the session signing key.
 - Chart.js 4.4.7 is vendored in `static/vendor/` (MIT, licence included), so the app works offline. PDF reports use ReportLab.

@@ -1,5 +1,6 @@
 // App shell: navigation, hash router and the global discipline status bar.
 
+import { ensureAccess } from "./access.js";
 import { api } from "./api.js";
 import { clear, field, h, icon, modal, segmented, toast, withNodes } from "./dom.js";
 import { fmt, pnlClass, toInputDateTime } from "./format.js";
@@ -465,6 +466,7 @@ async function route() {
 }
 
 async function boot() {
+  if (!(await ensureAccess())) return; // another device, remote-access password set: sign in first
   try {
     await loadPlan();
     await useLanguage(state.plan.settings.language);

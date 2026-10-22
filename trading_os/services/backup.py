@@ -53,7 +53,15 @@ SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4)
 # Secrets that stay on this machine: never exported, kept as-is on restore.
 # (Notification channels and pushed candles are not part of backups at all.)
 PRIVATE_COLUMNS = {
-    "account_settings": ("ai_api_key", "vapid_public_key", "vapid_private_key", "market_api_keys"),
+    "account_settings": (
+        "ai_api_key",
+        "vapid_public_key",
+        "vapid_private_key",
+        "market_api_keys",
+        "allowed_hosts",
+        "remote_password_hash",
+        "remote_session_secret",
+    ),
 }
 # Columns renamed since older backups were written: {table: {old key: new key}}.
 LEGACY_KEYS = {"partners": {"referral_url": "link_url"}}

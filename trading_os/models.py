@@ -116,6 +116,12 @@ class AccountSettings(TimestampMixin, Base):
     scanner_interval_sec: Mapped[int] = mapped_column(Integer, default=60)
     market_api_keys: Mapped[dict] = mapped_column(JSON, default=dict)  # provider -> API key
 
+    # Network access (Trading Plan > Network & access; changed only from the computer running the app).
+    # Machine-specific, so never exported and kept on restore.
+    allowed_hosts: Mapped[list[str]] = mapped_column(JSON, default=list)  # extra host names / *.wildcards
+    remote_password_hash: Mapped[str] = mapped_column(String(200), default="")  # scrypt; empty = no password
+    remote_session_secret: Mapped[str] = mapped_column(String(64), default="")  # signs sign-in cookies
+
 
 class Market(TimestampMixin, Base):
     """A tradable instrument and the contract specification used for sizing."""

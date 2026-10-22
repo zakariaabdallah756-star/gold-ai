@@ -3,11 +3,12 @@
 import { api } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
-import { t } from "../i18n.js";
+import { N_, t } from "../i18n.js";
 import { loadPlan, loadStatus, state } from "../state.js";
 import { renderNotificationSettings } from "./notifications.js";
 import { renderPartnerSettings } from "./partners.js";
 import { renderAiSettings } from "./settings-ai.js";
+import { renderNetworkSettings } from "./settings-network.js";
 
 const TABS = [
   ["rules", "Account & risk rules"],
@@ -20,9 +21,10 @@ const TABS = [
   ["notifications", "Notifications"],
   ["ai", "AI assistant"],
   ["partners", "Partners"],
+  ["network", N_("Network & access")],
 ];
 // Tabs rendered by other modules into their own container.
-const MOUNTED_TABS = { notifications: renderNotificationSettings, ai: renderAiSettings, partners: renderPartnerSettings };
+const MOUNTED_TABS = { notifications: renderNotificationSettings, ai: renderAiSettings, partners: renderPartnerSettings, network: renderNetworkSettings };
 const STRATEGY_STATUS = {
   live: { cls: "good", icon: "play", label: "Live" },
   incubator: { cls: "warn", icon: "flame", label: "Incubator" },
@@ -549,7 +551,7 @@ export async function render(root, { params }) {
   const tabs = h("div", { class: "tabs", role: "tablist" });
 
   async function show() {
-    clear(tabs, TABS.map(([key, label]) => h("button", { type: "button", role: "tab", class: key === activeTab ? "on" : "", "aria-selected": String(key === activeTab), onclick: () => ((activeTab = key), show()) }, label)));
+    clear(tabs, TABS.map(([key, label]) => h("button", { type: "button", role: "tab", class: key === activeTab ? "on" : "", "aria-selected": String(key === activeTab), onclick: () => ((activeTab = key), show()) }, t(label))));
     if (activeTab === "rules") {
       clear(content, rulesSection());
       return;
