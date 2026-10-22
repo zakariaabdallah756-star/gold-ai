@@ -144,18 +144,25 @@ _SIZE_READERS = {"png": _png_size, "jpg": _jpeg_size, "gif": _gif_size, "webp": 
 def image_info(data: bytes) -> tuple[str, int, int]:
     """Validate a chart image and return ``(kind, width, height)`` from its header."""
     if not data:
-        raise VisionError("The uploaded file is empty")
+        raise VisionError(i18n.tr("The uploaded file is empty"))
     if len(data) > MAX_IMAGE_BYTES:
-        raise VisionError(f"Chart images must be {MAX_IMAGE_BYTES // (1024 * 1024)} MB or smaller")
+        raise VisionError(i18n.tr("Chart images must be {size} MB or smaller", size=MAX_IMAGE_BYTES // (1024 * 1024)))
     kind = detect_image_type(data[:16])
     if kind is None:
-        raise VisionError("Only PNG, JPEG, GIF and WebP images are supported")
+        raise VisionError(i18n.tr("Only PNG, JPEG, GIF and WebP images are supported"))
     size = _SIZE_READERS[kind](data)
     if size is None or min(size) < 1:
-        raise VisionError("Could not read the image dimensions - the file may be damaged")
+        raise VisionError(i18n.tr("Could not read the image dimensions - the file may be damaged"))
     width, height = size
     if max(width, height) > MAX_IMAGE_EDGE:
-        raise VisionError(f"Images can be at most {MAX_IMAGE_EDGE} px on each side (this one is {width}x{height})")
+        raise VisionError(
+            i18n.tr(
+                "Images can be at most {max_edge} px on each side (this one is {width}x{height})",
+                max_edge=MAX_IMAGE_EDGE,
+                width=width,
+                height=height,
+            )
+        )
     return kind, width, height
 
 
@@ -571,23 +578,27 @@ def parse_analysis(final: Any) -> dict:
     """Validate the structured analysis in a final message; raises :class:`AnalysisFailed`."""
     _check_stop(
         final,
-        "The model declined to analyse this image.",
-        "The analysis was cut off before it finished. Try again, or lower the effort in Trading plan -> AI assistant.",
+        i18n.tr("The model declined to analyse this image."),
+        i18n.tr(
+            "The analysis was cut off before it finished. Try again, or lower the effort in Trading plan -> AI assistant."
+        ),
     )
     try:
         return ChartAnalysis.model_validate(json.loads(_full_text(final))).model_dump(mode="json")
     except (json.JSONDecodeError, ValidationError) as exc:
-        raise AnalysisFailed("The model returned an analysis in an unexpected format. Try again.") from exc
+        raise AnalysisFailed(i18n.tr("The model returned an analysis in an unexpected format. Try again.")) from exc
 
 
 def answer_text(final: Any) -> str:
     """Plain-text answer of a Q&A turn; raises :class:`AnalysisFailed`."""
     _check_stop(
-        final, "The model declined to answer this question.", "The answer was cut off. Ask a narrower question."
+        final,
+        i18n.tr("The model declined to answer this question."),
+        i18n.tr("The answer was cut off. Ask a narrower question."),
     )
     text = _full_text(final).strip()
     if not text:
-        raise AnalysisFailed("The model returned an empty answer. Try rephrasing the question.")
+        raise AnalysisFailed(i18n.tr("The model returned an empty answer. Try rephrasing the question."))
     return text
 
 
@@ -846,7 +857,7 @@ def _load_image(uploads_dir: Path, record: VisionAnalysis) -> dict:
     try:
         data = (uploads_dir / record.filename).read_bytes()
     except FileNotFoundError as exc:
-        raise VisionError("The chart image is missing from the uploads folder - delete this analysis") from exc
+        raise VisionError(i18n.tr("The chart image is missing from the uploads folder - delete this analysis")) from exc
     kind, _, _ = image_info(data)
     return image_block(kind, data)
 
@@ -869,25 +880,28 @@ def run_analysis(
         record.messages.clear()
         record.status, record.error, record.analysis, record.model = "pending", "", None, settings.ai_model
         db.commit()
-    kept = " Your previous analysis is unchanged."
+
+    def kept(error: Exception) -> str:
+        return i18n.tr("{message} Your previous analysis is unchanged.", message=str(error))
+
     try:
         final = ai_client.stream_final_message(client, analysis_request(settings, record, image, strategy))
         analysis = parse_analysis(final)
     except AnalysisFailed as exc:
         if rerun:
-            raise ai_client.AIRequestError(422, str(exc) + kept) from exc
+            raise ai_client.AIRequestError(422, kept(exc)) from exc
         record.status, record.error = "error", str(exc)
         db.commit()
         return record
     except ai_client.AIRequestError as exc:
         if rerun:
-            raise ai_client.AIRequestError(exc.status_code, str(exc) + kept) from exc
+            raise ai_client.AIRequestError(exc.status_code, kept(exc)) from exc
         record.status, record.error = "error", str(exc)
         db.commit()
         raise
     except Exception as exc:  # never leave a first run "pending" forever
         if not rerun:
-            record.status, record.error = "error", "The analysis failed unexpectedly. Try again."
+            record.status, record.error = "error", i18n.tr("The analysis failed unexpectedly. Try again.")
             if isinstance(exc, ai_client.AIUnavailable):
                 record.error = str(exc)
             db.commit()
@@ -910,7 +924,7 @@ def ask(
 ) -> tuple[VisionMessage, VisionMessage]:
     """Ask a follow-up question; stores the question and answer only when the call succeeds."""
     if record.status != "done" or not record.analysis:
-        raise VisionError("Questions can only be asked about a completed analysis")
+        raise VisionError(i18n.tr("Questions can only be asked about a completed analysis"))
     image = _load_image(uploads_dir, record)
     final = ai_client.stream_final_message(
         client, qa_request(settings, conversation(record, image, list(record.messages), question))
