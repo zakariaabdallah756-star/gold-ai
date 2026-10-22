@@ -36,6 +36,7 @@ from . import detectors, market_data, notify, trades
 from .account import current_equity, get_settings, local_now
 from .copilot import TradeContext, strategy_violations
 from .guardrails import Violation
+from .i18n import N_, tr, tr_n
 from .sessions import classify_session, open_sessions
 from .sizing import SizingError, blended_rr, calculate_position_size
 
@@ -51,7 +52,7 @@ SWING_STRENGTH = 2
 ATR_PERIOD = 14
 MAX_ERROR = 300
 MAX_CATCH_UP = 5  # newly closed candles evaluated per symbol and scan (missed by scan drift or long intervals)
-NO_EXECUTION = "Nothing was executed - the decision is yours."
+NO_EXECUTION = N_("Nothing was executed - the decision is yours.")
 FX_CODES = frozenset("USD EUR GBP JPY AUD NZD CAD CHF SEK NOK DKK PLN CZK HUF TRY ZAR MXN SGD HKD CNH CNY ILS".split())
 
 _manual = threading.local()  # set while scan_now runs the job in the caller's thread
@@ -208,17 +209,21 @@ def _check_conditions(rule: AlertRule, bars: list, context: dict) -> list[Condit
         kind = condition.get("type", "")
         spec = detectors.CONDITION_TYPES.get(kind)
         if spec is None:
-            checks.append(ConditionCheck(kind, kind, kind, False, None, f"Unknown condition type '{kind}'."))
+            checks.append(
+                ConditionCheck(kind, kind, kind, False, None, tr("Unknown condition type '{kind}'.", kind=kind))
+            )
             continue
         try:
             result = detectors.run(kind, bars, condition.get("params") or {}, context)
         except ValueError as exc:  # parameters saved before a bound was tightened
-            checks.append(ConditionCheck(kind, spec.label, spec.label, False, None, f"{exc} - edit the rule."))
+            explanation = tr("{error} - edit the rule.", error=exc)
+            checks.append(ConditionCheck(kind, tr(spec.label), spec.label, False, None, explanation))
             continue
         checks.append(
             ConditionCheck(
                 kind,
-                spec.label,
+                tr(spec.label),
+                # A confluence name is data matched against the plan's names: never translated.
                 (condition.get("confluence") or "").strip() or spec.label,
                 result.met,
                 result.direction,
@@ -231,19 +236,20 @@ def _check_conditions(rule: AlertRule, bars: list, context: dict) -> list[Condit
 
 
 def _protective_swing(bars: list, direction: str, entry: float) -> tuple[float | None, str]:
+    """The protective level and where it is, as a translated phrase with its article ("the swing low")."""
     window = bars[-SWING_WINDOW:]
     highs, lows = detectors.swings(window, SWING_STRENGTH)
     if direction == "long":
         below = [price for _, price in lows if price < entry]
         if below:
-            return below[-1], "swing low"
+            return below[-1], tr("the swing low")
         extreme = min(bar.low for bar in window)
-        return (extreme, f"{len(window)}-candle low") if extreme < entry else (None, "")
+        return (extreme, tr("the {count}-candle low", count=len(window))) if extreme < entry else (None, "")
     above = [price for _, price in highs if price > entry]
     if above:
-        return above[-1], "swing high"
+        return above[-1], tr("the swing high")
     extreme = max(bar.high for bar in window)
-    return (extreme, f"{len(window)}-candle high") if extreme > entry else (None, "")
+    return (extreme, tr("the {count}-candle high", count=len(window))) if extreme > entry else (None, "")
 
 
 def compute_levels(
@@ -270,27 +276,29 @@ def compute_levels(
         hints = [hint for hint in hints if (entry - hint) * sign > 0]
         if hints:
             base = min(hints) if direction == "long" else max(hints)
-            note = "beyond the signal structure"
+            note = tr("beyond the signal structure")
     if method == "atr":
         value = detectors.atr(bars, ATR_PERIOD)[-1]
         if value is None or value <= 0:
-            return None, f"ATR stop needs at least {ATR_PERIOD} candles of range."
+            return None, tr("ATR stop needs at least {period} candles of range.", period=ATR_PERIOD)
         base = entry - sign * rule.atr_multiple * value
         note = f"{rule.atr_multiple:g} x ATR {ATR_PERIOD}"
     if base is None:  # swing, or a signal stop without a usable structure level
         base, where = _protective_swing(bars, direction, entry)
         if base is None:
-            return (
-                None,
-                f"No swing {'low below' if sign > 0 else 'high above'} the entry within {SWING_WINDOW} candles.",
-            )
-        note = f"beyond the {where}" + (" (no signal level)" if method == "signal" else "")
+            if sign > 0:
+                return None, tr("No swing low below the entry within {window} candles.", window=SWING_WINDOW)
+            return None, tr("No swing high above the entry within {window} candles.", window=SWING_WINDOW)
+        if method == "signal":
+            note = tr("beyond {where} (no signal level)", where=where)
+        else:
+            note = tr("beyond {where}", where=where)
     if rule.stop_buffer_pips:
-        note += f" + {rule.stop_buffer_pips:g} pips buffer"
+        note = tr("{note} + {pips:g} pips buffer", note=note, pips=rule.stop_buffer_pips)
     stop = round(base - sign * rule.stop_buffer_pips * pip, decimals)
     risk = (entry - stop) * sign
     if risk <= 0:
-        return None, "The stop would be at or beyond the entry - no valid setup."
+        return None, tr("The stop would be at or beyond the entry - no valid setup.")
 
     multiples = list(rule.targets_rr or []) or [
         max(settings.min_rr or 0, (strategy.min_rr if strategy else 0) or 0) or 1.0
@@ -303,9 +311,9 @@ def compute_levels(
             price = round(price + sign * 10.0**-decimals, decimals)
         targets.append(price)
     if stop <= 0 or any(price <= 0 for price in targets):
-        return None, "The stop or a target would be at or below zero - no valid setup at this price."
+        return None, tr("The stop or a target would be at or below zero - no valid setup at this price.")
     if any((b - a) * sign <= 0 for a, b in zip([entry, *targets[:-1]], targets, strict=True)):
-        return None, "The stop is too tight to place distinct targets at this price precision."
+        return None, tr("The stop is too tight to place distinct targets at this price precision.")
     close_pcts = [float(p) for p in DEFAULT_TP_SPLITS[len(targets)]]
     rr = blended_rr(entry, stop, list(zip(targets, close_pcts, strict=True)))
     rr = round(rr, 4) if rr is not None else None
@@ -335,8 +343,12 @@ def copilot_violations(
         violations.append(
             Violation(
                 "CONFLUENCES_BELOW_MIN",
-                f"Co-Pilot: {strategy.name} needs at least {strategy.min_confluences} confluences; "
-                f"this setup has {len(confluences)}.",
+                tr(
+                    "Co-Pilot: {strategy} needs at least {minimum} confluences; this setup has {count}.",
+                    strategy=strategy.name,
+                    minimum=strategy.min_confluences,
+                    count=len(confluences),
+                ),
                 severity,
             )
         )
@@ -350,8 +362,9 @@ def _size(db: Session, settings: AccountSettings, rule: AlertRule, ev: Evaluatio
     ev.risk_pct = risk_pct
     ev.risk_amount = round(equity * risk_pct / 100, 2) if equity > 0 else None
     if market is None:
-        ev.sizing_note = (
-            f"{ev.symbol} is not one of your markets - add it under Trading Plan → Markets to size the position."
+        ev.sizing_note = tr(
+            "{symbol} is not one of your markets - add it under Trading Plan → Markets to size the position.",
+            symbol=ev.symbol,
         )
         return
     try:
@@ -407,7 +420,7 @@ def evaluate(
     """
     ev = Evaluation(symbol=symbol, timeframe=rule.timeframe)
     if not bars:
-        ev.reason = "No closed candles yet."
+        ev.reason = tr("No closed candles yet.")
         return ev
     last = bars[-1]
     ev.signal_time = last.time
@@ -417,10 +430,10 @@ def evaluate(
     if rule.strategy_id is not None:
         ev.strategy = db.get(Strategy, rule.strategy_id)
         if ev.strategy is None:
-            ev.reason = "The rule's strategy no longer exists - edit the rule."
+            ev.reason = tr("The rule's strategy no longer exists - edit the rule.")
             return ev
         if ev.strategy.status == "retired":
-            ev.reason = f"{ev.strategy.name} is retired - retired strategies never alert."
+            ev.reason = tr("{strategy} is retired - retired strategies never alert.", strategy=ev.strategy.name)
             return ev
 
     today = db.get(ChecklistDay, now.date())
@@ -431,24 +444,30 @@ def evaluate(
     total = len(ev.conditions)
     required = total if not rule.min_conditions else min(rule.min_conditions, total)
     if not total:
-        ev.reason = "The rule has no conditions."
+        ev.reason = tr("The rule has no conditions.")
         return ev
     if len(met) < required:
-        ev.reason = f"{len(met)} of {total} conditions met (needs {required})."
+        ev.reason = tr(
+            "{met} of {total} conditions met (needs {required}).", met=len(met), total=total, required=required
+        )
         return ev
 
     sides = {c.direction for c in met if c.direction}
     if len(sides) > 1:
         longs = ", ".join(c.label for c in met if c.direction == "long")
         shorts = ", ".join(c.label for c in met if c.direction == "short")
-        ev.reason = f"Conditions disagree (long: {longs}; short: {shorts}) - no alert."
+        ev.reason = tr("Conditions disagree (long: {longs}; short: {shorts}) - no alert.", longs=longs, shorts=shorts)
         return ev
     if not sides:
-        ev.reason = "Only neutral filters are met - a directional condition must point long or short."
+        ev.reason = tr("Only neutral filters are met - a directional condition must point long or short.")
         return ev
     ev.direction = sides.pop()
     if rule.direction != "both" and ev.direction != rule.direction:
-        ev.reason = f"{ev.direction.capitalize()} setup skipped - this rule only alerts {rule.direction} setups."
+        ev.reason = tr(
+            "{direction} setup skipped - this rule only alerts {allowed} setups.",
+            direction=ev.direction.capitalize(),
+            allowed=rule.direction,
+        )
         return ev
 
     market = db.scalar(select(Market).where(Market.symbol == symbol))
@@ -473,7 +492,9 @@ def evaluate(
             open_sessions(ev.candle_time, settings.timezone, windows),
         )
         if _copilot_blockers(ev.copilot):
-            ev.reason = f"Co-Pilot: the setup does not meet every {ev.strategy.name} requirement yet."
+            ev.reason = tr(
+                "Co-Pilot: the setup does not meet every {strategy} requirement yet.", strategy=ev.strategy.name
+            )
 
     if ev.found or diagnostics:
         _size(db, settings, rule, ev, market)
@@ -489,9 +510,14 @@ def precheck_line(precheck: list[dict]) -> str:
     blocking = [v["message"] for v in precheck if v.get("severity") == "block"]
     if not blocking:
         warnings = sum(1 for v in precheck if v.get("severity") == "warn")
-        extra = f" ({warnings} warning{'s' if warnings != 1 else ''})" if warnings else ""
-        return f"Pre-check: all guardrails pass{extra}."
-    return "Pre-check: blocked - " + " · ".join(blocking)
+        if not warnings:
+            return tr("Pre-check: all guardrails pass.")
+        return tr_n(
+            warnings,
+            "Pre-check: all guardrails pass ({n} warning).",
+            "Pre-check: all guardrails pass ({n} warnings).",
+        )
+    return tr("Pre-check: blocked - {reasons}", reasons=" · ".join(blocking))
 
 
 def _fmt(value: float, decimals: int) -> str:
@@ -503,19 +529,33 @@ def build_note(settings: AccountSettings, rule: AlertRule, alert: StrategyAlert,
     d = levels.decimals
     head = ev.strategy.name if ev.strategy else rule.name
     targets = " · ".join(f"TP{i} {_fmt(tp, d)}" for i, tp in enumerate(levels.take_profits, start=1))
-    size = f"{ev.lots:g} lots" if ev.lots else "size: see Signals"
-    risk = f"risk {ev.risk_amount:,.2f} {settings.currency} ({ev.risk_pct:g}%)" if ev.risk_amount else ""
+    size = tr("{lots:g} lots", lots=ev.lots) if ev.lots else tr("size: see Signals")
+    risk = ""
+    if ev.risk_amount:
+        risk = tr(
+            "risk {amount:,.2f} {currency} ({pct:g}%)",
+            amount=ev.risk_amount,
+            currency=settings.currency,
+            pct=ev.risk_pct,
+        )
     lines = [
-        f"Confluences: {', '.join(ev.confluences)}",
-        f"Entry {_fmt(levels.entry, d)} · SL {_fmt(levels.stop_loss, d)} · {targets}",
+        tr("Confluences: {names}", names=", ".join(ev.confluences)),
+        tr(
+            "Entry {entry} · SL {stop} · {targets}",
+            entry=_fmt(levels.entry, d),
+            stop=_fmt(levels.stop_loss, d),
+            targets=targets,
+        ),
         " · ".join(part for part in (f"R:R 1:{levels.planned_rr:.2f}", size, risk) if part),
         precheck_line(ev.precheck or []),
     ]
     if ev.late:
-        lines.insert(0, f"Signal candle closed at {ev.candle_time:%H:%M} - price may have moved since.")
+        lines.insert(0, tr("Signal candle closed at {time:%H:%M} - price may have moved since.", time=ev.candle_time))
     if ev.in_test:
-        lines.insert(0, f"In test: {ev.strategy.name} is still in the incubator - consider reduced size.")
-    lines.append(NO_EXECUTION)
+        lines.insert(
+            0, tr("In test: {strategy} is still in the incubator - consider reduced size.", strategy=ev.strategy.name)
+        )
+    lines.append(tr(NO_EXECUTION))
     return notify.Note(
         event="strategy_alert",
         title=f"{head} · {ev.symbol} {ev.direction.upper()} · {ev.timeframe}",
@@ -530,7 +570,7 @@ def build_note(settings: AccountSettings, rule: AlertRule, alert: StrategyAlert,
             "stop_loss": levels.stop_loss,
             "take_profits": list(levels.take_profits),
         },
-        tags=["In test"] if ev.in_test else [],
+        tags=[tr("In test")] if ev.in_test else [],
     )
 
 
@@ -634,8 +674,9 @@ def _scan_symbol(
     memory["through"] = _iso(max(filter(None, (through, candle_close))))
     rule.scan_state = {**state, symbol: memory}
     if now - candle_close > stale_after(rule.timeframe):
-        row["message"] = (
-            f"Latest closed candle ended {candle_close:%Y-%m-%d %H:%M} - market closed or data delayed, nothing to alert."
+        row["message"] = tr(
+            "Latest closed candle ended {time:%Y-%m-%d %H:%M} - market closed or data delayed, nothing to alert.",
+            time=candle_close,
         )
         return row, candle_close
 
@@ -668,7 +709,11 @@ def _scan_symbol(
             )
             previous = max(filter(None, (previous, alerted)), default=None)
             if duplicate is not None or (alerted_candle is not None and ev.candle_time <= alerted_candle):
-                outcome = {"status": "duplicate", "message": "Already alerted for this candle.", "alert_id": duplicate}
+                outcome = {
+                    "status": "duplicate",
+                    "message": tr("Already alerted for this candle."),
+                    "alert_id": duplicate,
+                }
             elif (
                 rule.cooldown_minutes
                 and previous is not None
@@ -677,7 +722,7 @@ def _scan_symbol(
                 until = previous + timedelta(minutes=rule.cooldown_minutes)
                 outcome = {
                     "status": "cooldown",
-                    "message": f"Setup found, but the rule is cooling down until {until:%H:%M}.",
+                    "message": tr("Setup found, but the rule is cooling down until {until:%H:%M}.", until=until),
                     "alert_id": None,
                 }
             else:
@@ -686,12 +731,12 @@ def _scan_symbol(
                 rule.scan_state = {**state, symbol: dict(memory)}
                 rule.last_alert_at = now
                 alert = record_alert(db, settings, rule, ev, now)
-                outcome = {
-                    "status": "alert",
-                    "message": f"{ev.direction.upper()} setup at {ev.levels.entry:g}"
-                    + (f" (candle closed {ev.candle_time:%H:%M})" if ev.late else ""),
-                    "alert_id": alert.id,
-                }
+                params = {"direction": ev.direction.upper(), "entry": ev.levels.entry, "time": ev.candle_time}
+                if ev.late:
+                    message = tr("{direction} setup at {entry:g} (candle closed {time:%H:%M})", **params)
+                else:
+                    message = tr("{direction} setup at {entry:g}", **params)
+                outcome = {"status": "alert", "message": message, "alert_id": alert.id}
                 alert_row = outcome
         if index == last:
             row.update(outcome)
@@ -736,8 +781,8 @@ def scan(db: Session, settings: AccountSettings, now: datetime, rule_ids: list[i
                     gone = True
                     break
                 log.exception("Alert scan failed for rule %s on %s", rule_id, symbol)
-                row["message"] = f"Unexpected error: {type(exc).__name__}"
-                errors.append(f"{symbol}: unexpected error ({type(exc).__name__})")
+                row["message"] = tr("Unexpected error: {error}", error=type(exc).__name__)
+                errors.append(tr("{symbol}: unexpected error ({error})", symbol=symbol, error=type(exc).__name__))
             results.append(row)
         if gone or not _rule_exists(db, rule_id):
             continue
@@ -781,7 +826,7 @@ def dry_run(db: Session, settings: AccountSettings, rule: AlertRule, now: dateti
             continue
         except Exception as exc:  # one broken symbol must not break the whole test
             log.exception("Alert rule test failed for rule %s on %s", rule.id, symbol)
-            out.append({**item, "error": f"Unexpected error: {type(exc).__name__}"})
+            out.append({**item, "error": tr("Unexpected error: {error}", error=type(exc).__name__)})
             continue
         stale = ev.candle_time is not None and now - ev.candle_time > stale_after(rule.timeframe)
         out.append({**item, "error": "", "bars": len(bars), "stale": stale, **ev.to_dict()})
