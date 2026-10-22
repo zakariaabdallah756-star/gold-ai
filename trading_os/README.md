@@ -92,7 +92,7 @@ password end every other device's session. With a password set, a candle push fr
 needs the push token from *Strategy Alerts → Data providers*.
 
 Allowed names, the password and sign-outs can be changed only on the computer running Trading OS
-(at `http://localhost:8765`), never from a phone or through a tunnel, so a remote visitor cannot lock you
+(at `http://localhost:8765`, or at the address given with `--host`), never from a phone or through a tunnel, so a remote visitor cannot lock you
 out or widen access. The tab also shows how the current device is connected and which rule let it in.
 
 ## What's inside

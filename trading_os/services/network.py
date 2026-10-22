@@ -306,13 +306,30 @@ def _from_loopback(request: Request) -> bool:
     return _is_loopback_ip(peer_host(request))
 
 
+def _unmapped(name: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    ip = ip_address(name)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        return ip.ipv4_mapped
+    return ip
+
+
+def _from_own_bind_address(request: Request) -> bool:
+    """Bound to one address of this computer (``--host 192.168.1.5``), so nothing listens on loopback: the browser
+    here connects from that same address, typed as the Host. No other device can connect from it."""
+    state = getattr(getattr(request.scope.get("app"), "state", None), "network", None)
+    bind = _unmapped(getattr(state, "bind_host", "") or "")
+    if bind is None or bind.is_unspecified or bind.is_loopback:
+        return False
+    return _unmapped(peer_host(request)) == bind and _unmapped(hostname(request.headers.get("host", ""))) == bind
+
+
 def is_local_request(request: Request) -> bool:
-    """Sent from this computer: loopback connection, ``localhost`` Host and no proxy/tunnel headers."""
-    return (
-        _from_loopback(request)
-        and is_localhost_name(hostname(request.headers.get("host", "")))
-        and not forwarding_headers(request)
-    )
+    """Sent from this computer: loopback connection with a ``localhost`` Host (or, with a specific bind address,
+    from that address to that address) and no proxy/tunnel headers."""
+    from_here = (
+        _from_loopback(request) and is_localhost_name(hostname(request.headers.get("host", "")))
+    ) or _from_own_bind_address(request)
+    return from_here and not forwarding_headers(request)
 
 
 def effective_host(request: Request) -> str:
@@ -557,9 +574,10 @@ class LoginLimiter:
 class NetworkState:
     """Per-app holder: the current policy plus in-memory sign-in bookkeeping (``app.state.network``)."""
 
-    def __init__(self, policy: NetworkPolicy, port: int):
+    def __init__(self, policy: NetworkPolicy, port: int, bind_host: str = ""):
         self.policy = policy
         self.port = port
+        self.bind_host = bind_host
         self.cookie_name = session_cookie_name(port)
         self.limiter = LoginLimiter()
         self._revoked: dict[str, int] = {}  # signed-out session nonce -> its expiry
@@ -602,7 +620,7 @@ class NetworkState:
 
 def install(app, config, session_factory) -> NetworkState:
     """Create ``app.state.network`` from the start-up config and the saved settings."""
-    state = NetworkState(NetworkPolicy(env_patterns=tuple(config.allowed_hosts)), config.port)
+    state = NetworkState(NetworkPolicy(env_patterns=tuple(config.allowed_hosts)), config.port, config.bind_host)
     app.state.network = state
     with session_factory() as db:
         reload_policy(app, db)

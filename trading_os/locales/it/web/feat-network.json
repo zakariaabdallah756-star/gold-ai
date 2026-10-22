@@ -60,6 +60,7 @@
   "Saved on this page: {pattern}": "Salvato in questa pagina: {pattern}",
   "Seen as": "Visto come",
   "Set a remote-access password above, and a push token on Strategy Alerts so only your platform can send candles.": "Imposta una password di accesso remoto qui sopra e un token push in Alert strategie, così solo la tua piattaforma può inviare candele.",
+  "Set a remote-access password above: without it, anyone who has the tunnel address can open and change your journal.": "Imposta qui sopra una password di accesso remoto: senza, chiunque abbia l'indirizzo del tunnel può aprire e modificare il tuo diario.",
   "Set password": "Imposta password",
   "Sign in": "Accedi",
   "Sign out all devices": "Disconnetti tutti i dispositivi",

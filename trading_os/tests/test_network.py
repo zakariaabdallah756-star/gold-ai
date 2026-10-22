@@ -157,6 +157,22 @@ def test_this_computer_means_loopback_localhost_and_no_proxy():
         assert not network.is_local_request(fake_request(**{header: "1.2.3.4"})), header
 
 
+def test_a_specific_bind_address_counts_as_this_computer_from_itself(tmp_path, monkeypatch):
+    # --host 192.168.1.5: nothing listens on loopback, the browser here connects from that address to it.
+    app = make_app(tmp_path, monkeypatch, bind_host="192.168.1.5")
+    here = TestClient(app, base_url="http://192.168.1.5:8765", client=("192.168.1.5", 50000))
+    assert here.get("/api/network").json()["access"]["can_manage"] is True
+    assert here.put("/api/access/password", json={"password": PASSWORD}).status_code == 200
+    assert here.get("/api/settings").status_code == 200  # no sign-in needed here
+    other = TestClient(app, base_url="http://192.168.1.5:8765", client=LAN_PEER)
+    assert other.get("/api/settings").status_code == 401
+    proxied = TestClient(app, base_url="http://192.168.1.5:8765", client=("192.168.1.5", 50000))
+    assert proxied.get("/api/settings", headers={"X-Forwarded-For": "203.0.113.9"}).status_code == 401
+    # Listening everywhere, the own LAN address is not "this computer": localhost is.
+    request = fake_request(client=("192.168.1.5", 1), host="192.168.1.5:8765")
+    assert not network.is_local_request(request)
+
+
 def test_forwarding_headers_are_read_only_from_a_proxy_on_this_computer():
     proxied = fake_request(
         host="localhost",
