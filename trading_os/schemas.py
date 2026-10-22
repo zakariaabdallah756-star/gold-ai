@@ -14,6 +14,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel as _PydanticModel
 from pydantic import BeforeValidator, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
+from .services.i18n import tr
+
 
 def _upper(value):
     # Runs before the pattern check, so "usd" or " xauusd " are accepted.
@@ -76,13 +78,13 @@ class SettingsIn(BaseModel):
         try:
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError) as exc:
-            raise ValueError(f"Unknown time zone '{value}'") from exc
+            raise ValueError(tr("Unknown time zone '{value}'", value=value)) from exc
         return value
 
     @model_validator(mode="after")
     def _risk_caps(self) -> SettingsIn:
         if self.max_risk_pct < self.default_risk_pct:
-            raise ValueError("Max risk per trade must be >= default risk per trade")
+            raise ValueError(tr("Max risk per trade must be >= default risk per trade"))
         return self
 
 
@@ -118,7 +120,7 @@ class MarketIn(BaseModel):
     @model_validator(mode="after")
     def _lot_bounds(self) -> MarketIn:
         if self.max_lot < self.min_lot:
-            raise ValueError("Max lot must be >= min lot")
+            raise ValueError(tr("Max lot must be >= min lot"))
         return self
 
 
@@ -135,7 +137,7 @@ class SessionIn(BaseModel):
     @model_validator(mode="after")
     def _non_empty_window(self) -> SessionIn:
         if self.start_utc == self.end_utc:
-            raise ValueError("Session start and end must differ")
+            raise ValueError(tr("Session start and end must differ"))
         return self
 
 
@@ -258,11 +260,11 @@ class PositionSizeIn(BaseModel):
     def _stop_defined(self) -> PositionSizeIn:
         has_prices = self.entry_price is not None and self.stop_price is not None
         if not has_prices and self.stop_pips is None:
-            raise ValueError("Provide either entry + stop prices or a stop size in pips/points")
+            raise ValueError(tr("Provide either entry + stop prices or a stop size in pips/points"))
         if has_prices and self.entry_price == self.stop_price:
-            raise ValueError("Stop price must differ from entry price")
+            raise ValueError(tr("Stop price must differ from entry price"))
         if self.take_profit is not None and self.entry_price is None:
-            raise ValueError("A take-profit price needs an entry price")
+            raise ValueError(tr("A take-profit price needs an entry price"))
         return self
 
 
@@ -391,14 +393,14 @@ class TradeIn(BaseModel):
     def _geometry(self) -> TradeIn:
         long = self.direction == "long"
         if long and self.stop_loss >= self.entry_price:
-            raise ValueError("For a long trade the stop loss must be below the entry price")
+            raise ValueError(tr("For a long trade the stop loss must be below the entry price"))
         if not long and self.stop_loss <= self.entry_price:
-            raise ValueError("For a short trade the stop loss must be above the entry price")
+            raise ValueError(tr("For a short trade the stop loss must be above the entry price"))
         if self.take_profit is not None:
             if long and self.take_profit <= self.entry_price:
-                raise ValueError("For a long trade the take profit must be above the entry price")
+                raise ValueError(tr("For a long trade the take profit must be above the entry price"))
             if not long and self.take_profit >= self.entry_price:
-                raise ValueError("For a short trade the take profit must be below the entry price")
+                raise ValueError(tr("For a short trade the take profit must be below the entry price"))
 
         if self.status == "open":
             # An open position has no exit yet; ignore any stale exit fields.
@@ -407,27 +409,38 @@ class TradeIn(BaseModel):
             self.pnl = None
         else:
             if self.exit_price is None:
-                raise ValueError("A closed trade needs an exit price")
+                raise ValueError(tr("A closed trade needs an exit price"))
             if self.exit_time is not None and _exit_before_entry(self.exit_time, self.entry_time):
-                raise ValueError("Exit time cannot be before entry time")
+                raise ValueError(tr("Exit time cannot be before entry time"))
 
         if self.targets:
             sign = 1 if long else -1
             previous = self.entry_price
             for index, target in enumerate(self.targets, start=1):
                 if (target.price - previous) * sign <= 0:
-                    raise ValueError(
-                        f"TP{index} must be beyond the entry and the previous target "
-                        f"({'above' if long else 'below'} it for a {self.direction} trade)"
-                    )
+                    if long:
+                        message = tr(
+                            "TP{index} must be beyond the entry and the previous target "
+                            "(above it for a {direction} trade)",
+                            index=index,
+                            direction=self.direction,
+                        )
+                    else:
+                        message = tr(
+                            "TP{index} must be beyond the entry and the previous target "
+                            "(below it for a {direction} trade)",
+                            index=index,
+                            direction=self.direction,
+                        )
+                    raise ValueError(message)
                 previous = target.price
             total = sum(target.close_pct for target in self.targets)
             if abs(total - 100) > 0.5:
-                raise ValueError(f"Target close percentages must add up to 100% (got {total:g}%)")
+                raise ValueError(tr("Target close percentages must add up to 100% (got {total:g}%)", total=total))
             # The farthest target is the trade's take profit.
             self.take_profit = self.targets[-1].price
         if self.trail_enabled and not self.trail_distance_pips:
-            raise ValueError("Trailing stop needs a trail distance in pips/points")
+            raise ValueError(tr("Trailing stop needs a trail distance in pips/points"))
 
         self.confluences = _dedupe(self.confluences)
         self.tags = _dedupe(self.tags)
@@ -451,7 +464,7 @@ class ScreenshotUrlIn(BaseModel):
     @classmethod
     def _http_only(cls, value: str) -> str:
         if not value.lower().startswith(("http://", "https://")):
-            raise ValueError("Screenshot URL must start with http:// or https://")
+            raise ValueError(tr("Screenshot URL must start with http:// or https://"))
         return value
 
 

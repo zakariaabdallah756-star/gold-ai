@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from decimal import ROUND_DOWN, Decimal
 from typing import Protocol
 
+from .i18n import tr
+
 
 class ContractSpec(Protocol):
     symbol: str
@@ -85,9 +87,11 @@ def quote_to_account_rate(
 
 
 def conversion_hint(spec: ContractSpec, account_currency: str) -> str:
-    return (
-        f"{spec.symbol} is quoted in {spec.quote_currency}; provide the "
-        f"{spec.quote_currency}->{account_currency} conversion rate"
+    return tr(
+        "{symbol} is quoted in {quote}; provide the {quote}->{account} conversion rate",
+        symbol=spec.symbol,
+        quote=spec.quote_currency,
+        account=account_currency,
     )
 
 
@@ -179,22 +183,22 @@ def calculate_position_size(
     ``take_profit`` or ``target_pips`` and only affects the R:R outputs.
     """
     if equity <= 0 or risk_pct <= 0:
-        raise SizingError("Equity and risk % must be positive")
+        raise SizingError(tr("Equity and risk % must be positive"))
 
     direction = None
     if entry is not None and stop is not None:
         if entry == stop:
-            raise SizingError("Stop price must differ from entry price")
+            raise SizingError(tr("Stop price must differ from entry price"))
         stop_distance = abs(entry - stop)
         direction = direction_from_stop(entry, stop)
     elif stop_pips:
         stop_distance = stop_pips * spec.pip_size
     else:
-        raise SizingError("Provide entry + stop prices or a stop size in pips/points")
+        raise SizingError(tr("Provide entry + stop prices or a stop size in pips/points"))
 
     rate = quote_to_account_rate(spec, account_currency, price=entry, fx_rate=fx_rate)
     if rate is None:
-        raise SizingError(conversion_hint(spec, account_currency) + " or an entry price")
+        raise SizingError(tr("{hint} or an entry price", hint=conversion_hint(spec, account_currency)))
 
     pips = stop_distance / spec.pip_size
     pip_value = spec.contract_size * spec.pip_size * rate
@@ -206,13 +210,26 @@ def calculate_position_size(
     if lots == 0.0:
         min_risk = spec.min_lot * pips * pip_value
         notes.append(
-            f"Stop too wide for this risk: the minimum lot ({spec.min_lot:g}) would risk "
-            f"{min_risk:,.2f} {account_currency} ({min_risk / equity * 100:.2f}% of equity)."
+            tr(
+                "Stop too wide for this risk: the minimum lot ({min_lot:g}) would risk "
+                "{min_risk:,.2f} {currency} ({min_risk_pct:.2f}% of equity).",
+                min_lot=spec.min_lot,
+                min_risk=min_risk,
+                currency=account_currency,
+                min_risk_pct=min_risk / equity * 100,
+            )
         )
     elif lots >= spec.max_lot and raw_lots > spec.max_lot:
-        notes.append(f"Capped at the broker maximum of {spec.max_lot:g} lots.")
+        notes.append(tr("Capped at the broker maximum of {max_lot:g} lots.", max_lot=spec.max_lot))
     elif abs(lots - raw_lots) > 1e-9:
-        notes.append(f"Rounded down from {raw_lots:.4f} to {lots:g} lots (lot step {spec.lot_step:g}).")
+        notes.append(
+            tr(
+                "Rounded down from {raw_lots:.4f} to {lots:g} lots (lot step {step:g}).",
+                raw_lots=raw_lots,
+                lots=lots,
+                step=spec.lot_step,
+            )
+        )
 
     max_loss = lots * pips * pip_value
 
@@ -237,7 +254,7 @@ def calculate_position_size(
 
     if take_profit is not None and entry is not None:
         if direction and (take_profit - entry) * (1 if direction == "long" else -1) <= 0:
-            raise SizingError("Take profit is on the wrong side of the entry for this stop")
+            raise SizingError(tr("Take profit is on the wrong side of the entry for this stop"))
         target_pips = abs(take_profit - entry) / spec.pip_size
     if target_pips:
         result.target_pips = target_pips
