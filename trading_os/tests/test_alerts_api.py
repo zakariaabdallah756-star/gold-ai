@@ -78,6 +78,13 @@ def test_meta_describes_conditions_providers_and_push(client):
     assert meta["push"]["endpoint"] == "/api/alerts/candles" and meta["push"]["token_required"] is False
 
 
+def test_conditions_count_under_their_untranslated_name_in_every_language(client):
+    update_settings(client, language="it")
+    types = {item["key"]: item for item in client.get("/api/alerts/meta").json()["condition_types"]}
+    assert types["engulfing"]["label"] != "Engulfing candle"  # shown in Italian...
+    assert types["engulfing"]["name"] == "Engulfing candle"  # ...but matched against the plan as stored
+
+
 def test_provider_keys_are_stored_but_never_returned(client):
     response = client.put("/api/alerts/providers/twelvedata/key", json={"api_key": "td-secret-123456"})
     assert response.json() == {"provider": "twelvedata", "configured": True, "hint": "••••3456"}

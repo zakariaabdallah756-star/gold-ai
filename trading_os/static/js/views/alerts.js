@@ -250,7 +250,7 @@ function conditionRow(c) {
     h(
       "div",
       {},
-      h("div", { class: "row al-check-head" }, h("strong", {}, c.label), c.confluence !== c.label ? h("span", { class: "muted small" }, t("counts as {confluence}", { confluence: c.confluence })) : null, c.met && c.direction ? directionBadge(c.direction) : null, c.met && !c.direction ? h("span", { class: "badge" }, t("Filter")) : null, h("span", { class: "sr-only" }, c.met ? t("met") : t("not met"))),
+      h("div", { class: "row al-check-head" }, h("strong", {}, c.label), c.confluence !== (c.name ?? c.label) ? h("span", { class: "muted small" }, t("counts as {confluence}", { confluence: c.confluence })) : null, c.met && c.direction ? directionBadge(c.direction) : null, c.met && !c.direction ? h("span", { class: "badge" }, t("Filter")) : null, h("span", { class: "sr-only" }, c.met ? t("met") : t("not met"))),
       h("div", { class: "small al-msg" }, c.explanation),
     ),
   );
@@ -315,7 +315,8 @@ async function testDialog(rule) {
 
 function strategyRequirements(strategy, conditions, meta) {
   if (!strategy) return h("p", { class: "small muted" }, t("No strategy: only this rule's conditions decide. Link a strategy to apply its Co-Pilot checks."));
-  const covered = new Set(conditions.map((c) => c.confluence || meta.types[c.type]?.label));
+  // Same rule as the engine: without a chosen confluence a condition counts under its untranslated name.
+  const covered = new Set(conditions.map((c) => c.confluence || meta.types[c.type]?.name));
   const missing = (strategy.required_confluences || []).filter((name) => !covered.has(name));
   const any = t("Any");
   const items = [
@@ -573,7 +574,7 @@ function ruleEditor(rule, meta, onSaved) {
                 ),
                 field(
                   t("Counts as confluence"),
-                  select([["", t("{name} (condition name)", { name: type.label })], ...confluenceNames.map((n) => [n, n])], condition.confluence, {
+                  select([["", t("{name} (condition name)", { name: type.name })], ...confluenceNames.map((n) => [n, n])], condition.confluence, {
                     onchange: (e) => {
                       condition.confluence = e.target.value;
                       drawRequirements();

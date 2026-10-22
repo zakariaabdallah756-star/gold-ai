@@ -63,6 +63,13 @@ export const fmt = {
     if (Math.abs(value) < 0.005) return text;
     return (value > 0 ? "+" : MINUS) + text;
   },
+  /** A round amount without cents, e.g. an account size in a name ("$10,000", "10.000 USD"). */
+  wholeMoney(value) {
+    if (!isNum(value)) return "—";
+    return new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
+      .format(value)
+      .replace("-", MINUS);
+  },
   compactMoney(value) {
     if (!isNum(value)) return "";
     return new Intl.NumberFormat(locale, { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 })

@@ -100,9 +100,11 @@ class ConditionCheck:
     details: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
+        spec = detectors.CONDITION_TYPES.get(self.type)
         return {
             "type": self.type,
             "label": self.label,
+            "name": spec.label if spec else self.type,  # the untranslated default confluence name
             "confluence": self.confluence,
             "met": self.met,
             "direction": self.direction,

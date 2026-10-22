@@ -78,6 +78,9 @@ class ConditionType:
         return {
             "key": self.key,
             "label": tr(self.label),
+            # What a condition counts as when no confluence is chosen: data matched against the plan's
+            # confluence names, so never translated (services.alerts._check_conditions).
+            "name": self.label,
             "description": tr(self.description),
             "directional": self.directional,
             "confluence": self.confluence,

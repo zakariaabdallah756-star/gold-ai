@@ -51,7 +51,7 @@ function statList(rows) {
 
 function challengeForm({ challenge = null, preset = null, presets, onSaved }) {
   const base = challenge || {
-    name: preset && preset.key !== "custom" ? `${preset.label} ${fmt.money(10_000).replace(/\.00$/, "")}` : "",
+    name: preset && preset.key !== "custom" ? `${preset.label} ${fmt.wholeMoney(10_000)}` : "",
     firm: preset?.firm || "",
     preset: preset?.key || "custom",
     phase: preset?.phase || "phase1",
