@@ -4,6 +4,7 @@ import { api, ApiError } from "../api.js";
 import { clear, debounce, field, h, icon, lightbox, modal, numberOrNull, segmented, select, toast, withNodes } from "../dom.js";
 import { fmt, toInputDateTime } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
+import { valueLabel } from "../labels.js";
 import { accountNow, loadStatus, marketBySymbol, state, strategyByName } from "../state.js";
 import { violationList } from "./calculator.js";
 import { copilotPanel, splitCopilot } from "./copilot.js";
@@ -197,7 +198,7 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
               renderEmotions();
             },
           },
-          name,
+          valueLabel(name),
         ),
       ),
     );

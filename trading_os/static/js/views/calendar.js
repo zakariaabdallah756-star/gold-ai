@@ -6,22 +6,12 @@ import { api, query } from "../api.js";
 import { clear, h, icon, modal, segmented, select, toast } from "../dom.js";
 import { currentLocale, fmt, pnlClass, toInputDate } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
+import { valueLabel } from "../labels.js";
 import { state } from "../state.js";
 import { eventLabel } from "./positions.js";
 
 const WEEKDAYS = [N_("Mon"), N_("Tue"), N_("Wed"), N_("Thu"), N_("Fri"), N_("Sat"), N_("Sun")];
 const WEEKDAY_NAMES = [N_("Monday"), N_("Tuesday"), N_("Wednesday"), N_("Thursday"), N_("Friday"), N_("Saturday"), N_("Sunday")];
-// The review moods the server offers (stored as these English values).
-const MOOD_LABELS = new Map([
-  ["Calm", N_("Calm")],
-  ["Satisfied", N_("Satisfied")],
-  ["Neutral", N_("Neutral")],
-  ["Frustrated", N_("Frustrated")],
-  ["Anxious", N_("Anxious")],
-  ["Tilted", N_("Tilted")],
-  ["Exhausted", N_("Exhausted")],
-  ["Euphoric", N_("Euphoric")],
-]);
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
 // RGB triplets of the palette, so washes and heat cells can vary the alpha only.
@@ -255,7 +245,7 @@ function reviewSummary(review) {
       "div",
       { class: "row" },
       stars(review.discipline_rating),
-      review.mood ? h("span", { class: "badge" }, MOOD_LABELS.has(review.mood) ? t(MOOD_LABELS.get(review.mood)) : review.mood) : null,
+      review.mood ? h("span", { class: "badge" }, valueLabel(review.mood)) : null,
       plan ? h("span", { class: `badge ${review.followed_plan ? "good" : "bad"}` }, icon(review.followed_plan ? "check" : "x"), plan) : null,
     ),
     review.mistakes.length ? h("div", { class: "chips" }, review.mistakes.map((name) => h("span", { class: "badge warn" }, name))) : null,

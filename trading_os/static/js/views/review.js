@@ -6,6 +6,7 @@ import { api } from "../api.js";
 import { clear, h, icon, toast } from "../dom.js";
 import { currentLocale, fmt, pnlClass, toInputDate } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
+import { valueLabel } from "../labels.js";
 import { loadStatus, state } from "../state.js";
 
 // Label tables hold N_() texts; they are translated with t() where shown.
@@ -158,7 +159,7 @@ function historyRow(row, current) {
       "span",
       { class: "review-row-state" },
       row.exists
-        ? [row.discipline_rating ? miniStars(row.discipline_rating) : h("span", { class: "muted small" }, t("Reviewed")), planIcon, row.mood ? h("span", { class: "muted small" }, row.mood) : null]
+        ? [row.discipline_rating ? miniStars(row.discipline_rating) : h("span", { class: "muted small" }, t("Reviewed")), planIcon, row.mood ? h("span", { class: "muted small" }, valueLabel(row.mood)) : null]
         : row.trades || row.partials
           ? h("span", { class: "badge warn" }, t("To review"))
           : h("span", { class: "muted small" }, t("Not reviewed")),
@@ -200,7 +201,7 @@ function summaryStrip(stats) {
       kpi(t("Rule compliance"), fmt.pct(stats.compliance_rate, 0), t("Of rated trades")),
       kpi(t("Mistakes on trades"), mistakeCount, mistakeCount ? tally(stats.mistakes) : t("None tagged"), mistakeCount ? "neg" : ""),
     ),
-    stats.emotions.length ? h("p", { class: "muted small" }, t("Emotions logged on trades: {list}", { list: tally(stats.emotions) })) : null,
+    stats.emotions.length ? h("p", { class: "muted small" }, t("Emotions logged on trades: {list}", { list: tally(stats.emotions.map((m) => ({ ...m, name: valueLabel(m.name) }))) })) : null,
   ];
 }
 
@@ -317,7 +318,7 @@ export async function render(root, { params }) {
       t("Mood"),
       t("Your state of mind at the end of the session"),
       chipGroup(
-        state.plan.enums.moods.map((mood) => ({ value: mood, text: mood })),
+        state.plan.enums.moods.map((mood) => ({ value: mood, text: valueLabel(mood) })),
         values.mood ? [values.mood] : [],
         { label: t("Mood"), onChange: (value) => changed("mood", value ?? "") },
       ),

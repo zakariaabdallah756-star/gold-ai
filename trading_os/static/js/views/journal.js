@@ -4,6 +4,7 @@ import { api, query } from "../api.js";
 import { clear, confirmDialog, debounce, field, h, icon, modal, select, toast } from "../dom.js";
 import { fmt, pnlClass } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
+import { valueLabel } from "../labels.js";
 import { loadStatus, state } from "../state.js";
 import { violationList } from "./calculator.js";
 import { eventTimeline, managementSummary, stopKindBadge, stopKindOf, targetsLadder } from "./positions.js";
@@ -112,7 +113,7 @@ export function openTradeDetail(trade, { onChange } = {}) {
       detailItem(t("Session"), trade.session || t("Off-session")),
       detailItem(t("Strategy"), trade.strategy || "—"),
       detailItem(t("Timeframe"), trade.timeframe || "—"),
-      detailItem(t("Emotion"), trade.emotion || "—"),
+      detailItem(t("Emotion"), trade.emotion ? valueLabel(trade.emotion) : "—"),
     ),
     positionSection(trade),
     h(
@@ -268,7 +269,7 @@ export async function render(root, { params }) {
                 h("td", { class: "num" }, fmt.rr(trade.planned_rr)),
                 h("td", { class: `num ${pnlClass(trade.r_multiple)}` }, fmt.r(trade.r_multiple)),
                 h("td", { class: `num ${pnlClass(trade.pnl)}` }, fmt.signedMoney(trade.pnl)),
-                h("td", {}, trade.emotion || h("span", { class: "muted" }, "—")),
+                h("td", {}, trade.emotion ? valueLabel(trade.emotion) : h("span", { class: "muted" }, "—")),
                 h("td", {}, complianceCell(trade)),
                 h("td", { class: "muted" }, trade.screenshots.length || ""),
               ),

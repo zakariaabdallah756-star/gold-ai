@@ -37,6 +37,12 @@ let shortDateFormat = new Intl.DateTimeFormat(undefined, { day: "2-digit", month
 let timeFormat = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" });
 let weekdayFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
+/** ``value.toFixed(digits)`` with the language's decimal separator (identical to toFixed in English). */
+function fixed(value, digits) {
+  if (locale === undefined) return value.toFixed(digits);
+  return value.toLocaleString(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: false });
+}
+
 function parseLocal(iso) {
   if (!iso) return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) {
@@ -78,14 +84,14 @@ export const fmt = {
   },
   pct(value, digits = 1) {
     if (!isNum(value)) return "—";
-    return `${value.toFixed(digits).replace("-", MINUS)}%`;
+    return `${fixed(value, digits).replace("-", MINUS)}%`;
   },
   rr(value) {
-    return isNum(value) ? `1:${value.toFixed(2)}` : "—";
+    return isNum(value) ? `1:${fixed(value, 2)}` : "—";
   },
   r(value) {
     if (!isNum(value)) return "—";
-    return `${value > 0 ? "+" : value < 0 ? MINUS : ""}${Math.abs(value).toFixed(2)}R`;
+    return `${value > 0 ? "+" : value < 0 ? MINUS : ""}${fixed(Math.abs(value), 2)}R`;
   },
   date(iso) {
     const d = parseLocal(iso);
@@ -111,7 +117,7 @@ export const fmt = {
     if (!isNum(minutes)) return "—";
     if (minutes < 60) return `${Math.round(minutes)}m`;
     if (minutes < 60 * 24) return `${Math.floor(minutes / 60)}h ${Math.round(minutes % 60)}m`;
-    return `${(minutes / 1440).toFixed(1)}d`;
+    return `${fixed(minutes / 1440, 1)}d`;
   },
 };
 
