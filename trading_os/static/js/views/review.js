@@ -4,22 +4,33 @@
 
 import { api } from "../api.js";
 import { clear, h, icon, toast } from "../dom.js";
-import { fmt, pnlClass, toInputDate } from "../format.js";
-import { tn } from "../i18n.js";
+import { currentLocale, fmt, pnlClass, toInputDate } from "../format.js";
+import { N_, t, tn } from "../i18n.js";
 import { loadStatus, state } from "../state.js";
 
-const RATING_LABELS = ["Poor", "Weak", "Average", "Good", "Excellent"];
+// Label tables hold N_() texts; they are translated with t() where shown.
+const RATING_LABELS = [N_("Poor"), N_("Weak"), N_("Average"), N_("Good"), N_("Excellent")];
 const SAVE_DELAY_MS = 800;
 const HISTORY_DAYS = 30;
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const PROMPTS = [
-  ["went_well", "What went well", "Setups you executed cleanly, rules you respected, good patience…"],
-  ["went_wrong", "What went wrong", "Where you deviated from the plan, and what triggered it…"],
-  ["lessons", "Lessons", "What you will do differently next time…"],
-  ["tomorrow_focus", "Focus for tomorrow", "One or two concrete intentions for the next session…"],
+  ["went_well", N_("What went well"), N_("Setups you executed cleanly, rules you respected, good patience…")],
+  ["went_wrong", N_("What went wrong"), N_("Where you deviated from the plan, and what triggered it…")],
+  ["lessons", N_("Lessons"), N_("What you will do differently next time…")],
+  ["tomorrow_focus", N_("Focus for tomorrow"), N_("One or two concrete intentions for the next session…")],
 ];
 
-const rowDateFormat = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
+// Built when first needed and rebuilt when the interface language changes (never at module load).
+let rowDateFormat = null;
+let rowDateLocale;
+function formatRowDate(date) {
+  const locale = currentLocale();
+  if (!rowDateFormat || rowDateLocale !== locale) {
+    rowDateFormat = new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short" });
+    rowDateLocale = locale;
+  }
+  return rowDateFormat.format(date);
+}
 
 function shiftDay(iso, days) {
   const [y, m, d] = iso.split("-").map(Number);
@@ -31,8 +42,6 @@ function parseDay(iso) {
   return new Date(y, m - 1, d);
 }
 
-const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"}`;
-
 function kpi(label, value, sub, valueClass = "") {
   return h("div", { class: "kpi" }, h("div", { class: "label" }, label), h("div", { class: `value num ${valueClass}` }, value), sub ? h("div", { class: "sub" }, sub) : null);
 }
@@ -41,14 +50,14 @@ function pageHead(day, today, trailing) {
   return h(
     "div",
     { class: "page-head" },
-    h("div", {}, h("h1", {}, "Post-market review"), h("p", {}, fmt.longDate(day))),
+    h("div", {}, h("h1", {}, t("Post-market review")), h("p", {}, fmt.longDate(day))),
     h(
       "div",
       { class: "row" },
       trailing,
-      h("a", { class: "btn ghost icon-only", href: `#/review?date=${shiftDay(day, -1)}`, "aria-label": "Previous day", title: "Previous day" }, icon("chevronLeft")),
-      day < today ? h("a", { class: "btn ghost icon-only", href: `#/review?date=${shiftDay(day, 1)}`, "aria-label": "Next day", title: "Next day" }, icon("chevronRight")) : null,
-      day === today ? null : h("a", { class: "btn sm", href: "#/review" }, "Today"),
+      h("a", { class: "btn ghost icon-only", href: `#/review?date=${shiftDay(day, -1)}`, "aria-label": t("Previous day"), title: t("Previous day") }, icon("chevronLeft")),
+      day < today ? h("a", { class: "btn ghost icon-only", href: `#/review?date=${shiftDay(day, 1)}`, "aria-label": t("Next day"), title: t("Next day") }, icon("chevronRight")) : null,
+      day === today ? null : h("a", { class: "btn sm", href: "#/review" }, t("Today")),
     ),
   );
 }
@@ -59,14 +68,14 @@ function pageHead(day, today, trailing) {
 function ratingControl(value, onChange) {
   let current = value;
   const label = h("span", { class: "rating-label" });
-  const buttons = RATING_LABELS.map((text, index) =>
+  const buttons = RATING_LABELS.map((rating, index) =>
     h(
       "button",
       {
         type: "button",
         class: "star",
-        "aria-label": `${index + 1} of 5 - ${text}`,
-        title: `${index + 1} - ${text}`,
+        "aria-label": t("{n} of 5 - {label}", { n: index + 1, label: t(rating) }),
+        title: `${index + 1} - ${t(rating)}`,
         onclick: () => set(current === index + 1 ? null : index + 1, true),
         onkeydown: (event) => {
           const moves = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 };
@@ -90,12 +99,12 @@ function ratingControl(value, onChange) {
       button.classList.toggle("on", current !== null && index < current);
       button.setAttribute("aria-pressed", String(current === index + 1));
     });
-    label.textContent = current ? `${current}/5 · ${RATING_LABELS[current - 1]}` : "Not rated";
+    label.textContent = current ? `${current}/5 · ${t(RATING_LABELS[current - 1])}` : t("Not rated");
     if (notify) onChange(current);
   }
 
   set(value, false);
-  return h("div", { class: "rating" }, h("div", { class: "stars", role: "group", "aria-label": "Discipline rating, 1 to 5 stars" }, buttons), label);
+  return h("div", { class: "rating" }, h("div", { class: "stars", role: "group", "aria-label": t("Discipline rating, 1 to 5 stars") }, buttons), label);
 }
 
 /** Toggle chips. ``multiple`` keeps a set; otherwise one value (or none: picking it again clears it). */
@@ -134,32 +143,32 @@ function block(title, help, control) {
 function miniStars(rating) {
   return h(
     "span",
-    { class: "mini-stars", role: "img", "aria-label": `Discipline ${rating} of 5` },
+    { class: "mini-stars", role: "img", "aria-label": t("Discipline {rating} of 5", { rating }) },
     [1, 2, 3, 4, 5].map((n) => h("span", { class: n <= rating ? "on" : "" }, icon("star"))),
   );
 }
 
 function historyRow(row, current) {
-  const planIcon = row.followed_plan === null ? null : h("span", { class: row.followed_plan ? "pos" : "neg", title: row.followed_plan ? "Followed the plan" : "Broke the plan", role: "img", "aria-label": row.followed_plan ? "Followed the plan" : "Broke the plan" }, icon(row.followed_plan ? "check" : "x"));
+  const planIcon = row.followed_plan === null ? null : h("span", { class: row.followed_plan ? "pos" : "neg", title: row.followed_plan ? t("Followed the plan") : t("Broke the plan"), role: "img", "aria-label": row.followed_plan ? t("Followed the plan") : t("Broke the plan") }, icon(row.followed_plan ? "check" : "x"));
   return h(
     "a",
     { class: `review-row${row.day === current ? " current" : ""}`, href: `#/review?date=${row.day}`, "aria-current": row.day === current ? "page" : null },
-    h("span", { class: "review-row-date" }, rowDateFormat.format(parseDay(row.day))),
+    h("span", { class: "review-row-date" }, formatRowDate(parseDay(row.day))),
     h(
       "span",
       { class: "review-row-state" },
       row.exists
-        ? [row.discipline_rating ? miniStars(row.discipline_rating) : h("span", { class: "muted small" }, "Reviewed"), planIcon, row.mood ? h("span", { class: "muted small" }, row.mood) : null]
+        ? [row.discipline_rating ? miniStars(row.discipline_rating) : h("span", { class: "muted small" }, t("Reviewed")), planIcon, row.mood ? h("span", { class: "muted small" }, row.mood) : null]
         : row.trades || row.partials
-          ? h("span", { class: "badge warn" }, "To review")
-          : h("span", { class: "muted small" }, "Not reviewed"),
+          ? h("span", { class: "badge warn" }, t("To review"))
+          : h("span", { class: "muted small" }, t("Not reviewed")),
     ),
     h(
       "span",
       { class: "review-row-pnl" },
       row.trades || row.partials
-        ? [h("span", { class: `num ${pnlClass(row.pnl)}` }, fmt.signedMoney(row.pnl)), h("span", { class: "muted small" }, row.trades ? plural(row.trades, "trade") : tn(row.partials, "{n} partial exit", "{n} partial exits"))]
-        : h("span", { class: "muted small" }, "No trades"),
+        ? [h("span", { class: `num ${pnlClass(row.pnl)}` }, fmt.signedMoney(row.pnl)), h("span", { class: "muted small" }, row.trades ? tn(row.trades, "{n} trade", "{n} trades") : tn(row.partials, "{n} partial exit", "{n} partial exits"))]
+        : h("span", { class: "muted small" }, t("No trades")),
     ),
   );
 }
@@ -170,7 +179,7 @@ function historyCard(rows, current) {
   return h(
     "div",
     { class: "card review-history" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, `Last ${HISTORY_DAYS} days`), h("p", {}, `${reviewed} reviewed${missing ? ` · ${missing} trading ${missing === 1 ? "day" : "days"} to review` : ""}`))),
+    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Last {days} days", { days: HISTORY_DAYS })), h("p", {}, `${t("{n} reviewed", { n: reviewed })}${missing ? ` · ${tn(missing, "{n} trading day to review", "{n} trading days to review")}` : ""}`))),
     h("div", { class: "review-list" }, rows.map((row) => historyRow(row, current))),
   );
 }
@@ -185,13 +194,13 @@ function summaryStrip(stats) {
     h(
       "div",
       { class: "kpis" },
-      kpi("Net P&L", fmt.signedMoney(stats.net_pnl), (stats.trades ? `${plural(stats.trades, "trade")} closed` : "No trades closed") + partials, pnlClass(stats.net_pnl)),
-      kpi("Trades", stats.trades, `${stats.wins}W · ${stats.losses}L · ${stats.opened} opened`),
-      kpi("Win rate", fmt.pct(stats.win_rate), "Wins / closed trades"),
-      kpi("Rule compliance", fmt.pct(stats.compliance_rate, 0), "Of rated trades"),
-      kpi("Mistakes on trades", mistakeCount, mistakeCount ? tally(stats.mistakes) : "None tagged", mistakeCount ? "neg" : ""),
+      kpi(t("Net P&L"), fmt.signedMoney(stats.net_pnl), (stats.trades ? tn(stats.trades, "{n} trade closed", "{n} trades closed") : t("No trades closed")) + partials, pnlClass(stats.net_pnl)),
+      kpi(t("Trades"), stats.trades, t("{wins}W · {losses}L · {opened} opened", { wins: stats.wins, losses: stats.losses, opened: stats.opened })),
+      kpi(t("Win rate"), fmt.pct(stats.win_rate), t("Wins / closed trades")),
+      kpi(t("Rule compliance"), fmt.pct(stats.compliance_rate, 0), t("Of rated trades")),
+      kpi(t("Mistakes on trades"), mistakeCount, mistakeCount ? tally(stats.mistakes) : t("None tagged"), mistakeCount ? "neg" : ""),
     ),
-    stats.emotions.length ? h("p", { class: "muted small" }, `Emotions logged on trades: ${tally(stats.emotions)}`) : null,
+    stats.emotions.length ? h("p", { class: "muted small" }, t("Emotions logged on trades: {list}", { list: tally(stats.emotions) })) : null,
   ];
 }
 
@@ -204,7 +213,7 @@ export async function render(root, { params }) {
     clear(
       root,
       pageHead(day, today, null),
-      h("div", { class: "card empty" }, h("strong", {}, "This day hasn't happened yet"), "Reviews are written after the session, for today or a past day.", h("div", { style: { marginTop: "12px" } }, h("a", { class: "btn primary", href: "#/review" }, "Review today"))),
+      h("div", { class: "card empty" }, h("strong", {}, t("This day hasn't happened yet")), t("Reviews are written after the session, for today or a past day."), h("div", { style: { marginTop: "12px" } }, h("a", { class: "btn primary", href: "#/review" }, t("Review today")))),
     );
     return undefined;
   }
@@ -231,14 +240,14 @@ export async function render(root, { params }) {
 
   function showState(kind) {
     const views = {
-      draft: [null, "Not saved yet · changes save automatically"],
-      saved: ["checkCircle", "Saved"],
-      saving: ["clock", "Saving…"],
-      error: ["alert", "Not saved"],
+      draft: [null, t("Not saved yet · changes save automatically")],
+      saved: ["checkCircle", t("Saved")],
+      saving: ["clock", t("Saving…")],
+      error: ["alert", t("Not saved")],
     };
     const [iconName, text] = views[kind];
     saveState.className = `save-state ${kind}`;
-    clear(saveState, iconName ? icon(iconName) : null, text, kind === "error" ? h("button", { type: "button", class: "btn ghost sm", onclick: () => flush() }, "Retry") : null);
+    clear(saveState, iconName ? icon(iconName) : null, text, kind === "error" ? h("button", { type: "button", class: "btn ghost sm", onclick: () => flush() }, t("Retry")) : null);
   }
 
   async function send() {
@@ -286,52 +295,52 @@ export async function render(root, { params }) {
   const form = h(
     "div",
     { class: "card review-form" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Reflection"), h("p", {}, "Be honest - this is for you, not for the scoreboard")), saveState),
+    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Reflection")), h("p", {}, t("Be honest - this is for you, not for the scoreboard"))), saveState),
     h(
       "div",
       { class: "review-pair" },
-      block("Discipline", "How well did you follow your process?", ratingControl(values.discipline_rating, (value) => changed("discipline_rating", value))),
+      block(t("Discipline"), t("How well did you follow your process?"), ratingControl(values.discipline_rating, (value) => changed("discipline_rating", value))),
       block(
-        "Followed your plan?",
+        t("Followed your plan?"),
         null,
         chipGroup(
           [
-            { value: "yes", text: "Yes", iconName: "checkCircle" },
-            { value: "no", text: "No", iconName: "xCircle" },
+            { value: "yes", text: t("Yes"), iconName: "checkCircle" },
+            { value: "no", text: t("No"), iconName: "xCircle" },
           ],
           values.followed_plan === null ? [] : [values.followed_plan ? "yes" : "no"],
-          { label: "Followed your plan", onChange: (value) => changed("followed_plan", value === null ? null : value === "yes") },
+          { label: t("Followed your plan"), onChange: (value) => changed("followed_plan", value === null ? null : value === "yes") },
         ),
       ),
     ),
     block(
-      "Mood",
-      "Your state of mind at the end of the session",
+      t("Mood"),
+      t("Your state of mind at the end of the session"),
       chipGroup(
         state.plan.enums.moods.map((mood) => ({ value: mood, text: mood })),
         values.mood ? [values.mood] : [],
-        { label: "Mood", onChange: (value) => changed("mood", value ?? "") },
+        { label: t("Mood"), onChange: (value) => changed("mood", value ?? "") },
       ),
     ),
     block(
-      "Mistakes",
-      preselected ? "Pre-selected from the mistakes tagged on this day's trades" : "Counts show how often a mistake was tagged on this day's trades",
+      t("Mistakes"),
+      preselected ? t("Pre-selected from the mistakes tagged on this day's trades") : t("Counts show how often a mistake was tagged on this day's trades"),
       mistakeNames.length
         ? chipGroup(
             mistakeNames.map((name) => ({ value: name, text: name, extra: tradeMistakes.has(name) ? `×${tradeMistakes.get(name)}` : null })),
             values.mistakes,
-            { multiple: true, label: "Mistakes", onChange: (value) => changed("mistakes", value) },
+            { multiple: true, label: t("Mistakes"), onChange: (value) => changed("mistakes", value) },
           )
-        : h("p", { class: "muted small" }, "Add mistake types in Trading Plan to tag them here."),
+        : h("p", { class: "muted small" }, t("Add mistake types in Trading Plan to tag them here.")),
     ),
     h(
       "div",
       { class: "review-notes" },
       PROMPTS.map(([key, label, placeholder]) => {
-        const area = h("textarea", { rows: 4, maxlength: 10000, placeholder, value: values[key], oninput: (event) => changed(key, event.target.value) });
+        const area = h("textarea", { rows: 4, maxlength: 10000, placeholder: t(placeholder), value: values[key], oninput: (event) => changed(key, event.target.value) });
         const id = `review-${key}`;
         area.id = id;
-        return h("div", { class: "field" }, h("label", { for: id }, label), area);
+        return h("div", { class: "field" }, h("label", { for: id }, t(label)), area);
       }),
     ),
   );
@@ -339,12 +348,12 @@ export async function render(root, { params }) {
   showState(record.exists ? "saved" : "draft");
   clear(
     root,
-    pageHead(day, today, h("a", { class: "btn ghost sm", href: `#/calendar?month=${day.slice(0, 7)}` }, icon("calendar"), "Calendar")),
+    pageHead(day, today, h("a", { class: "btn ghost sm", href: `#/calendar?month=${day.slice(0, 7)}` }, icon("calendar"), t("Calendar"))),
     h(
       "div",
       { class: "stack" },
       summaryStrip(stats),
-      stats.trades ? null : h("p", { class: "muted small" }, "No trades closed on this day. A review is still worth writing: missed setups, patience and rule-keeping count too."),
+      stats.trades ? null : h("p", { class: "muted small" }, t("No trades closed on this day. A review is still worth writing: missed setups, patience and rule-keeping count too.")),
       h("div", { class: "grid wide-left review-layout" }, form, historyCard(history, day)),
     ),
   );
