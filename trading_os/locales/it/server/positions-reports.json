@@ -72,6 +72,7 @@
   "Only the most recent position event can be undone - undo the later events first": "Si può annullare solo l'evento di posizione più recente: annulla prima gli eventi successivi",
   "Only {remaining:g} lots remain open": "Restano aperti solo {remaining:g} lotti",
   "Opened after this price": "Aperto dopo questo prezzo",
+  "PDF export needs reportlab: pip install -r trading_os/requirements.txt": "L'esportazione PDF richiede reportlab: pip install -r trading_os/requirements.txt",
   "Payoff ratio": "Payoff ratio",
   "Position size can't be below the {filled:g} lots already closed": "La dimensione della posizione non può essere inferiore ai {filled:g} lotti già chiusi",
   "Price {price:g} must lie between the low ({low:g}) and the high ({high:g})": "Il prezzo {price:g} deve essere compreso tra il minimo ({low:g}) e il massimo ({high:g})",

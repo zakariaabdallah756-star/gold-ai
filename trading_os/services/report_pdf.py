@@ -30,7 +30,7 @@ def _reportlab():
         from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ImportError as exc:  # pragma: no cover - depends on the environment
-        raise ReportUnavailable("PDF export needs reportlab: pip install -r trading_os/requirements.txt") from exc
+        raise ReportUnavailable(tr("PDF export needs reportlab: pip install -r trading_os/requirements.txt")) from exc
     return {
         "Drawing": Drawing,
         "Line": Line,
