@@ -11,6 +11,7 @@ from ..models import PropChallenge
 from ..schemas import FiniteModel
 from ..services import prop
 from ..services.account import local_today
+from ..services.i18n import tr
 from .deps import DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api/prop", tags=["prop"])
@@ -74,7 +75,7 @@ def _load(db, challenge_id: int) -> PropChallenge:
 
 @router.get("/presets")
 def list_presets():
-    return {"presets": prop.presets(), "note": prop.VERIFY_NOTE}
+    return {"presets": prop.presets(), "note": tr(prop.VERIFY_NOTE)}
 
 
 @router.get("/challenges")
@@ -129,7 +130,7 @@ def delete_challenge(challenge_id: int, db: DbDep):
 def activate_challenge(challenge_id: int, settings: SettingsDep, db: DbDep):
     challenge = _load(db, challenge_id)
     if challenge.status == "archived":
-        raise HTTPException(409, "An archived challenge can't drive prop mode - reopen it first")
+        raise HTTPException(409, tr("An archived challenge can't drive prop mode - reopen it first"))
     prop.activate(db, challenge)
     return _summary(challenge, prop.refresh(db, settings, challenge))
 
@@ -160,5 +161,5 @@ def challenge_report(challenge_id: int, settings: SettingsDep, db: DbDep):
         **_summary(challenge, metrics),
         "currency": settings.currency,
         "history": metrics.history,
-        "rules_note": prop.VERIFY_NOTE,
+        "rules_note": tr(prop.VERIFY_NOTE),
     }

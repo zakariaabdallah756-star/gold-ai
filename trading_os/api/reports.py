@@ -7,6 +7,7 @@ from ..models import Strategy
 from ..services import backtest, report_pdf
 from ..services import trades as trade_service
 from ..services.account import local_today
+from ..services.i18n import tr
 from .deps import DbDep, SettingsDep, get_or_404
 from .trades import FiltersDep
 
@@ -33,19 +34,22 @@ def performance_pdf(settings: SettingsDep, db: DbDep, filters: FiltersDep):
     """Journal performance summary; accepts the same filters as /api/analytics."""
     _, report = trade_service.performance_report(db, settings, filters)
 
-    if filters.date_from or filters.date_to:
-        period = f"{filters.date_from or 'start'} to {filters.date_to or local_today(settings)}"
+    today = local_today(settings)
+    if filters.date_from:
+        period = tr("{start} to {end}", start=filters.date_from, end=filters.date_to or today)
+    elif filters.date_to:
+        period = tr("start to {end}", end=filters.date_to)
     else:
-        period = f"All time to {local_today(settings)}"
+        period = tr("All time to {end}", end=today)
     applied = ", ".join(
-        f"{label}: {value}"
-        for label, value in (
-            ("Asset", filters.symbol),
-            ("Strategy", filters.strategy),
-            ("Session", filters.session),
-            ("Direction", filters.direction),
+        part
+        for part in (
+            tr("Asset: {value}", value=filters.symbol) if filters.symbol else "",
+            tr("Strategy: {value}", value=filters.strategy) if filters.strategy else "",
+            tr("Session: {value}", value=filters.session) if filters.session else "",
+            tr("Direction: {value}", value=filters.direction) if filters.direction else "",
         )
-        if value
+        if part
     )
     content = _render(
         report_pdf.build_performance_pdf,

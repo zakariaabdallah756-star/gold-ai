@@ -30,7 +30,7 @@ def _reportlab():
         from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ImportError as exc:  # pragma: no cover - depends on the environment
-        raise ReportUnavailable("PDF export needs reportlab: pip install -r trading_os/requirements.txt") from exc
+        raise ReportUnavailable(tr("PDF export needs reportlab: pip install -r trading_os/requirements.txt")) from exc
     return {
         "Drawing": Drawing,
         "Line": Line,
@@ -204,7 +204,12 @@ class _Builder:
         if len(values) < 2:
             drawing.add(
                 rl["String"](
-                    4, height / 2, "Not enough data for a chart", fontName="Helvetica", fontSize=8, fillColor=MUTED
+                    4,
+                    height / 2,
+                    _ascii(tr("Not enough data for a chart")),
+                    fontName="Helvetica",
+                    fontSize=8,
+                    fillColor=MUTED,
                 )
             )
             self.story.append(drawing)
@@ -240,7 +245,7 @@ class _Builder:
         rl = self.rl
         buffer = io.BytesIO()
         generated = datetime.now().strftime("%Y-%m-%d %H:%M")
-        footer = _ascii(FOOTER_TEXT)
+        footer = _ascii(tr(FOOTER_TEXT))
 
         def decorate(canvas, doc):
             canvas.saveState()
@@ -259,7 +264,9 @@ class _Builder:
                 text.textLine(item)
             canvas.drawText(text)
             canvas.drawRightString(
-                rl["A4"][0] - 18 * rl["mm"], 8 * rl["mm"], f"Trading OS - generated {generated} - page {doc.page}"
+                rl["A4"][0] - 18 * rl["mm"],
+                8 * rl["mm"],
+                _ascii(tr("Trading OS - generated {generated} - page {page}", generated=generated, page=doc.page)),
             )
             canvas.restoreState()
 
@@ -270,7 +277,7 @@ class _Builder:
             rightMargin=18 * rl["mm"],
             topMargin=16 * rl["mm"],
             bottomMargin=28 * rl["mm"],
-            title="Trading OS report",
+            title=_ascii(tr("Trading OS report")),
             author="Trading OS",
         )
         doc.build(self.story, onFirstPage=decorate, onLaterPages=decorate)
@@ -279,7 +286,8 @@ class _Builder:
 
 # ---------------------------------------------------------------------- reports
 
-BREAKDOWN_SECTIONS = (("symbol", "By asset"), ("strategy", "By strategy"), ("session", "By session"))
+BREAKDOWN_SECTIONS = (("symbol", N_("By asset")), ("strategy", N_("By strategy")), ("session", N_("By session")))
+STRATEGY_STATUS_WORDS = {"live": N_("live"), "incubator": N_("incubator"), "retired": N_("retired")}
 BOOKING_NOTE = N_(
     "P&L is booked on the day it was realised: each partial exit on the day it was filled, the rest of "
     "the trade - with its fees - when it closed. Trade statistics count each trade once, at its close."
@@ -304,16 +312,20 @@ def _breakdown_rows(rows: list[dict], currency: str, limit: int = 10):
     )
 
 
+def _group_header() -> list[str]:
+    return ["", tr("Trades"), tr("Win rate"), tr("Net P&L"), tr("Profit factor"), tr("Expectancy")]
+
+
 def _realised_equity(b: _Builder, report: dict, currency: str) -> None:
     curve = [point["equity"] for point in report.get("equity_curve", [])]
     b.line_chart(curve, tr("Realised equity ({currency})", currency=currency), reference=curve[0] if curve else None)
 
 
 def _recent_days(b: _Builder, days: list[dict], currency: str) -> None:
-    b.heading("Most recent trading days")
+    b.heading(tr("Most recent trading days"))
     recent = days[-15:][::-1]
     b.table(
-        ["Date", "Trades", "W / L", tr("Partial exits"), "P&L", "Cumulative"],
+        [tr("Date"), tr("Trades"), "W / L", tr("Partial exits"), "P&L", tr("Cumulative")],
         [
             [
                 d["date"],
@@ -334,9 +346,9 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
     """Journal performance summary from ``analytics.full_report`` output."""
     s = report["summary"]
     days = report.get("daily_pnl") or []
-    b = _Builder("Trading performance report", f"{account} - {period}" + (f" - {filters}" if filters else ""))
+    b = _Builder(tr("Trading performance report"), f"{account} - {period}" + (f" - {filters}" if filters else ""))
     if not s["trades"]:
-        b.paragraph("No closed trades in this period.")
+        b.paragraph(tr("No closed trades in this period."))
         if days:  # only partial exits of trades that close later (or are still open) were booked
             b.paragraph(tr("Realised in this period: {amount}", amount=money(s.get("realized_pnl"), currency)))
             b.spacer(10)
@@ -346,21 +358,24 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
 
     b.kpis(
         [
-            ("Net P&L", money(s["net_pnl"], currency)),
-            ("Return", pct(s.get("return_pct"), 2)),
-            ("Trades", f"{s['trades']} ({s['wins']}W / {s['losses']}L / {s['breakeven']}BE)"),
-            ("Win rate", pct(s["win_rate"])),
-            ("Profit factor", profit_factor(s)),
-            ("Expectancy / trade", f"{money(s['expectancy'], currency)} ({r_value(s.get('avg_r'))})"),
-            ("Max drawdown", f"{plain_money(s.get('max_drawdown'), currency)} ({pct(s.get('max_drawdown_pct'))})"),
-            ("Payoff ratio", num(s.get("payoff_ratio"))),
-            ("Avg planned R:R", "-" if s.get("avg_planned_rr") is None else f"1:{s['avg_planned_rr']:.2f}"),
-            ("Rule compliance", pct(s.get("compliance_rate"), 0)),
+            (tr("Net P&L"), money(s["net_pnl"], currency)),
+            (tr("Return"), pct(s.get("return_pct"), 2)),
+            (tr("Trades"), f"{s['trades']} ({s['wins']}W / {s['losses']}L / {s['breakeven']}BE)"),
+            (tr("Win rate"), pct(s["win_rate"])),
+            (tr("Profit factor"), profit_factor(s)),
+            (tr("Expectancy / trade"), f"{money(s['expectancy'], currency)} ({r_value(s.get('avg_r'))})"),
             (
-                "Largest win / loss",
+                tr("Max drawdown"),
+                f"{plain_money(s.get('max_drawdown'), currency)} ({pct(s.get('max_drawdown_pct'))})",
+            ),
+            (tr("Payoff ratio"), num(s.get("payoff_ratio"))),
+            (tr("Avg planned R:R"), "-" if s.get("avg_planned_rr") is None else f"1:{s['avg_planned_rr']:.2f}"),
+            (tr("Rule compliance"), pct(s.get("compliance_rate"), 0)),
+            (
+                tr("Largest win / loss"),
                 f"{money(s.get('largest_win'), currency)} / {money(s.get('largest_loss'), currency)}",
             ),
-            ("Fees", plain_money(s.get("total_fees"), currency)),
+            (tr("Fees"), plain_money(s.get("total_fees"), currency)),
         ]
     )
     realized = s.get("realized_pnl")
@@ -373,12 +388,12 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
 
     followed, broke = s.get("followed_plan"), s.get("broke_rules")
     if followed and broke:
-        b.heading("Discipline")
+        b.heading(tr("Discipline"))
         b.table(
-            ["", "Trades", "Win rate", "Net P&L", "Profit factor", "Expectancy"],
+            _group_header(),
             [
                 [
-                    "Followed plan",
+                    tr("Followed plan"),
                     str(followed["trades"]),
                     pct(followed["win_rate"]),
                     money(followed["net_pnl"], currency),
@@ -386,7 +401,7 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
                     money(followed["expectancy"], currency),
                 ],
                 [
-                    "Broke rules",
+                    tr("Broke rules"),
                     str(broke["trades"]),
                     pct(broke["win_rate"]),
                     money(broke["net_pnl"], currency),
@@ -400,15 +415,15 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
     for key, title in BREAKDOWN_SECTIONS:
         rows = report.get("breakdowns", {}).get(key) or []
         if rows:
-            b.heading(title)
+            b.heading(tr(title))
             body, nets = _breakdown_rows(rows, currency)
-            b.table(["", "Trades", "Win rate", "Net P&L", "Profit factor", "Expectancy"], body, signs={3: nets})
+            b.table(_group_header(), body, signs={3: nets})
 
     costs = s.get("mistake_cost") or []
     if costs:
-        b.heading("Cost of mistakes")
+        b.heading(tr("Cost of mistakes"))
         b.table(
-            ["Mistake", "Trades", "Win rate", "Net P&L", "Avg P&L"],
+            [tr("Mistake"), tr("Trades"), tr("Win rate"), tr("Net P&L"), tr("Avg P&L")],
             [
                 [
                     c["mistake"],
@@ -430,32 +445,38 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
 def build_backtest_pdf(report: dict) -> bytes:
     """Strategy backtest summary from ``backtest.strategy_report`` output."""
     strategy, m, currency = report["strategy"], report["metrics"], report["currency"]
+    status = strategy["status"]
     b = _Builder(
-        f"Backtest report - {strategy['name']}",
-        f"Status: {strategy['status']} - {report['risk_per_trade']:,.2f} {currency} per 1R - hypothetical results",
+        tr("Backtest report - {name}", name=strategy["name"]),
+        tr(
+            "Status: {status} - {risk:,.2f} {currency} per 1R - hypothetical results",
+            status=tr(STRATEGY_STATUS_WORDS[status]) if status in STRATEGY_STATUS_WORDS else status,
+            risk=report["risk_per_trade"],
+            currency=currency,
+        ),
     )
     if not m["trades"]:
-        b.paragraph("No backtest trades recorded for this strategy yet.")
+        b.paragraph(tr("No backtest trades recorded for this strategy yet."))
         return b.build()
     b.kpis(
         [
-            ("Trades", f"{m['trades']} ({m['wins']}W / {m['losses']}L / {m['breakeven']}BE)"),
-            ("Win rate", pct(m["win_rate"])),
-            ("Profit factor", profit_factor(m)),
-            ("Expectancy / trade", f"{r_value(m.get('expectancy_r'))} ({money(m['expectancy'], currency)})"),
-            ("Net result", f"{r_value(m.get('net_r'))} ({money(m['net_pnl'], currency)})"),
-            ("Avg win : avg loss", "-" if m.get("avg_rr") is None else f"{m['avg_rr']:.2f} : 1"),
+            (tr("Trades"), f"{m['trades']} ({m['wins']}W / {m['losses']}L / {m['breakeven']}BE)"),
+            (tr("Win rate"), pct(m["win_rate"])),
+            (tr("Profit factor"), profit_factor(m)),
+            (tr("Expectancy / trade"), f"{r_value(m.get('expectancy_r'))} ({money(m['expectancy'], currency)})"),
+            (tr("Net result"), f"{r_value(m.get('net_r'))} ({money(m['net_pnl'], currency)})"),
+            (tr("Avg win : avg loss"), "-" if m.get("avg_rr") is None else f"{m['avg_rr']:.2f} : 1"),
             (
-                "Max drawdown",
+                tr("Max drawdown"),
                 f"{num(m.get('max_drawdown_r'))}R ({money(m.get('max_drawdown'), currency)}, {pct(m.get('max_drawdown_pct'))})",
             ),
-            ("Avg planned R:R", "-" if m.get("avg_planned_rr") is None else f"1:{m['avg_planned_rr']:.2f}"),
+            (tr("Avg planned R:R"), "-" if m.get("avg_planned_rr") is None else f"1:{m['avg_planned_rr']:.2f}"),
         ]
     )
     b.spacer(10)
-    b.line_chart([p.get("r", 0.0) for p in report["equity_curve"]], "Cumulative result (R)", reference=0.0)
+    b.line_chart([p.get("r", 0.0) for p in report["equity_curve"]], tr("Cumulative result (R)"), reference=0.0)
 
-    b.heading("Backtest vs live journal")
+    b.heading(tr("Backtest vs live journal"))
     rows = report["comparison"]["rows"]
 
     def cell(row, side):
@@ -483,33 +504,39 @@ def build_backtest_pdf(report: dict) -> bytes:
         if row.get("unit") == "r":
             return f"{row['delta']:+.2f}R"
         if row.get("unit") == "pct":
-            return f"{row['delta']:+.2f} pp"
+            return tr("{value:+.2f} pp", value=row["delta"])
         return f"{row['delta']:+,.2f}"
 
     b.table(
-        ["Metric", "Backtest", "Live", "Delta"],
+        [tr("Metric"), tr("Backtest"), tr("Live"), tr("Delta")],
         [[r["label"], cell(r, "backtest"), cell(r, "live"), delta(r)] for r in rows],
     )
     b.spacer(4)
     gap = report["comparison"].get("gap")
     if gap:
         kept = (
-            "" if gap["edge_retained_pct"] is None else f", {gap['edge_retained_pct']:.0f}% of the backtest edge kept"
+            ""
+            if gap["edge_retained_pct"] is None
+            else tr(", {share:.0f}% of the backtest edge kept", share=gap["edge_retained_pct"])
         )
         at_risk = (
             ""
             if gap["gap_money_same_basis"] is None
-            else f" ({money(gap['gap_money_same_basis'], currency)} per trade at the backtest risk)"
+            else tr(" ({amount} per trade at the backtest risk)", amount=money(gap["gap_money_same_basis"], currency))
         )
-        b.paragraph(f"Expectancy gap: {gap['gap_r']:+.2f}R per trade{at_risk}{kept}.")
+        b.paragraph(
+            tr("Expectancy gap: {gap:+.2f}R per trade{at_risk}{kept}.", gap=gap["gap_r"], at_risk=at_risk, kept=kept)
+        )
     verdict = report["comparison"]["verdict"]
     b.paragraph(verdict["message"])
     for note in verdict.get("notes", []):
         b.paragraph(note, "small")
     b.spacer(6)
     b.paragraph(
-        "Hypothetical results have inherent limitations: they are prepared with hindsight and do not reflect real "
-        "execution costs, slippage or the psychological pressure of live trading.",
+        tr(
+            "Hypothetical results have inherent limitations: they are prepared with hindsight and do not reflect real "
+            "execution costs, slippage or the psychological pressure of live trading."
+        ),
         "small",
     )
     return b.build()

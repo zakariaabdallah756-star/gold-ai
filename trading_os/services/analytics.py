@@ -42,11 +42,21 @@ from datetime import datetime
 from statistics import fmean
 from typing import Any, Protocol
 
-WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+from .i18n import N_, tr
+
+WEEKDAYS = (
+    N_("Monday"),
+    N_("Tuesday"),
+    N_("Wednesday"),
+    N_("Thursday"),
+    N_("Friday"),
+    N_("Saturday"),
+    N_("Sunday"),
+)
 R_BIN_WIDTH = 0.5
 R_BIN_MIN = -3.0
 R_BIN_MAX = 5.0
-NO_MISTAKES = "No mistakes"
+NO_MISTAKES = N_("No mistakes")
 
 
 class ClosedTrade(Protocol):
@@ -431,17 +441,17 @@ def _group(trades: Sequence[ClosedTrade], key: Callable[[ClosedTrade], str]) -> 
 
 def _compliance_label(trade: ClosedTrade) -> str:
     if trade.rule_compliant is None:
-        return "Not rated"
-    return "Followed plan" if trade.rule_compliant else "Broke rules"
+        return tr("Not rated")
+    return tr("Followed plan") if trade.rule_compliant else tr("Broke rules")
 
 
 BREAKDOWN_KEYS: dict[str, Callable[[ClosedTrade], str]] = {
     "symbol": lambda t: t.symbol,
-    "strategy": lambda t: t.strategy or "Unspecified",
-    "session": lambda t: t.session or "Off-session",
-    "emotion": lambda t: t.emotion or "Not logged",
+    "strategy": lambda t: t.strategy or tr("Unspecified"),
+    "session": lambda t: t.session or tr("Off-session"),
+    "emotion": lambda t: t.emotion or tr("Not logged"),
     "direction": lambda t: t.direction.capitalize(),
-    "weekday": lambda t: WEEKDAYS[t.entry_time.weekday()],
+    "weekday": lambda t: tr(WEEKDAYS[t.entry_time.weekday()]),
     "compliance": _compliance_label,
 }
 
@@ -461,12 +471,13 @@ def _overlapping_groups(
 def breakdowns(trades: Sequence[ClosedTrade]) -> dict[str, list[dict]]:
     out = {}
     grouped = {dimension: _group(trades, key) for dimension, key in BREAKDOWN_KEYS.items()}
-    grouped["confluence"] = _overlapping_groups(trades, lambda t: t.confluences, "None recorded")
-    grouped["mistake"] = _overlapping_groups(trades, _mistakes, NO_MISTAKES)
+    grouped["confluence"] = _overlapping_groups(trades, lambda t: t.confluences, tr("None recorded"))
+    grouped["mistake"] = _overlapping_groups(trades, _mistakes, tr(NO_MISTAKES))
     for dimension, groups in grouped.items():
         rows = [{"key": name, **core_stats(group)} for name, group in groups.items()]
         if dimension == "weekday":
-            rows.sort(key=lambda row: WEEKDAYS.index(row["key"]))
+            weekday_names = [tr(name) for name in WEEKDAYS]
+            rows.sort(key=lambda row: weekday_names.index(row["key"]))
         else:
             rows.sort(key=lambda row: (row["net_pnl"] or 0.0), reverse=True)
         out[dimension] = rows

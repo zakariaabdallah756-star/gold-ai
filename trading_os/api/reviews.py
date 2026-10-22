@@ -10,6 +10,7 @@ from ..constants import MOODS
 from ..schemas import FiniteModel
 from ..services import reviews
 from ..services.account import local_today
+from ..services.i18n import tr
 from .deps import DbDep, SettingsDep
 
 router = APIRouter(prefix="/api", tags=["reviews"])
@@ -33,7 +34,7 @@ class ReviewIn(FiniteModel):
     def _known_mood(cls, value: str) -> str:
         value = value.strip()
         if value and value not in MOODS:
-            raise ValueError(f"Mood must be one of: {', '.join(MOODS)}")
+            raise ValueError(tr("Mood must be one of: {moods}", moods=", ".join(MOODS)))
         return value
 
     @field_validator("mistakes")
@@ -92,5 +93,5 @@ def read_review(day: date, db: DbDep):
 def save_review(day: date, payload: ReviewIn, settings: SettingsDep, db: DbDep):
     """Create or replace the review of a day (today or earlier)."""
     if day > local_today(settings):
-        raise HTTPException(status_code=422, detail="You can only review today or a past day.")
+        raise HTTPException(status_code=422, detail=tr("You can only review today or a past day."))
     return reviews.save_review(db, day, payload.model_dump())
