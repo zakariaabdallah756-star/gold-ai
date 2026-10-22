@@ -2,7 +2,8 @@
 
 import { api, ApiError } from "../api.js";
 import { clear, debounce, field, h, icon, numberOrNull, segmented, select, toast } from "../dom.js";
-import { fmt } from "../format.js";
+import { currentLocale, fmt } from "../format.js";
+import { t } from "../i18n.js";
 import { state } from "../state.js";
 
 // Remembered between visits.
@@ -20,7 +21,7 @@ export function violationList(violations, { okText } = {}) {
         "div",
         { class: `violation ${v.severity}` },
         icon(v.severity === "block" ? "lock" : "alert"),
-        h("div", {}, h("div", { class: "tag" }, v.severity === "block" ? "Blocked" : "Warning"), v.message),
+        h("div", {}, h("div", { class: "tag" }, v.severity === "block" ? t("Blocked") : t("Warning")), v.message),
       ),
     ),
   );
@@ -38,7 +39,10 @@ export async function render(root) {
   const { settings } = state.plan;
   const markets = state.plan.markets.filter((m) => m.active);
   if (!markets.length) {
-    clear(root, h("div", { class: "card empty" }, h("strong", {}, "No active markets"), "Add an instrument in ", h("a", { href: "#/plan" }, "Trading Plan → Markets"), "."));
+    clear(
+      root,
+      h("div", { class: "card empty" }, h("strong", {}, t("No active markets")), t("Add an instrument in "), h("a", { href: "#/plan" }, t("Trading Plan → Markets")), "."),
+    );
     return;
   }
   if (!markets.some((m) => m.id === inputs.market_id)) {
@@ -91,21 +95,21 @@ export async function render(root) {
   const priceFields = h(
     "div",
     { class: "form-grid" },
-    field("Entry price", bindInput("entry")),
-    field("Stop loss", bindInput("stop")),
-    field("Take profit", bindInput("tp", { placeholder: "optional" })),
+    field(t("Entry price"), bindInput("entry")),
+    field(t("Stop loss"), bindInput("stop")),
+    field(t("Take profit"), bindInput("tp", { placeholder: t("optional") })),
   );
   const pipFields = h(
     "div",
     { class: "form-grid" },
-    field("Stop size (pips / points)", bindInput("stop_pips")),
-    field("Target (pips / points)", bindInput("target_pips", { placeholder: "optional" })),
-    field("Entry price", bindInput("entry", { placeholder: "optional - for notional" })),
+    field(t("Stop size (pips / points)"), bindInput("stop_pips")),
+    field(t("Target (pips / points)"), bindInput("target_pips", { placeholder: t("optional") })),
+    field(t("Entry price"), bindInput("entry", { placeholder: t("optional - for notional") })),
   );
   const mode = segmented(
     [
-      ["prices", "Entry & stop prices"],
-      ["pips", "Stop in pips / points"],
+      ["prices", t("Entry & stop prices")],
+      ["pips", t("Stop in pips / points")],
     ],
     inputs.mode,
     (value) => {
@@ -127,17 +131,17 @@ export async function render(root) {
     const pipValue = m.quote_currency === settings.currency ? m.contract_size * m.pip_size : null;
     clear(
       spec,
-      h("span", {}, "Contract ", h("b", {}, m.contract_size.toLocaleString())),
-      h("span", {}, "Pip/point ", h("b", {}, String(m.pip_size))),
-      h("span", {}, "Quote ", h("b", {}, m.quote_currency)),
-      h("span", {}, "Lots ", h("b", {}, `${m.min_lot}–${m.max_lot} step ${m.lot_step}`)),
-      pipValue !== null ? h("span", {}, "Pip value ", h("b", {}, `${fmt.money(pipValue)} / lot`)) : null,
+      h("span", {}, t("Contract"), " ", h("b", {}, m.contract_size.toLocaleString(currentLocale()))),
+      h("span", {}, t("Pip/point"), " ", h("b", {}, String(m.pip_size))),
+      h("span", {}, t("Quote"), " ", h("b", {}, m.quote_currency)),
+      h("span", {}, t("Lots"), " ", h("b", {}, t("{min}–{max} step {step}", { min: m.min_lot, max: m.max_lot, step: m.lot_step }))),
+      pipValue !== null ? h("span", {}, t("Pip value"), " ", h("b", {}, t("{value} / lot", { value: fmt.money(pipValue) }))) : null,
     );
     clear(
       fxField,
       needsFx(m, settings.currency)
-        ? field(`Conversion rate: 1 ${m.quote_currency} = ? ${settings.currency}`, bindInput("fx_rate", { placeholder: "e.g. 1.08" }), {
-            help: `${m.symbol} is quoted in ${m.quote_currency}; needed to convert risk into ${settings.currency}.`,
+        ? field(t("Conversion rate: 1 {quote} = ? {currency}", { quote: m.quote_currency, currency: settings.currency }), bindInput("fx_rate", { placeholder: t("e.g. 1.08") }), {
+            help: t("{symbol} is quoted in {quote}; needed to convert risk into {currency}.", { symbol: m.symbol, quote: m.quote_currency, currency: settings.currency }),
           })
         : null,
     );
@@ -159,7 +163,15 @@ export async function render(root) {
   const recompute = debounce(async () => {
     const data = body();
     if (!ready(data)) {
-      clear(result, h("div", { class: "empty" }, h("strong", {}, "Enter your stop"), inputs.mode === "prices" ? "Entry and stop prices size the position automatically." : "Enter the stop distance in pips or points."));
+      clear(
+        result,
+        h(
+          "div",
+          { class: "empty" },
+          h("strong", {}, t("Enter your stop")),
+          inputs.mode === "prices" ? t("Entry and stop prices size the position automatically.") : t("Enter the stop distance in pips or points."),
+        ),
+      );
       return;
     }
     const id = ++requestId;
@@ -190,32 +202,47 @@ export async function render(root) {
       h(
         "div",
         { class: "result-hero" },
-        h("div", { class: "label" }, "Position size"),
-        h("div", { class: "value num" }, fmt.lots(r.lots), h("span", { class: "unit" }, "lots")),
-        h("div", { class: "muted small" }, `${r.units.toLocaleString(undefined, { maximumFractionDigits: 2 })} units · ${r.direction ? r.direction.toUpperCase() : "direction from prices"}`),
+        h("div", { class: "label" }, t("Position size")),
+        h("div", { class: "value num" }, fmt.lots(r.lots), h("span", { class: "unit" }, t("lots"))),
+        h(
+          "div",
+          { class: "muted small" },
+          `${t("{units} units", { units: r.units.toLocaleString(currentLocale(), { maximumFractionDigits: 2 }) })} · ${r.direction ? r.direction.toUpperCase() : t("direction from prices")}`,
+        ),
       ),
       h(
         "div",
         { class: "live-metrics", style: { marginTop: 0 } },
-        metric("Max loss", fmt.money(r.max_loss), "neg"),
-        metric("Actual risk", fmt.pct(r.actual_risk_pct, 2)),
-        metric("Target risk", `${fmt.money(r.risk_amount)} (${fmt.pct(r.risk_pct, 2)})`),
-        metric("Stop", `${fmt.num(r.stop_pips, 1)} pips`),
-        metric("Pip value / lot", fmt.money(r.pip_value_per_lot)),
-        metric("Reward : risk", fmt.rr(r.rr)),
-        metric("Potential profit", r.potential_profit === null ? "—" : fmt.money(r.potential_profit), r.potential_profit ? "pos" : ""),
-        metric("Notional", r.notional === null ? "—" : fmt.money(r.notional)),
-        metric("Leverage", r.leverage === null ? "—" : `${fmt.num(r.leverage, 1)}×`),
+        metric(t("Max loss"), fmt.money(r.max_loss), "neg"),
+        metric(t("Actual risk"), fmt.pct(r.actual_risk_pct, 2)),
+        metric(t("Target risk"), `${fmt.money(r.risk_amount)} (${fmt.pct(r.risk_pct, 2)})`),
+        metric(t("Stop"), t("{pips} pips", { pips: fmt.num(r.stop_pips, 1) })),
+        metric(t("Pip value / lot"), fmt.money(r.pip_value_per_lot)),
+        metric(t("Reward : risk"), fmt.rr(r.rr)),
+        metric(t("Potential profit"), r.potential_profit === null ? "—" : fmt.money(r.potential_profit), r.potential_profit ? "pos" : ""),
+        metric(t("Notional"), r.notional === null ? "—" : fmt.money(r.notional)),
+        metric(t("Leverage"), r.leverage === null ? "—" : `${fmt.num(r.leverage, 1)}×`),
       ),
       riskShare
         ? h(
             "div",
             {},
-            h("div", { class: "rr-bar", role: "img", "aria-label": `Risk ${fmt.money(r.max_loss)} versus reward ${fmt.money(r.potential_profit)}` }, h("div", { class: "risk", style: { flex: String(riskShare) } }), h("div", { class: "reward", style: { flex: String(1 - riskShare) } })),
-            h("div", { class: "row small muted" }, h("span", {}, `Risk ${fmt.money(r.max_loss)}`), h("span", { class: "spacer" }), h("span", {}, `Reward ${fmt.money(r.potential_profit)}`)),
+            h(
+              "div",
+              { class: "rr-bar", role: "img", "aria-label": t("Risk {risk} versus reward {reward}", { risk: fmt.money(r.max_loss), reward: fmt.money(r.potential_profit) }) },
+              h("div", { class: "risk", style: { flex: String(riskShare) } }),
+              h("div", { class: "reward", style: { flex: String(1 - riskShare) } }),
+            ),
+            h(
+              "div",
+              { class: "row small muted" },
+              h("span", {}, t("Risk {amount}", { amount: fmt.money(r.max_loss) })),
+              h("span", { class: "spacer" }),
+              h("span", {}, t("Reward {amount}", { amount: fmt.money(r.potential_profit) })),
+            ),
           )
         : null,
-      violationList(r.violations, { okText: "All risk rules pass for this position." }),
+      violationList(r.violations, { okText: t("All risk rules pass for this position.") }),
       r.notes.length ? h("div", { class: "muted small" }, r.notes.map((note) => h("p", {}, note))) : null,
       h(
         "div",
@@ -228,17 +255,17 @@ export async function render(root) {
             onclick: async () => {
               try {
                 await navigator.clipboard.writeText(String(r.lots));
-                toast(`Copied ${r.lots} lots`, "success");
+                toast(t("Copied {lots} lots", { lots: r.lots }), "success");
               } catch {
-                toast("Clipboard not available", "warn");
+                toast(t("Clipboard not available"), "warn");
               }
             },
           },
           icon("copy"),
-          "Copy lots",
+          t("Copy lots"),
         ),
         h("span", { class: "spacer" }),
-        h("a", { class: `btn ${blocked ? "" : "primary"}`, href: `#/journal?${params}` }, "Log this trade", icon("arrowRight")),
+        h("a", { class: `btn ${blocked ? "" : "primary"}`, href: `#/journal?${params}` }, t("Log this trade"), icon("arrowRight")),
       ),
     );
   }
@@ -247,15 +274,32 @@ export async function render(root) {
   const budget = h(
     "div",
     { class: "card" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Today's risk budget"), h("p", {}, `${settings.max_daily_loss_pct}% max daily loss · ${settings.max_risk_pct}% max per trade · min R:R 1:${settings.min_rr}`))),
+    h(
+      "div",
+      { class: "card-head" },
+      h(
+        "div",
+        {},
+        h("h2", {}, t("Today's risk budget")),
+        h(
+          "p",
+          {},
+          t("{daily}% max daily loss · {risk}% max per trade · min R:R 1:{rr}", {
+            daily: settings.max_daily_loss_pct,
+            risk: settings.max_risk_pct,
+            rr: settings.min_rr,
+          }),
+        ),
+      ),
+    ),
     h(
       "dl",
       { class: "stat-list", style: { gridTemplateColumns: "1fr" } },
       [
-        ["Daily loss limit", fmt.money(status.daily_loss_limit)],
-        ["Realised today", h("span", { class: status.realized_pnl_today < 0 ? "neg" : status.realized_pnl_today > 0 ? "pos" : "" }, fmt.signedMoney(status.realized_pnl_today))],
-        ["Open risk", fmt.money(status.open_risk)],
-        ["Remaining loss budget", fmt.money(Math.max(0, status.remaining_loss_budget - status.open_risk))],
+        [t("Daily loss limit"), fmt.money(status.daily_loss_limit)],
+        [t("Realised today"), h("span", { class: status.realized_pnl_today < 0 ? "neg" : status.realized_pnl_today > 0 ? "pos" : "" }, fmt.signedMoney(status.realized_pnl_today))],
+        [t("Open risk"), fmt.money(status.open_risk)],
+        [t("Remaining loss budget"), fmt.money(Math.max(0, status.remaining_loss_budget - status.open_risk))],
       ].map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, value))),
     ),
   );
@@ -265,8 +309,13 @@ export async function render(root) {
     h(
       "div",
       { class: "page-head" },
-      h("div", {}, h("h1", {}, "Position size calculator"), h("p", {}, `Size every trade from your stop - never from a feeling. Account currency: ${settings.currency}`)),
-      h("a", { class: "btn ghost", href: "#/signals" }, icon("signal"), "Paste a signal"),
+      h(
+        "div",
+        {},
+        h("h1", {}, t("Position size calculator")),
+        h("p", {}, t("Size every trade from your stop - never from a feeling. Account currency: {currency}", { currency: settings.currency })),
+      ),
+      h("a", { class: "btn ghost", href: "#/signals" }, icon("signal"), t("Paste a signal")),
     ),
     h(
       "div",
@@ -277,13 +326,13 @@ export async function render(root) {
         h(
           "div",
           { class: "card stack", style: { gap: "14px" } },
-          field("Instrument", marketSelect),
+          field(t("Instrument"), marketSelect),
           spec,
           h(
             "div",
             { class: "form-grid" },
-            field(`Account equity (${settings.currency})`, equityInput, { help: "Blank = current equity" }),
-            field("Risk per trade (%)", riskInput, { help: `Blank = default ${settings.default_risk_pct}%` }),
+            field(t("Account equity ({currency})", { currency: settings.currency }), equityInput, { help: t("Blank = current equity") }),
+            field(t("Risk per trade (%)"), riskInput, { help: t("Blank = default {risk}%", { risk: settings.default_risk_pct }) }),
           ),
           riskButtons,
           h("hr", { class: "divider", style: { margin: "4px 0" } }),
