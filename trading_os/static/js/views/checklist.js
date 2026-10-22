@@ -1,18 +1,18 @@
 // Pre-market routine: gated checklist, daily bias / levels / news, economic calendar, history.
 
 import { api, query } from "../api.js";
-import { clear, confirmDialog, debounce, field, h, icon, numberOrNull, segmented, select, toast } from "../dom.js";
-import { fmt, toInputDate, toInputDateTime } from "../format.js";
+import { clear, confirmDialog, debounce, field, h, icon, numberOrNull, segmented, select, toast, withNodes } from "../dom.js";
+import { currentLocale, fmt, toInputDate, toInputDateTime } from "../format.js";
+import { N_, t, tn } from "../i18n.js";
 import { accountNow, loadStatus, state } from "../state.js";
 
 const CALENDAR_DAYS = 7;
 const IMPACTS = {
-  high: { cls: "bad", icon: "alert", label: "High" },
-  medium: { cls: "warn", icon: "zap", label: "Medium" },
-  low: { cls: "", icon: "info", label: "Low" },
+  high: { cls: "bad", icon: "alert", label: N_("High") },
+  medium: { cls: "warn", icon: "zap", label: N_("Medium") },
+  low: { cls: "", icon: "info", label: N_("Low") },
 };
-const IMPACT_SCOPE = { high: "high-impact releases", medium: "medium- and high-impact releases", low: "any release" };
-const dayHeading = new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" });
+const IMPACT_SCOPE = { high: N_("high-impact releases"), medium: N_("medium- and high-impact releases"), low: N_("any release") };
 
 function shiftDay(iso, days) {
   const [y, m, d] = iso.split("-").map(Number);
@@ -26,7 +26,7 @@ function parseDay(iso) {
 
 function impactBadge(impact) {
   const meta = IMPACTS[impact] || IMPACTS.low;
-  return h("span", { class: `badge impact ${meta.cls}` }, icon(meta.icon), meta.label);
+  return h("span", { class: `badge impact ${meta.cls}` }, icon(meta.icon), t(meta.label));
 }
 
 function guardrailNote() {
@@ -36,16 +36,27 @@ function guardrailNote() {
       "div",
       { class: "news-note" },
       icon("info"),
-      h("span", {}, "The news guardrail is off - events are for information only. Turn it on in ", h("a", { href: "#/plan?tab=rules" }, "Trading Plan → Account & risk rules"), "."),
+      h(
+        "span",
+        {},
+        withNodes(t("The news guardrail is off - events are for information only. Turn it on in {link}."), {
+          link: h("a", { href: "#/plan?tab=rules" }, t("Trading Plan → Account & risk rules")),
+        }),
+      ),
     );
   }
-  const action = s.news_mode === "block" ? "Live entries are blocked" : "Entries get a warning";
-  const scope = s.news_match_currency ? "in the traded market's currencies" : "in any currency";
+  const action = s.news_mode === "block" ? t("Live entries are blocked") : t("Entries get a warning");
+  const scope = s.news_match_currency ? t("in the traded market's currencies") : t("in any currency");
+  const releases = IMPACT_SCOPE[s.news_min_impact] ? t(IMPACT_SCOPE[s.news_min_impact]) : undefined;
   return h(
     "div",
     { class: `news-note ${s.news_mode}` },
     icon("shield"),
-    h("span", {}, `${action} from ${s.news_before_min} min before to ${s.news_after_min} min after ${IMPACT_SCOPE[s.news_min_impact]} ${scope}.`),
+    h(
+      "span",
+      {},
+      t("{action} from {before} min before to {after} min after {releases} {scope}.", { action, before: s.news_before_min, after: s.news_after_min, releases, scope }),
+    ),
   );
 }
 
@@ -56,6 +67,7 @@ function calendarCard(anchor, initialEvents) {
   const presets = state.plan.enums.news_presets;
   let events = initialEvents;
   const list = h("div", { class: "news-list" });
+  const dayHeading = new Intl.DateTimeFormat(currentLocale(), { weekday: "short", day: "numeric", month: "short" });
 
   async function reload() {
     try {
@@ -72,11 +84,15 @@ function calendarCard(anchor, initialEvents) {
   }
 
   async function remove(event) {
-    const ok = await confirmDialog(`Delete "${event.title}" (${event.currency}) on ${fmt.datetime(event.time)}?`, { title: "Delete event", confirmText: "Delete", danger: true });
+    const ok = await confirmDialog(t('Delete "{title}" ({currency}) on {time}?', { title: event.title, currency: event.currency, time: fmt.datetime(event.time) }), {
+      title: t("Delete event"),
+      confirmText: t("Delete"),
+      danger: true,
+    });
     if (!ok) return;
     try {
       await api.del(`/api/news/${event.id}`);
-      toast("Event deleted", "success");
+      toast(t("Event deleted"), "success");
       await changed();
     } catch (error) {
       toast(error.message, "error");
@@ -97,21 +113,32 @@ function calendarCard(anchor, initialEvents) {
         h(
           "div",
           { class: "news-meta" },
-          h("span", { class: "badge" }, event.currency === "ALL" ? "All markets" : event.currency),
+          h("span", { class: "badge" }, event.currency === "ALL" ? t("All markets") : event.currency),
           impactBadge(event.impact),
-          h("span", { class: "num", title: `Restricted ${event.before} min before to ${event.after} min after` }, `Window ${fmt.time(event.window_start)}–${fmt.time(event.window_end)}`),
-          live ? h("span", { class: "badge warn" }, icon("clock"), "Window open") : null,
-          event.meets_threshold ? null : h("span", {}, "below your impact threshold"),
+          h(
+            "span",
+            { class: "num", title: t("Restricted {before} min before to {after} min after", { before: event.before, after: event.after }) },
+            t("Window {start}–{end}", { start: fmt.time(event.window_start), end: fmt.time(event.window_end) }),
+          ),
+          live ? h("span", { class: "badge warn" }, icon("clock"), t("Window open")) : null,
+          event.meets_threshold ? null : h("span", {}, t("below your impact threshold")),
         ),
         event.notes ? h("div", { class: "muted small" }, event.notes) : null,
       ),
-      h("button", { class: "btn ghost sm icon-only", type: "button", "aria-label": `Delete ${event.title}`, onclick: () => remove(event) }, icon("trash")),
+      h("button", { class: "btn ghost sm icon-only", type: "button", "aria-label": t("Delete {title}", { title: event.title }), onclick: () => remove(event) }, icon("trash")),
     );
   }
 
   function draw() {
     if (!events.length) {
-      clear(list, h("div", { class: "empty news-empty" }, `No events from ${fmt.shortDate(anchor)} to ${fmt.shortDate(shiftDay(anchor, CALENDAR_DAYS))}. Add the releases you trade around below.`));
+      clear(
+        list,
+        h(
+          "div",
+          { class: "empty news-empty" },
+          t("No events from {from} to {to}. Add the releases you trade around below.", { from: fmt.shortDate(anchor), to: fmt.shortDate(shiftDay(anchor, CALENDAR_DAYS)) }),
+        ),
+      );
       return;
     }
     const days = new Map();
@@ -123,7 +150,7 @@ function calendarCard(anchor, initialEvents) {
     clear(
       list,
       [...days].map(([key, dayEvents]) => {
-        const prefix = key === today ? "Today · " : key === shiftDay(today, 1) ? "Tomorrow · " : "";
+        const prefix = key === today ? `${t("Today")} · ` : key === shiftDay(today, 1) ? `${t("Tomorrow")} · ` : "";
         return h("div", { class: "news-day" }, h("h3", {}, prefix, dayHeading.format(parseDay(key))), dayEvents.map(row));
       }),
     );
@@ -137,17 +164,20 @@ function calendarCard(anchor, initialEvents) {
     return toInputDateTime(next);
   };
   const when = h("input", { type: "datetime-local", required: true, value: defaultTime() });
-  const currency = h("input", { type: "text", required: true, maxlength: "3", value: "USD", placeholder: "USD or ALL", autocapitalize: "characters", pattern: "[A-Za-z]{3}" });
+  const currency = h("input", { type: "text", required: true, maxlength: "3", value: "USD", placeholder: t("USD or ALL"), autocapitalize: "characters", pattern: "[A-Za-z]{3}" });
   currency.addEventListener("input", () => (currency.value = currency.value.toUpperCase()));
-  const title = h("input", { type: "text", required: true, maxlength: "120", list: "news-presets", placeholder: "Pick a preset or type a title" });
+  const title = h("input", { type: "text", required: true, maxlength: "120", list: "news-presets", placeholder: t("Pick a preset or type a title") });
   title.addEventListener("input", () => {
     const preset = presets.find((p) => p.title === title.value);
     if (preset) currency.value = preset.currency;
   });
-  const impact = select([["high", "High"], ["medium", "Medium"], ["low", "Low"]], "high");
-  const before = h("input", { type: "number", min: "0", max: "240", step: "1", placeholder: `${s.news_before_min} (default)` });
-  const after = h("input", { type: "number", min: "0", max: "240", step: "1", placeholder: `${s.news_after_min} (default)` });
-  const add = h("button", { class: "btn primary", type: "submit" }, icon("plus"), "Add event");
+  const impact = select(
+    Object.entries(IMPACTS).map(([value, meta]) => [value, t(meta.label)]),
+    "high",
+  );
+  const before = h("input", { type: "number", min: "0", max: "240", step: "1", placeholder: t("{minutes} (default)", { minutes: s.news_before_min }) });
+  const after = h("input", { type: "number", min: "0", max: "240", step: "1", placeholder: t("{minutes} (default)", { minutes: s.news_after_min }) });
+  const add = h("button", { class: "btn primary", type: "submit" }, icon("plus"), t("Add event"));
   const form = h(
     "form",
     { class: "news-form" },
@@ -155,14 +185,20 @@ function calendarCard(anchor, initialEvents) {
     h(
       "div",
       { class: "form-grid" },
-      field("Time", when),
-      field("Title", title, { full: true }),
-      field("Currency", currency, { help: '"ALL" affects every market' }),
-      field("Impact", impact),
-      field("Minutes before", before),
-      field("Minutes after", after),
+      field(t("Time"), when),
+      field(t("Title"), title, { full: true }),
+      field(t("Currency"), currency, { help: t('"ALL" affects every market') }),
+      field(t("Impact"), impact),
+      field(t("Minutes before"), before),
+      field(t("Minutes after"), after),
     ),
-    h("div", { class: "row" }, h("span", { class: "muted small" }, `Times in ${s.timezone}. Blank minutes use your plan defaults.`), h("span", { class: "spacer" }), add),
+    h(
+      "div",
+      { class: "row" },
+      h("span", { class: "muted small" }, t("Times in {timezone}. Blank minutes use your plan defaults.", { timezone: s.timezone })),
+      h("span", { class: "spacer" }),
+      add,
+    ),
   );
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -176,7 +212,7 @@ function calendarCard(anchor, initialEvents) {
         before_min: numberOrNull(before),
         after_min: numberOrNull(after),
       });
-      toast("Event added to the calendar", "success");
+      toast(t("Event added to the calendar"), "success");
       title.value = "";
       before.value = "";
       after.value = "";
@@ -189,13 +225,26 @@ function calendarCard(anchor, initialEvents) {
   });
 
   // ---- ForexFactory import
-  const importButton = h("button", { class: "btn sm", type: "button", title: "Download this week's ForexFactory calendar (needs internet)" }, icon("download"), "Import this week");
+  const importButton = h(
+    "button",
+    { class: "btn sm", type: "button", title: t("Download this week's ForexFactory calendar (needs internet)") },
+    icon("download"),
+    t("Import this week"),
+  );
   importButton.addEventListener("click", async () => {
     importButton.disabled = true;
     try {
       const result = await api.post("/api/news/import-forexfactory");
-      const extra = [result.duplicates ? `${result.duplicates} already in your calendar` : "", result.below_threshold ? `${result.below_threshold} below your impact threshold` : ""].filter(Boolean).join(", ");
-      toast(`Imported ${result.imported} event${result.imported === 1 ? "" : "s"} from ForexFactory${extra ? ` (${extra} skipped)` : ""}.`, "success", 6000);
+      const extra = [
+        result.duplicates ? t("{n} already in your calendar", { n: result.duplicates }) : "",
+        result.below_threshold ? t("{n} below your impact threshold", { n: result.below_threshold }) : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const message = extra
+        ? tn(result.imported, "Imported {n} event from ForexFactory ({skipped} skipped).", "Imported {n} events from ForexFactory ({skipped} skipped).", { skipped: extra })
+        : tn(result.imported, "Imported {n} event from ForexFactory.", "Imported {n} events from ForexFactory.");
+      toast(message, "success", 6000);
       await changed();
     } catch (error) {
       toast(error.message, "error", 6000);
@@ -211,7 +260,7 @@ function calendarCard(anchor, initialEvents) {
     h(
       "div",
       { class: "card-head" },
-      h("div", {}, h("h2", {}, "Economic calendar"), h("p", {}, `${anchor === today ? "Today" : fmt.shortDate(anchor)} and the next ${CALENDAR_DAYS} days`)),
+      h("div", {}, h("h2", {}, t("Economic calendar")), h("p", {}, t("{day} and the next {days} days", { day: anchor === today ? t("Today") : fmt.shortDate(anchor), days: CALENDAR_DAYS }))),
       importButton,
     ),
     guardrailNote(),
@@ -259,11 +308,11 @@ export async function render(root, { params }) {
   }
 
   async function save() {
-    savedNote.textContent = "Saving…";
+    savedNote.textContent = t("Saving…");
     try {
       const result = await api.put(`/api/checklist/${day}`, payload());
       Object.assign(record, result);
-      savedNote.textContent = "All changes saved";
+      savedNote.textContent = t("All changes saved");
       updateProgress();
       if (isToday) await loadStatus();
     } catch (error) {
@@ -280,12 +329,25 @@ export async function render(root, { params }) {
     const complete = done === pool.length;
     progressBar.style.width = `${pool.length ? (done / pool.length) * 100 : 100}%`;
     progressWrap.classList.toggle("done", complete);
-    progressText.textContent = `${done} / ${pool.length} required · ${items.filter((i) => checked.has(i.id)).length} / ${items.length} total`;
+    progressText.textContent = t("{done} / {required} required · {checked} / {total} total", {
+      done,
+      required: pool.length,
+      checked: items.filter((i) => checked.has(i.id)).length,
+      total: items.length,
+    });
 
     if (!isToday) {
       clear(gate);
     } else if (!requireGate) {
-      clear(gate, h("div", { class: "gate" }, icon("info"), h("div", {}, h("strong", {}, "Checklist gate is off"), h("span", { class: "muted small" }, "Enable it in Trading Plan → Risk rules to lock trade entries until the routine is done."))));
+      clear(
+        gate,
+        h(
+          "div",
+          { class: "gate" },
+          icon("info"),
+          h("div", {}, h("strong", {}, t("Checklist gate is off")), h("span", { class: "muted small" }, t("Enable it in Trading Plan → Risk rules to lock trade entries until the routine is done."))),
+        ),
+      );
     } else {
       clear(
         gate,
@@ -296,8 +358,8 @@ export async function render(root, { params }) {
           h(
             "div",
             {},
-            h("strong", {}, complete ? "Trade entries unlocked" : "Trade entries locked"),
-            h("span", { class: "muted small" }, complete ? "Routine complete. Trade your plan, not your emotions." : "Check every required item to enable new trade entries."),
+            h("strong", {}, complete ? t("Trade entries unlocked") : t("Trade entries locked")),
+            h("span", { class: "muted small" }, complete ? t("Routine complete. Trade your plan, not your emotions.") : t("Check every required item to enable new trade entries.")),
           ),
         ),
       );
@@ -316,7 +378,7 @@ export async function render(root, { params }) {
           { class: `check-item${checked.has(item.id) ? " checked" : ""}` },
           box,
           h("span", { class: "text" }, item.label),
-          item.required ? h("span", { class: "badge" }, "Required") : null,
+          item.required ? h("span", { class: "badge" }, t("Required")) : null,
         );
         box.addEventListener("change", () => {
           if (box.checked) checked.add(item.id);
@@ -332,23 +394,23 @@ export async function render(root, { params }) {
 
   const bias = segmented(
     [
-      ["bullish", "Bullish", "long"],
-      ["neutral", "Neutral"],
-      ["bearish", "Bearish", "short"],
+      ["bullish", t("Bullish"), "long"],
+      ["neutral", t("Neutral")],
+      ["bearish", t("Bearish"), "short"],
     ],
     record.bias,
     () => save(),
   );
-  const keyLevels = h("textarea", { rows: 4, placeholder: "PDH 2412.5 · PDL 2391.0 · Weekly open 2400 · Asia high/low…", value: record.key_levels, oninput: saveSoon });
-  const news = h("textarea", { rows: 3, placeholder: "How you'll handle today's releases - e.g. flat before CPI, no entries until 15:00", value: record.news, oninput: saveSoon });
-  const notes = h("textarea", { rows: 3, placeholder: "Session plan, scenarios, invalidation…", value: record.notes, oninput: saveSoon });
+  const keyLevels = h("textarea", { rows: 4, placeholder: t("PDH 2412.5 · PDL 2391.0 · Weekly open 2400 · Asia high/low…"), value: record.key_levels, oninput: saveSoon });
+  const news = h("textarea", { rows: 3, placeholder: t("How you'll handle today's releases - e.g. flat before CPI, no entries until 15:00"), value: record.news, oninput: saveSoon });
+  const notes = h("textarea", { rows: 3, placeholder: t("Session plan, scenarios, invalidation…"), value: record.notes, oninput: saveSoon });
 
   const nav = h(
     "div",
     { class: "row" },
-    h("a", { class: "btn ghost icon-only", href: `#/premarket?date=${shiftDay(day, -1)}`, "aria-label": "Previous day" }, icon("chevronLeft")),
-    h("a", { class: "btn ghost icon-only", href: `#/premarket?date=${shiftDay(day, 1)}`, "aria-label": "Next day" }, icon("chevronRight")),
-    isToday ? null : h("a", { class: "btn sm", href: "#/premarket" }, "Today"),
+    h("a", { class: "btn ghost icon-only", href: `#/premarket?date=${shiftDay(day, -1)}`, "aria-label": t("Previous day") }, icon("chevronLeft")),
+    h("a", { class: "btn ghost icon-only", href: `#/premarket?date=${shiftDay(day, 1)}`, "aria-label": t("Next day") }, icon("chevronRight")),
+    isToday ? null : h("a", { class: "btn sm", href: "#/premarket" }, t("Today")),
   );
 
   const historyGrid = h(
@@ -356,7 +418,7 @@ export async function render(root, { params }) {
     { class: "history-grid" },
     [...history].reverse().map((entry) => {
       const status = entry.completed ? "done" : entry.done ? "partial" : "";
-      const label = entry.completed ? "complete" : entry.done ? `${entry.done}/${entry.total} done` : "not started";
+      const label = entry.completed ? t("complete") : entry.done ? t("{done}/{total} done", { done: entry.done, total: entry.total }) : t("not started");
       return h(
         "a",
         {
@@ -381,7 +443,7 @@ export async function render(root, { params }) {
 
   clear(
     root,
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, isToday ? "Today's pre-market routine" : "Pre-market routine"), h("p", {}, fmt.longDate(day))), nav),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, isToday ? t("Today's pre-market routine") : t("Pre-market routine")), h("p", {}, fmt.longDate(day))), nav),
     h(
       "div",
       { class: "grid split" },
@@ -392,9 +454,9 @@ export async function render(root, { params }) {
         h(
           "div",
           { class: "card" },
-          h("div", { class: "card-head" }, h("h2", {}, "Checklist"), progressText),
+          h("div", { class: "card-head" }, h("h2", {}, t("Checklist")), progressText),
           progressWrap,
-          items.length ? groups : h("div", { class: "empty" }, "No checklist items. Add them in Trading Plan → Checklist."),
+          items.length ? groups : h("div", { class: "empty" }, t("No checklist items. Add them in Trading Plan → Checklist.")),
         ),
       ),
       h(
@@ -403,14 +465,14 @@ export async function render(root, { params }) {
         h(
           "div",
           { class: "card" },
-          h("div", { class: "card-head" }, h("h2", {}, "Daily plan"), savedNote),
-          h("div", { class: "stack", style: { gap: "12px" } }, field("Directional bias", bias.el), field("Key levels", keyLevels), field("News plan", news), field("Notes", notes)),
+          h("div", { class: "card-head" }, h("h2", {}, t("Daily plan")), savedNote),
+          h("div", { class: "stack", style: { gap: "12px" } }, field(t("Directional bias"), bias.el), field(t("Key levels"), keyLevels), field(t("News plan"), news), field(t("Notes"), notes)),
         ),
         calendarCard(day, newsEvents),
         h(
           "div",
           { class: "card" },
-          h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Routine history"), h("p", {}, `Last 35 days · current streak ${streak} day${streak === 1 ? "" : "s"}`))),
+          h("div", { class: "card-head" }, h("div", {}, h("h2", {}, t("Routine history")), h("p", {}, tn(streak, "Last 35 days · current streak {n} day", "Last 35 days · current streak {n} days")))),
           historyGrid,
         ),
       ),
