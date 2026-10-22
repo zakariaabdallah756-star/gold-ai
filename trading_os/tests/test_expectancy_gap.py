@@ -34,9 +34,9 @@ def test_report_shows_the_gap_and_keeps_live_history_after_a_rename(client):
     report = client.get(f"/api/backtest/strategies/{sid}/report").json()
     gap = report["comparison"]["gap"]
     assert gap["backtest_r"] == 0.83 and gap["live_r"] == 2.0 and gap["gap_r"] == 1.17
-    assert gap["gap_money_same_basis"] == 117.0 and gap["live_money_actual"] == 200.0
+    assert gap["gap_money_same_basis"] == 116.67 and gap["live_money_actual"] == 200.0
     rows = {row["key"]: row for row in report["comparison"]["rows"]}
-    assert rows["expectancy_same_basis"]["backtest"] == 83.0 and rows["expectancy_same_basis"]["unit"] == "money"
+    assert rows["expectancy_same_basis"]["backtest"] == 83.33 and rows["expectancy_same_basis"]["unit"] == "money"
     assert rows["max_drawdown_r"]["backtest"] == 1.0 and rows["max_drawdown_r"]["unit"] == "r"
     assert rows["max_drawdown"]["unit"] == "money" and rows["win_rate"]["unit"] == "pct"
     assert rows["profit_factor"]["infinite"] == {"backtest": False, "live": True}
@@ -76,3 +76,27 @@ def test_backtest_pdf_renders_the_gap(client, with_live):
         )
     response = client.get(f"/api/reports/backtest/{sid}.pdf")
     assert response.status_code == 200 and response.content.startswith(b"%PDF")
+
+
+def test_a_reused_name_is_counted_by_one_strategy_only(client):
+    body = {"name": "Scalp", "status": "incubator"}
+    first = client.post("/api/strategies", json=body).json()
+    client.put(f"/api/strategies/{first['id']}", json={**first, "name": "Scalp v2"})
+    second = client.post("/api/strategies", json=body).json()  # the old name is reused
+    client.put(f"/api/strategies/{second['id']}", json={**second, "name": "Scalp B"})
+
+    def names(strategy):
+        return client.get(f"/api/backtest/strategies/{strategy['id']}/report").json()["live_names"]
+
+    assert names(first) == ["Scalp v2"] and names(second) == ["Scalp B", "Scalp"]
+
+
+def test_backtest_pdf_shows_drawdowns_as_sizes(client):
+    from .test_partial_fills import _pdf_text
+
+    sid = client.post("/api/backtest/strategies", json={"name": "Drawdown"}).json()["id"]
+    csv_text = "date,direction,r\n2026-09-01,long,2\n2026-09-02,long,-1\n2026-09-03,long,-1\n"
+    client.post(f"/api/backtest/strategies/{sid}/import", json={"csv": csv_text})
+    text = _pdf_text(client.get(f"/api/reports/backtest/{sid}.pdf").content)
+    assert "Max drawdown 2.00R (" in text and "Max drawdown (R) 2.00R" in text
+    assert "Max drawdown 2.00R (+" not in text and "Max drawdown (R) +" not in text

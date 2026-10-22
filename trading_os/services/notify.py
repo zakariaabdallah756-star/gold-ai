@@ -411,11 +411,14 @@ RETRY_AFTER = timedelta(minutes=10)  # a failed or undeliverable notice is tried
 HANDLED_STATUSES = ("sent", "partial", "held")  # never repeated within the dedupe period
 
 
-def _logged_values(db: Session, event: str, key: str, since: datetime, now: datetime) -> set:
+def _logged_values(
+    db: Session, event: str, key: str, since: datetime, now: datetime, *, count_held: bool = True
+) -> set:
     """Values of ``data[key]`` already handled for ``event`` since ``since`` (dedupe without extra columns).
 
     Delivered rows (sent / partial) and held rows count for the whole period; failed or skipped attempts
-    only for ``RETRY_AFTER``, so a notice is retried when the network or a channel comes back.
+    only for ``RETRY_AFTER``, so a notice is retried when the network or a channel comes back. With
+    ``count_held=False`` a held notice is sent once quiet hours no longer hold it.
     """
     rows = db.execute(
         select(NotificationLog.data, NotificationLog.status, NotificationLog.created_at).where(
@@ -425,7 +428,8 @@ def _logged_values(db: Session, event: str, key: str, since: datetime, now: date
     return {
         data.get(key)
         for data, status, created in rows
-        if isinstance(data, dict) and (status in HANDLED_STATUSES or created >= now - RETRY_AFTER)
+        if isinstance(data, dict)
+        and (count_held if status == "held" else status in HANDLED_STATUSES or created >= now - RETRY_AFTER)
     }
 
 
@@ -521,7 +525,9 @@ def news_reminders(session_factory: sessionmaker[Session]) -> dict:
             )
         ).all()
         markets = list(db.scalars(select(Market).where(Market.active.is_(True))).all())
-        reminded = _logged_values(db, "news", "news_event_id", now - timedelta(days=1), now)
+        # A reminder held before a session opened goes out once it opens, if the release is still ahead.
+        holding = bool(settings.notify_quiet_outside_sessions) and outside_trading_window(db, settings)
+        reminded = _logged_values(db, "news", "news_event_id", now - timedelta(days=1), now, count_held=holding)
         sent = 0
         for note in news_notes(list(events), settings, markets, now):
             if note.data["news_event_id"] not in reminded:

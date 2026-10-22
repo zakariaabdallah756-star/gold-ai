@@ -468,7 +468,7 @@ def build_backtest_pdf(report: dict) -> bytes:
             (tr("Avg win : avg loss"), "-" if m.get("avg_rr") is None else f"{m['avg_rr']:.2f} : 1"),
             (
                 tr("Max drawdown"),
-                f"{num(m.get('max_drawdown_r'))}R ({money(m.get('max_drawdown'), currency)}, {pct(m.get('max_drawdown_pct'))})",
+                f"{num(m.get('max_drawdown_r'))}R ({plain_money(m.get('max_drawdown'), currency)}, {pct(m.get('max_drawdown_pct'))})",
             ),
             (tr("Avg planned R:R"), "-" if m.get("avg_planned_rr") is None else f"1:{m['avg_planned_rr']:.2f}"),
         ]
@@ -486,12 +486,13 @@ def build_backtest_pdf(report: dict) -> bytes:
         if value is None:
             return "-"
         unit = row.get("unit")
+        size = row["key"].startswith("max_drawdown")  # a drawdown is a size, never a gain
         if unit == "pct":
             return pct(value)
         if unit == "money":
-            return money(value, currency)
+            return plain_money(value, currency) if size else money(value, currency)
         if unit == "r":
-            return r_value(value)
+            return f"{num(value)}R" if size else r_value(value)
         if row["key"] == "trades":
             return str(value)
         return num(value)

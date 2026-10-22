@@ -169,6 +169,8 @@ def metrics(rows: list[Row], base_equity: float) -> dict:
         {
             "net_r": round(sum(r_values), 2),
             "expectancy_r": round(fmean(r_values), 2) if r_values else None,
+            # Unrounded, for the money figures derived from it (rounded R x a large 1R would drift).
+            "expectancy_r_exact": fmean(r_values) if r_values else None,
             "avg_win_r": round(fmean(win_r), 2) if win_r else None,
             "avg_loss_r": round(fmean(loss_r), 2) if loss_r else None,
             # Average realised reward:risk - average winner over average loser, in R.
@@ -216,19 +218,24 @@ COMPARE_UNITS = {
 }
 
 
+def _exact_r(stats: dict) -> float | None:
+    exact = stats.get("expectancy_r_exact")
+    return stats.get("expectancy_r") if exact is None else exact
+
+
 def expectancy_gap(backtest: dict, live: dict, one_r: float | None) -> dict | None:
     """How far live expectancy is from the backtest, in R and in money at the backtest's risk per trade.
 
     Both sides are compared in R, so position size and fees do not distort the gap; ``live_money_actual``
     is what live trades really made per trade (real size, net of fees).
     """
-    b, l_ = backtest.get("expectancy_r"), live.get("expectancy_r")
+    b, l_ = _exact_r(backtest), _exact_r(live)
     if not backtest.get("trades") or not live.get("trades") or b is None or l_ is None:
         return None
     gap = l_ - b
     return {
-        "backtest_r": b,
-        "live_r": l_,
+        "backtest_r": round(b, 2),
+        "live_r": round(l_, 2),
         "gap_r": round(gap, 2),
         "gap_pct": round(gap / abs(b) * 100, 1) if b else None,
         "edge_retained_pct": round(l_ / b * 100, 1) if b > 0 else None,
@@ -247,7 +254,7 @@ def compare(backtest: dict, live: dict, one_r: float | None = None) -> dict:
     sides = {"backtest": dict(backtest), "live": dict(live)}
     for side in sides.values():
         side["expectancy_same_basis"] = (
-            round(side["expectancy_r"] * one_r, 2) if one_r and side.get("expectancy_r") is not None else None
+            round(_exact_r(side) * one_r, 2) if one_r and _exact_r(side) is not None else None
         )
     rows = []
     for key, label in COMPARE_KEYS:
@@ -372,6 +379,11 @@ def strategy_renamed(db: Session, strategy: Strategy, before: dict) -> None:
         return
     names = [name for name in (strategy.former_names or []) if name not in (old, strategy.name)]
     strategy.former_names = [*names, old]
+    # The last strategy to use a name owns its journal trades: an older owner (that name was reused after
+    # its rename) lets go, so two strategies never count the same trades.
+    for other in db.scalars(select(Strategy).where(Strategy.id != strategy.id)):
+        if old in (other.former_names or []):
+            other.former_names = [name for name in other.former_names if name != old]
 
 
 # ------------------------------------------------------------------ CSV import

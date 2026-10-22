@@ -84,6 +84,8 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
     oninput: () => (resetRisk(), check()),
   });
   const strategyNames = plan.strategies.filter((s) => s.active || s.name === rec.strategy).map((s) => s.name);
+  // A name kept from before a rename (or a deleted strategy) stays selected, so editing never clears it.
+  if (rec.strategy && !strategyNames.includes(rec.strategy)) strategyNames.push(rec.strategy);
   const strategy = select([["", "—"], ...strategyNames], rec.strategy || "", { onchange: () => (renderConfluences(), check()) });
   const timeframe = select([["", "—"], ...plan.enums.timeframes], rec.timeframe || "");
   const sessionNames = plan.sessions.map((s) => s.name);

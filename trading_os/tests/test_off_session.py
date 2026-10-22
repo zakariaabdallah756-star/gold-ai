@@ -139,6 +139,22 @@ def test_a_held_news_reminder_is_not_repeated(client, pushes):
     assert [row["status"] for row in news] == ["held"] and pushes == []
 
 
+def test_a_held_news_reminder_goes_out_once_the_session_opens(client, pushes):
+    client.post("/api/notifications/channels", json={"kind": "ntfy", "config": CONFIGS["ntfy"]})
+    outside_now(client)
+    quiet(client)
+    client.put("/api/notifications/settings", json={"news_reminder_min": 15})
+    when = (now_utc() + timedelta(minutes=10)).isoformat()
+    client.post("/api/news", json={"time": when, "title": "US CPI", "currency": "USD", "impact": "high"})
+    scheduler = client.app.state.scheduler
+    scheduler.run_now("news-reminders")
+    inside_now(client)  # the session opens while the release is still ahead
+    scheduler.run_now("news-reminders")
+    scheduler.run_now("news-reminders")
+    news = [row for row in client.get("/api/notifications/log").json() if row["event"] == "news"]
+    assert sorted(row["status"] for row in news) == ["held", "sent"] and len(pushes) == 1
+
+
 def test_held_alerts_stay_on_the_alerts_page(client, monkeypatch, pushes):
     client.post("/api/notifications/channels", json={"kind": "ntfy", "config": CONFIGS["ntfy"]})
     outside_now(client)
