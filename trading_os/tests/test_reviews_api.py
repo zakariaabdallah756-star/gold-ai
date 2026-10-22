@@ -96,6 +96,7 @@ def test_review_history(client):
         "followed_plan": True,
         "pnl": 75.0,
         "trades": 1,
+        "partials": 0,
     }
     assert len(client.get("/api/reviews").json()) == 30
     assert client.get("/api/reviews", params={"days": 0}).status_code == 422
