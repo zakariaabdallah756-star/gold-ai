@@ -498,14 +498,14 @@ function positionCard(p, refresh) {
   const risk = p.remaining_risk ?? p.risk_amount;
 
   const lotsValue = sized
-    ? [h("span", { class: "num" }, `${fmt.lots(remaining)} / ${fmt.lots(original)} lots`)]
-    : [h("span", { class: "muted" }, "No size set")];
+    ? [h("span", { class: "num" }, t("{remaining} / {total} lots", { remaining: fmt.lots(remaining), total: fmt.lots(original) }))]
+    : [h("span", { class: "muted" }, t("No size set"))];
   const lotsExtra = sized
     ? [
-        h("div", { class: `progress pm-progress${closedPct >= 99.99 ? " done" : ""}`, role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(closedPct)), "aria-label": "Share of the position closed" }, h("span", { style: { width: `${closedPct}%` } })),
-        h("div", { class: "muted small" }, `${fmt.num(closedPct, 0)}% closed`),
+        h("div", { class: `progress pm-progress${closedPct >= 99.99 ? " done" : ""}`, role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(closedPct)), "aria-label": t("Share of the position closed") }, h("span", { style: { width: `${closedPct}%` } })),
+        h("div", { class: "muted small" }, t("{pct}% closed", { pct: fmt.num(closedPct, 0) })),
       ]
-    : h("div", { class: "muted small" }, "Edit the trade to add lots");
+    : h("div", { class: "muted small" }, t("Edit the trade to add lots"));
 
   const unrealized =
     p.unrealized_pnl === null
@@ -515,34 +515,41 @@ function positionCard(p, refresh) {
   const facts = h(
     "div",
     { class: "pm-facts" },
-    fact("Entry", h("span", { class: "num" }, fmt.price(p.entry_price))),
-    fact("Stop", h("span", { class: "row pm-inline" }, h("span", { class: "num" }, fmt.price(stop)), stopKindBadge(p.stop_kind))),
-    fact("Remaining", lotsValue, lotsExtra),
-    fact("Realised (gross)", h("span", { class: `num ${pnlClass(p.realized_pnl)}` }, fmt.signedMoney(p.realized_pnl))),
+    fact(t("Entry"), h("span", { class: "num" }, fmt.price(p.entry_price))),
+    fact(t("Stop"), h("span", { class: "row pm-inline" }, h("span", { class: "num" }, fmt.price(stop)), stopKindBadge(p.stop_kind))),
+    fact(t("Remaining"), lotsValue, lotsExtra),
+    fact(t("Realised (gross)"), h("span", { class: `num ${pnlClass(p.realized_pnl)}` }, fmt.signedMoney(p.realized_pnl))),
     fact(
-      "Unrealized",
+      t("Unrealized"),
       unrealized,
-      h("div", { class: "muted small" }, p.last_price === null ? "Update the price to see it" : `at ${fmt.price(p.last_price)} · ${fmt.time(p.last_price_at)}`),
+      h(
+        "div",
+        { class: "muted small" },
+        p.last_price === null ? t("Update the price to see it") : t("at {price} · {time}", { price: fmt.price(p.last_price), time: fmt.time(p.last_price_at) }),
+      ),
     ),
-    fact("Remaining risk", p.risk_free ? riskFreeBadge() : h("span", { class: "num" }, risk === null ? "—" : fmt.money(risk))),
+    fact(t("Remaining risk"), p.risk_free ? riskFreeBadge() : h("span", { class: "num" }, risk === null ? "—" : fmt.money(risk))),
   );
 
   const events = p.events || [];
   const actions = h(
     "div",
     { class: "pm-actions" },
-    h("button", { class: "btn sm primary", type: "button", disabled: !sized, onclick: () => openPriceUpdate(p, refresh) }, icon("refresh"), "Update price"),
-    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openPartialClose(p, refresh) }, icon("scissors"), "Partial close"),
-    h("button", { class: "btn sm", type: "button", onclick: () => openMoveStop(p, refresh) }, icon("shield"), "Move stop"),
-    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openCloseAll(p, refresh) }, icon("x"), "Close all"),
+    h("button", { class: "btn sm primary", type: "button", disabled: !sized, onclick: () => openPriceUpdate(p, refresh) }, icon("refresh"), t("Update price")),
+    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openPartialClose(p, refresh) }, icon("scissors"), t("Partial close")),
+    h("button", { class: "btn sm", type: "button", onclick: () => openMoveStop(p, refresh) }, icon("shield"), t("Move stop")),
+    h("button", { class: "btn sm", type: "button", disabled: !sized, onclick: () => openCloseAll(p, refresh) }, icon("x"), t("Close all")),
     h("span", { class: "spacer" }),
-    h("button", { class: "btn sm ghost", type: "button", disabled: !events.length, title: events.length ? "Undo the most recent event" : "No events to undo", onclick: () => undoLast(p, refresh) }, icon("undo"), "Undo last"),
-    h("button", { class: "btn sm ghost", type: "button", onclick: () => openTradeForm({ trade: p, onSaved: () => refresh() }) }, icon("edit"), "Edit"),
+    h("button", { class: "btn sm ghost", type: "button", disabled: !events.length, title: events.length ? t("Undo the most recent event") : t("No events to undo"), onclick: () => undoLast(p, refresh) }, icon("undo"), t("Undo last")),
+    h("button", { class: "btn sm ghost", type: "button", onclick: () => openTradeForm({ trade: p, onSaved: () => refresh() }) }, icon("edit"), t("Edit")),
   );
 
   return h(
     "article",
-    { class: "card pm-card", "aria-label": `${p.symbol} ${p.direction} position` },
+    {
+      class: "card pm-card",
+      "aria-label": p.direction === "long" ? t("{symbol} long position", { symbol: p.symbol }) : t("{symbol} short position", { symbol: p.symbol }),
+    },
     h(
       "div",
       { class: "pm-head" },
@@ -550,19 +557,30 @@ function positionCard(p, refresh) {
         "div",
         { class: "pm-title" },
         h("h2", {}, p.symbol),
-        h("span", { class: `badge ${p.direction}` }, p.direction === "long" ? "Long" : "Short"),
-        p.source === "signal" ? h("span", { class: "badge open pm-badge" }, icon("signal"), "Signal") : null,
+        h("span", { class: `badge ${p.direction}` }, p.direction === "long" ? t("Long") : t("Short")),
+        p.source === "signal" ? h("span", { class: "badge open pm-badge" }, icon("signal"), t("Signal")) : null,
         p.risk_free ? riskFreeBadge() : null,
       ),
-      h("div", { class: "muted small" }, [p.strategy || "No strategy", `opened ${fmt.datetime(p.entry_time)}`, `#${p.id}`].join(" · ")),
+      h("div", { class: "muted small" }, [p.strategy || t("No strategy"), t("opened {time}", { time: fmt.datetime(p.entry_time) }), `#${p.id}`].join(" · ")),
       next
-        ? h("div", { class: "chip pm-next" }, icon("target"), "Next: ", h("strong", {}, `TP${next.level} ${fmt.price(next.price)}`), ` · ${fmt.num(next.close_pct, 0)}%`)
-        : h("div", { class: "chip pm-next" }, icon("check"), "No open target"),
+        ? h(
+            "div",
+            { class: "chip pm-next" },
+            icon("target"),
+            withNodes(t("Next: {target}"), { target: h("strong", {}, `TP${next.level} ${fmt.price(next.price)}`) }),
+            ` · ${fmt.num(next.close_pct, 0)}%`,
+          )
+        : h("div", { class: "chip pm-next" }, icon("check"), t("No open target")),
     ),
     h("div", { class: "pm-split" }, h("div", { class: "stack pm-main" }, facts, managementSummary(p)), h("div", { class: "pm-chart" }, priceLadder(p))),
-    h("div", {}, h("div", { class: "section-title" }, "Targets"), targetsLadder(p)),
+    h("div", {}, h("div", { class: "section-title" }, t("Targets")), targetsLadder(p)),
     actions,
-    h("div", {}, h("div", { class: "section-title" }, `Events (${events.length})`), events.length ? eventTimeline(p) : h("p", { class: "muted small" }, "No events yet - update the price as the market moves.")),
+    h(
+      "div",
+      {},
+      h("div", { class: "section-title" }, t("Events ({count})", { count: events.length })),
+      events.length ? eventTimeline(p) : h("p", { class: "muted small" }, t("No events yet - update the price as the market moves.")),
+    ),
   );
 }
 
@@ -584,11 +602,20 @@ export async function render(root) {
     const today = status?.realized_pnl_today ?? null;
     clear(
       totalsBox,
-      kpi("Open positions", String(totals.open_positions), `${new Set(data.positions.map((p) => p.symbol)).size} symbol(s)`),
-      kpi("Remaining risk", fmt.money(totals.remaining_risk), equity ? `${fmt.pct((totals.remaining_risk / equity) * 100, 2)} of equity` : null),
-      kpi("Unrealized P&L", fmt.signedMoney(totals.unrealized_pnl), totals.unrealized_pnl === null ? "Update prices to see it" : "At last prices, before fees", pnlClass(totals.unrealized_pnl)),
-      kpi("Realised today", fmt.signedMoney(today), `${fmt.signedMoney(totals.realized_open)} banked on open positions`, pnlClass(today)),
-      kpi("Risk-free", h("span", { class: "row pm-inline" }, icon("shield"), `${totals.risk_free_count} / ${totals.open_positions}`), "Stop at or beyond entry"),
+      kpi(t("Open positions"), String(totals.open_positions), t("{n} symbol(s)", { n: new Set(data.positions.map((p) => p.symbol)).size })),
+      kpi(
+        t("Remaining risk"),
+        fmt.money(totals.remaining_risk),
+        equity ? t("{pct} of equity", { pct: fmt.pct((totals.remaining_risk / equity) * 100, 2) }) : null,
+      ),
+      kpi(
+        t("Unrealized P&L"),
+        fmt.signedMoney(totals.unrealized_pnl),
+        totals.unrealized_pnl === null ? t("Update prices to see it") : t("At last prices, before fees"),
+        pnlClass(totals.unrealized_pnl),
+      ),
+      kpi(t("Realised today"), fmt.signedMoney(today), t("{amount} banked on open positions", { amount: fmt.signedMoney(totals.realized_open) }), pnlClass(today)),
+      kpi(t("Risk-free"), h("span", { class: "row pm-inline" }, icon("shield"), `${totals.risk_free_count} / ${totals.open_positions}`), t("Stop at or beyond entry")),
     );
   }
 
@@ -598,16 +625,16 @@ export async function render(root) {
       clear(quickBox);
       return;
     }
-    const symbol = select(symbols, symbols[0], { "aria-label": "Symbol" });
-    const price = numberInput(null, { placeholder: "price", "aria-label": "Last price" });
-    const high = numberInput(null, { placeholder: "optional", "aria-label": "High" });
-    const low = numberInput(null, { placeholder: "optional", "aria-label": "Low" });
-    const apply = h("button", { class: "btn primary", type: "submit" }, icon("refresh"), "Apply price");
+    const symbol = select(symbols, symbols[0], { "aria-label": t("Symbol") });
+    const price = numberInput(null, { placeholder: t("price"), "aria-label": t("Last price") });
+    const high = numberInput(null, { placeholder: t("optional"), "aria-label": t("High{_}", { _: "" }) });
+    const low = numberInput(null, { placeholder: t("optional"), "aria-label": t("Low{_}", { _: "" }) });
+    const apply = h("button", { class: "btn primary", type: "submit" }, icon("refresh"), t("Apply price"));
     const submit = async (event) => {
       event.preventDefault();
       const body = { symbol: symbol.value, price: numberOrNull(price), high: numberOrNull(high), low: numberOrNull(low) };
       if (body.price === null && (body.high === null || body.low === null)) {
-        toast("Enter the last price, or both the high and the low", "warn");
+        toast(t("Enter the last price, or both the high and the low"), "warn");
         return;
       }
       apply.disabled = true;
@@ -619,10 +646,14 @@ export async function render(root) {
           .map((r) => `#${r.trade_id} ${describeEvents(r.events)}`)
           .join("; ");
         toast(
-          text ? `${body.symbol}: ${text}` : `${body.symbol} price recorded on ${applied.length} position(s) - no target or stop reached`,
+          text
+            ? `${body.symbol}: ${text}`
+            : t("{symbol} price recorded on {n} position(s) - no target or stop reached", { symbol: body.symbol, n: applied.length }),
           text ? "success" : "info",
         );
-        for (const skipped of result.results.filter((r) => r.skipped)) toast(`Trade #${skipped.trade_id} skipped: ${skipped.skipped}`, "warn");
+        for (const skipped of result.results.filter((r) => r.skipped)) {
+          toast(t("Trade #{id} skipped: {reason}", { id: skipped.trade_id, reason: skipped.skipped }), "warn");
+        }
         await refresh();
       } catch (error) {
         toast(error.message, "error");
@@ -635,8 +666,21 @@ export async function render(root) {
       h(
         "form",
         { class: "card pm-quick", onsubmit: submit },
-        h("div", { class: "pm-quick-head" }, h("h3", {}, icon("zap"), "Quick price update"), h("p", { class: "muted small" }, "Applies one price to every open position of the symbol.")),
-        h("div", { class: "pm-quick-fields" }, field("Symbol", symbol), field("Last", price), field("High", high), field("Low", low), apply),
+        h(
+          "div",
+          { class: "pm-quick-head" },
+          h("h3", {}, icon("zap"), t("Quick price update")),
+          h("p", { class: "muted small" }, t("Applies one price to every open position of the symbol.")),
+        ),
+        h(
+          "div",
+          { class: "pm-quick-fields" },
+          field(t("Symbol"), symbol),
+          field(t("Last"), price),
+          field(t("High{_}", { _: "" }), high),
+          field(t("Low{_}", { _: "" }), low),
+          apply,
+        ),
       ),
     );
   }
@@ -649,13 +693,13 @@ export async function render(root) {
           "div",
           { class: "card empty pm-empty" },
           icon("layers", "icon pm-empty-icon"),
-          h("strong", {}, "No open positions"),
-          h("p", {}, "Take a trade from a signal or log one in the journal - its targets, stops and partial closes are managed here."),
+          h("strong", {}, t("No open positions")),
+          h("p", {}, t("Take a trade from a signal or log one in the journal - its targets, stops and partial closes are managed here.")),
           h(
             "div",
             { class: "row pm-empty-actions" },
-            h("a", { class: "btn primary", href: "#/signals" }, icon("signal"), "Paste a signal"),
-            h("a", { class: "btn", href: "#/journal" }, icon("journal"), "Open the journal"),
+            h("a", { class: "btn primary", href: "#/signals" }, icon("signal"), t("Paste a signal")),
+            h("a", { class: "btn", href: "#/journal" }, icon("journal"), t("Open the journal")),
           ),
         ),
       );
@@ -672,7 +716,7 @@ export async function render(root) {
       drawQuick();
       drawList();
     } catch (error) {
-      clear(listBox, h("div", { class: "card empty" }, h("strong", {}, "Positions could not be loaded"), error.message));
+      clear(listBox, h("div", { class: "card empty" }, h("strong", {}, t("Positions could not be loaded")), error.message));
     } finally {
       listBox.classList.remove("refreshing");
     }
@@ -687,8 +731,13 @@ export async function render(root) {
     h(
       "div",
       { class: "page-head" },
-      h("div", {}, h("h1", {}, "Positions"), h("p", {}, "Scale out at your targets, protect profits with break-even and trailing stops, and keep every fill on record.")),
-      h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => refresh() }, icon("refresh"), "Refresh")),
+      h(
+        "div",
+        {},
+        h("h1", {}, t("Positions")),
+        h("p", {}, t("Scale out at your targets, protect profits with break-even and trailing stops, and keep every fill on record.")),
+      ),
+      h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: () => refresh() }, icon("refresh"), t("Refresh"))),
     ),
     totalsBox,
     quickBox,
