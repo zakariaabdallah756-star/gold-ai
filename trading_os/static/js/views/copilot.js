@@ -2,6 +2,7 @@
 // findings) with explicit "wait" advice. Used by the trade form and the Signals page.
 
 import { h, icon } from "../dom.js";
+import { t, tn } from "../i18n.js";
 
 export const COPILOT_CODES = new Set([
   "STRATEGY_REQUIRED_CONFLUENCES",
@@ -35,8 +36,8 @@ export function copilotPanel(violations, strategyName) {
       h(
         "div",
         {},
-        h("strong", {}, "Strategy Co-Pilot"),
-        h("p", { class: "muted small" }, "Select a strategy so the Co-Pilot can check its required confluences, sessions, timeframes and bias."),
+        h("strong", {}, t("Strategy Co-Pilot")),
+        h("p", { class: "muted small" }, t("Select a strategy so the Co-Pilot can check its required confluences, sessions, timeframes and bias.")),
       ),
     );
   }
@@ -44,8 +45,10 @@ export function copilotPanel(violations, strategyName) {
   const unmet = copilot.filter((v) => !NOTICE_CODES.has(v.code));
   const ready = unmet.length === 0;
   const title = ready
-    ? `Co-Pilot: every ${strategyName} condition is met`
-    : `Co-Pilot: wait - ${unmet.length} ${strategyName} condition${unmet.length === 1 ? "" : "s"} not met`;
+    ? t("Co-Pilot: every {strategy} condition is met", { strategy: strategyName })
+    : tn(unmet.length, "Co-Pilot: wait - {n} {strategy} condition not met", "Co-Pilot: wait - {n} {strategy} conditions not met", {
+        strategy: strategyName,
+      });
   return h(
     "div",
     { class: `copilot ${ready ? "ok" : "wait"}`, role: "status" },
@@ -55,7 +58,7 @@ export function copilotPanel(violations, strategyName) {
       {},
       h("strong", {}, title),
       copilot.length ? h("ul", {}, copilot.map((v) => h("li", {}, v.message.replace(/^Co-Pilot:\s*/, "")))) : null,
-      ready ? null : h("p", { class: "small" }, "Do not enter yet. Wait until every condition above is satisfied, then re-check."),
+      ready ? null : h("p", { class: "small" }, t("Do not enter yet. Wait until every condition above is satisfied, then re-check.")),
     ),
   );
 }

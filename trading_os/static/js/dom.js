@@ -1,5 +1,7 @@
 // DOM helpers. User-provided text is always inserted as text nodes, never HTML.
 
+import { t } from "./i18n.js";
+
 const ICONS = {
   dashboard: "M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z",
   checklist: "M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9",
@@ -96,6 +98,20 @@ export function clear(el, ...children) {
   return el;
 }
 
+/**
+ * A translated template whose {name} placeholders are elements, e.g. the template "Run {command} now" with
+ * { command: <code> } gives ["Run ", <code>, " now"] - the words around the element can move in another language.
+ */
+export function withNodes(template, nodes) {
+  return template
+    .split(/(\{\w+\})/)
+    .map((part) => {
+      const name = /^\{(\w+)\}$/.exec(part)?.[1];
+      return name && name in nodes ? nodes[name] : part;
+    })
+    .filter((part) => part !== "");
+}
+
 export function debounce(fn, wait = 250) {
   let timer;
   return (...args) => {
@@ -128,7 +144,7 @@ export function modal({ title, body, footer, wide = false, onClose }) {
   const dialog = h(
     "div",
     { class: `modal${wide ? " wide" : ""}`, role: "dialog", "aria-modal": "true", "aria-label": title },
-    h("div", { class: "modal-head" }, h("h2", {}, title), h("button", { class: "btn ghost icon-only", "aria-label": "Close", onclick: () => close() }, icon("x"))),
+    h("div", { class: "modal-head" }, h("h2", {}, title), h("button", { class: "btn ghost icon-only", "aria-label": t("Close"), onclick: () => close() }, icon("x"))),
     h("div", { class: "modal-body" }, body),
     footer ? h("div", { class: "modal-foot" }, footer) : null,
   );
@@ -139,7 +155,7 @@ export function modal({ title, body, footer, wide = false, onClose }) {
   return { close, dialog };
 }
 
-export function confirmDialog(message, { title = "Please confirm", confirmText = "Confirm", danger = false } = {}) {
+export function confirmDialog(message, { title = t("Please confirm"), confirmText = t("Confirm"), danger = false } = {}) {
   return new Promise((resolve) => {
     let answered = false;
     const finish = (value) => {
@@ -151,7 +167,7 @@ export function confirmDialog(message, { title = "Please confirm", confirmText =
       title,
       body: h("p", { style: { color: "var(--text-2)" } }, message),
       footer: [
-        h("button", { class: "btn ghost", onclick: () => finish(false) }, "Cancel"),
+        h("button", { class: "btn ghost", onclick: () => finish(false) }, t("Cancel")),
         h("button", { class: `btn ${danger ? "danger" : "primary"}`, onclick: () => finish(true) }, confirmText),
       ],
       onClose: () => answered || resolve(false),
@@ -160,7 +176,7 @@ export function confirmDialog(message, { title = "Please confirm", confirmText =
 }
 
 export function lightbox(src) {
-  const box = h("div", { class: "lightbox", onclick: () => box.remove() }, h("img", { src, alt: "Chart screenshot" }));
+  const box = h("div", { class: "lightbox", onclick: () => box.remove() }, h("img", { src, alt: t("Chart screenshot") }));
   const onKey = (event) => {
     if (event.key === "Escape") {
       box.remove();
