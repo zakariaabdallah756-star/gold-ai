@@ -46,6 +46,7 @@ from ..models import (
     VisionMessage,
 )
 from . import uploads
+from .i18n import tr
 
 SCHEMA_VERSION = 4
 # Older backups restore fine: missing tables/columns fall back to defaults.
@@ -228,12 +229,14 @@ def _coerce(model, row: dict) -> dict:
 def restore_data(db: Session, payload: dict) -> dict[str, int]:
     """Replace every table with the content of ``payload``. Atomic."""
     if not isinstance(payload, dict) or payload.get("app") != "trading_os":
-        raise BackupError("Not a Trading OS backup file")
+        raise BackupError(tr("Not a Trading OS backup file"))
     if payload.get("schema_version") not in SUPPORTED_SCHEMA_VERSIONS:
-        raise BackupError(f"Unsupported backup schema version {payload.get('schema_version')!r}")
+        raise BackupError(
+            tr("Unsupported backup schema version {version}", version=repr(payload.get("schema_version")))
+        )
     tables = payload.get("tables")
     if not isinstance(tables, dict):
-        raise BackupError("Backup file has no tables")
+        raise BackupError(tr("Backup file has no tables"))
 
     counts: dict[str, int] = {}
     current = db.get(AccountSettings, 1)
@@ -244,7 +247,7 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
         for model in MODELS:
             rows = tables.get(model.__tablename__, [])
             if not isinstance(rows, list):
-                raise BackupError(f"Table '{model.__tablename__}' is malformed")
+                raise BackupError(tr("Table '{table}' is malformed", table=model.__tablename__))
             for row in rows:
                 db.add(model(**_coerce(model, row)))
             db.flush()
@@ -262,7 +265,7 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
         raise
     except Exception as exc:  # malformed values, constraint violations, ...
         db.rollback()
-        raise BackupError(f"Backup could not be restored: {exc}") from exc
+        raise BackupError(tr("Backup could not be restored: {error}", error=exc)) from exc
     return counts
 
 
@@ -276,7 +279,9 @@ def _validate_settings(settings: AccountSettings) -> None:
     except ValueError as exc:
         first = exc.errors()[0] if hasattr(exc, "errors") else {}
         where = ".".join(str(part) for part in first.get("loc", ())) or "settings"
-        raise BackupError(f"The backup's settings are invalid ({where}: {first.get('msg', exc)})") from exc
+        raise BackupError(
+            tr("The backup's settings are invalid ({where}: {message})", where=where, message=first.get("msg", exc))
+        ) from exc
 
 
 def write_safety_snapshot(db: Session, backups_dir: Path) -> Path:
@@ -291,7 +296,7 @@ def write_safety_snapshot(db: Session, backups_dir: Path) -> Path:
             return path
         except FileExistsError:
             continue
-    raise BackupError("Could not write a safety snapshot")
+    raise BackupError(tr("Could not write a safety snapshot"))
 
 
 def restore_upload(
@@ -307,13 +312,13 @@ def restore_upload(
         try:
             archive = zipfile.ZipFile(io.BytesIO(raw))
         except zipfile.BadZipFile as exc:
-            raise BackupError("Invalid ZIP archive") from exc
+            raise BackupError(tr("Invalid ZIP archive")) from exc
         with archive:
             members = {info.filename: info for info in archive.infolist()}
             if BACKUP_JSON_NAME not in members:
-                raise BackupError(f"ZIP archive does not contain {BACKUP_JSON_NAME}")
+                raise BackupError(tr("ZIP archive does not contain {name}", name=BACKUP_JSON_NAME))
             if members[BACKUP_JSON_NAME].file_size > MAX_UNPACKED_JSON:
-                raise BackupError("The backup data inside the ZIP is too large")
+                raise BackupError(tr("The backup data inside the ZIP is too large"))
             # Only flat, generated file names are extracted (no path traversal).
             images = [
                 info
@@ -321,9 +326,9 @@ def restore_upload(
                 if name.partition("/")[0] == "uploads" and uploads.is_safe_name(name.partition("/")[2])
             ]
             if any(info.file_size > max_file_bytes for info in images):
-                raise BackupError("An image in the ZIP is larger than the upload limit")
+                raise BackupError(tr("An image in the ZIP is larger than the upload limit"))
             if sum(info.file_size for info in images) > MAX_UNPACKED_TOTAL:
-                raise BackupError("The images in the ZIP are too large in total")
+                raise BackupError(tr("The images in the ZIP are too large in total"))
             payload = _parse_json(archive.read(BACKUP_JSON_NAME))
             counts = restore_data(db, payload)
             for info in images:
@@ -337,4 +342,4 @@ def _parse_json(raw: bytes) -> dict:
     try:
         return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise BackupError("Backup file is not valid JSON") from exc
+        raise BackupError(tr("Backup file is not valid JSON")) from exc

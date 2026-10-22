@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from ..models import AccountSettings, BacktestTrade, Strategy
 from . import analytics
 from . import trades as trade_service
+from .i18n import N_, tr
 from .sizing import planned_rr
 
 MIN_BACKTEST_SAMPLE = 30
@@ -44,7 +45,7 @@ def r_from_prices(direction: str, entry: float, stop: float, exit_price: float) 
     """Realised result in units of initial risk."""
     risk = abs(entry - stop)
     if risk == 0:
-        raise BacktestError("Stop loss must differ from the entry price")
+        raise BacktestError(tr("Stop loss must differ from the entry price"))
     sign = 1.0 if direction == "long" else -1.0
     return sign * (exit_price - entry) / risk
 
@@ -58,14 +59,14 @@ def validate_geometry(direction: str, entry: float | None, stop: float | None, t
     long = direction == "long"
     if entry is not None and stop is not None:
         if long and stop >= entry:
-            raise BacktestError("For a long trade the stop loss must be below the entry price")
+            raise BacktestError(tr("For a long trade the stop loss must be below the entry price"))
         if not long and stop <= entry:
-            raise BacktestError("For a short trade the stop loss must be above the entry price")
+            raise BacktestError(tr("For a short trade the stop loss must be above the entry price"))
     if entry is not None and take_profit is not None:
         if long and take_profit <= entry:
-            raise BacktestError("For a long trade the take profit must be above the entry price")
+            raise BacktestError(tr("For a long trade the take profit must be above the entry price"))
         if not long and take_profit >= entry:
-            raise BacktestError("For a short trade the take profit must be below the entry price")
+            raise BacktestError(tr("For a short trade the take profit must be below the entry price"))
 
 
 def derive(values: dict) -> dict:
@@ -80,7 +81,7 @@ def derive(values: dict) -> dict:
     if entry is not None and stop is not None and exit_price is not None:
         values["r_multiple"] = round(r_from_prices(direction, entry, stop, exit_price), 4)
     elif values.get("r_multiple") is None and values.get("pnl") is None:
-        raise BacktestError("Enter entry, stop and exit prices, or the result in R")
+        raise BacktestError(tr("Enter entry, stop and exit prices, or the result in R"))
     values["planned_rr"] = (
         round(planned_rr(entry, stop, values.get("take_profit")), 4)
         if entry is not None and stop is not None and values.get("take_profit") is not None
@@ -191,17 +192,17 @@ def r_equity_curve(rows: list[Row], base_equity: float) -> list[dict]:
 # ------------------------------------------------------------------- comparison
 
 COMPARE_KEYS = (
-    ("trades", "Trades"),
-    ("win_rate", "Win rate %"),
-    ("profit_factor", "Profit factor"),
-    ("expectancy_r", "Expectancy (R / trade)"),
-    ("expectancy", "Expectancy ($ / trade)"),
-    ("expectancy_same_basis", "Expectancy at backtest risk ($ / trade)"),
-    ("avg_rr", "Avg win : avg loss (R)"),
-    ("avg_planned_rr", "Avg planned R:R"),
-    ("max_drawdown_r", "Max drawdown (R)"),
-    ("max_drawdown", "Max drawdown ($)"),
-    ("max_drawdown_pct", "Max drawdown %"),
+    ("trades", N_("Trades")),
+    ("win_rate", N_("Win rate %")),
+    ("profit_factor", N_("Profit factor")),
+    ("expectancy_r", N_("Expectancy (R / trade)")),
+    ("expectancy", N_("Expectancy ($ / trade)")),
+    ("expectancy_same_basis", N_("Expectancy at backtest risk ($ / trade)")),
+    ("avg_rr", N_("Avg win : avg loss (R)")),
+    ("avg_planned_rr", N_("Avg planned R:R")),
+    ("max_drawdown_r", N_("Max drawdown (R)")),
+    ("max_drawdown", N_("Max drawdown ($)")),
+    ("max_drawdown_pct", N_("Max drawdown %")),
 )
 # How each comparison value is shown: money, R, percent (of equity / of trades) or a plain number.
 COMPARE_UNITS = {
@@ -258,7 +259,7 @@ def compare(backtest: dict, live: dict, one_r: float | None = None) -> dict:
             b = b if backtest["trades"] else None
             l_ = l_ if live["trades"] else None
         delta = round(l_ - b, 2) if isinstance(b, (int, float)) and isinstance(l_, (int, float)) else None
-        row = {"key": key, "label": label, "unit": COMPARE_UNITS.get(key, "number"), "backtest": b, "live": l_}
+        row = {"key": key, "label": tr(label), "unit": COMPARE_UNITS.get(key, "number"), "backtest": b, "live": l_}
         row["delta"] = delta
         if key == "profit_factor":  # no losing trade: infinite, shown as such rather than as "no value"
             row["infinite"] = {
@@ -274,30 +275,49 @@ def verdict(backtest: dict, live: dict) -> dict:
     notes = []
     if backtest["trades"] < MIN_BACKTEST_SAMPLE:
         notes.append(
-            f"Backtest sample is small ({backtest['trades']} trades) - aim for at least {MIN_BACKTEST_SAMPLE} "
-            "before trusting the edge."
+            tr(
+                "Backtest sample is small ({count} trades) - aim for at least {minimum} before trusting the edge.",
+                count=backtest["trades"],
+                minimum=MIN_BACKTEST_SAMPLE,
+            )
         )
     if live["trades"] < MIN_LIVE_SAMPLE:
         return {
             "status": "insufficient",
-            "message": f"Not enough live trades to compare yet ({live['trades']} of {MIN_LIVE_SAMPLE}).",
+            "message": tr(
+                "Not enough live trades to compare yet ({count} of {minimum}).",
+                count=live["trades"],
+                minimum=MIN_LIVE_SAMPLE,
+            ),
             "notes": notes,
         }
     b, l_ = backtest.get("expectancy_r"), live.get("expectancy_r")
     if b is None or l_ is None:
-        return {"status": "insufficient", "message": "Expectancy in R is not available for both sets.", "notes": notes}
+        return {
+            "status": "insufficient",
+            "message": tr("Expectancy in R is not available for both sets."),
+            "notes": notes,
+        }
     if l_ < b - EXPECTANCY_TOLERANCE_R or (b > 0 >= l_):
-        status, message = "below", (
-            f"Live results lag the backtest ({l_:+.2f}R vs {b:+.2f}R per trade) - review execution, "
-            "rule compliance and whether market conditions changed."
+        status, message = "below", tr(
+            "Live results lag the backtest ({live_r:+.2f}R vs {backtest_r:+.2f}R per trade) - review execution, "
+            "rule compliance and whether market conditions changed.",
+            live_r=l_,
+            backtest_r=b,
         )
     elif l_ > b + EXPECTANCY_TOLERANCE_R:
-        status, message = "above", (
-            f"Live results beat the backtest ({l_:+.2f}R vs {b:+.2f}R per trade) - small samples overstate edges, "
-            "keep logging."
+        status, message = "above", tr(
+            "Live results beat the backtest ({live_r:+.2f}R vs {backtest_r:+.2f}R per trade) - small samples "
+            "overstate edges, keep logging.",
+            live_r=l_,
+            backtest_r=b,
         )
     else:
-        status, message = "in_line", f"Live results are in line with the backtest ({l_:+.2f}R vs {b:+.2f}R per trade)."
+        status, message = "in_line", tr(
+            "Live results are in line with the backtest ({live_r:+.2f}R vs {backtest_r:+.2f}R per trade).",
+            live_r=l_,
+            backtest_r=b,
+        )
     return {"status": status, "message": message, "notes": notes}
 
 
@@ -394,6 +414,12 @@ def _normalise_header(name: str) -> str:
 
 
 PRICE_FIELDS = ("entry_price", "stop_loss", "take_profit", "exit_price")
+PRICE_FIELD_NAMES = {
+    "entry_price": N_("entry price"),
+    "stop_loss": N_("stop loss"),
+    "take_profit": N_("take profit"),
+    "exit_price": N_("exit price"),
+}
 
 
 def _parse_number(raw: str, decimal_comma: bool = False) -> float | None:
@@ -417,9 +443,9 @@ def _parse_number(raw: str, decimal_comma: bool = False) -> float | None:
     try:
         value = float(text)
     except ValueError as exc:
-        raise BacktestError(f"'{raw.strip()}' is not a number") from exc
+        raise BacktestError(tr("'{value}' is not a number", value=raw.strip())) from exc
     if not math.isfinite(value):
-        raise BacktestError(f"'{raw.strip()}' is not a finite number")
+        raise BacktestError(tr("'{value}' is not a finite number", value=raw.strip()))
     return value
 
 
@@ -434,14 +460,14 @@ def _parse_date(raw: str) -> datetime:
             return datetime.strptime(text, pattern)
         except ValueError:
             continue
-    raise BacktestError(f"Unrecognised date '{raw.strip()}' (use YYYY-MM-DD HH:MM or DD/MM/YYYY)")
+    raise BacktestError(tr("Unrecognised date '{value}' (use YYYY-MM-DD HH:MM or DD/MM/YYYY)", value=raw.strip()))
 
 
 def parse_csv(text: str) -> tuple[list[dict], list[dict]]:
     """Parse pasted CSV (comma, semicolon or tab). Returns (rows, errors[{line, message}])."""
     text = text.strip("﻿\n\r ")
     if not text:
-        raise BacktestError("The CSV is empty")
+        raise BacktestError(tr("The CSV is empty"))
     first_line = text.splitlines()[0]
     delimiter = max((",", ";", "\t"), key=first_line.count)
     decimal_comma = delimiter != ","
@@ -455,9 +481,9 @@ def parse_csv(text: str) -> tuple[list[dict], list[dict]]:
                 columns[index] = field_name
                 break
     if "direction" not in columns.values():
-        raise BacktestError("The CSV needs a direction column (direction / side / type: buy, sell, long, short)")
+        raise BacktestError(tr("The CSV needs a direction column (direction / side / type: buy, sell, long, short)"))
     if "trade_time" not in columns.values():
-        raise BacktestError("The CSV needs a date column (date / time / datetime)")
+        raise BacktestError(tr("The CSV needs a date column (date / time / datetime)"))
 
     rows, errors = [], []
     for line_number, record in enumerate(reader, start=2):
@@ -474,13 +500,13 @@ def parse_csv(text: str) -> tuple[list[dict], list[dict]]:
             }
             direction = DIRECTION_ALIASES.get(raw.get("direction", "").strip().lower())
             if direction is None:
-                raise BacktestError(f"Unknown direction '{raw.get('direction', '').strip()}'")
+                raise BacktestError(tr("Unknown direction '{value}'", value=raw.get("direction", "").strip()))
             values["direction"] = direction
             for key in ("entry_price", "stop_loss", "take_profit", "exit_price", "r_multiple", "pnl"):
                 values[key] = _parse_number(raw[key], decimal_comma) if key in raw else None
             for key in PRICE_FIELDS:
                 if values[key] is not None and values[key] < 0:
-                    raise BacktestError(f"{key.replace('_', ' ')} cannot be negative")
+                    raise BacktestError(tr("{field} cannot be negative", field=tr(PRICE_FIELD_NAMES[key])))
                 if values[key] == 0:  # platforms write 0 for "no stop / no target / not closed"
                     values[key] = None
             rows.append(derive(values))

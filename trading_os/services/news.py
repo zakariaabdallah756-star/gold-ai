@@ -14,11 +14,13 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .guardrails import Violation
+from .i18n import N_, tr
 
 IMPACT_RANK = {"low": 0, "medium": 1, "high": 2}
 ALL_CURRENCIES = "ALL"  # pseudo-currency of events that move every market
 MAX_WINDOW_MIN = 240  # upper bound of the before/after minutes (settings and per-event overrides)
 UPCOMING_HORIZON = timedelta(hours=24)
+IMPACT_NAMES = {"low": N_("low"), "medium": N_("medium"), "high": N_("high")}
 CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 TITLE_MAX = 120
 NOTES_MAX = 200
@@ -80,9 +82,16 @@ def severity_for(mode: str) -> str:
 
 def window_message(event, settings) -> str:
     before, after = window_minutes(event, settings)
-    return (
-        f"{event.title} ({event.currency}, {event.impact}) at {event.time:%H:%M} - "
-        f"entries are restricted {before} min before to {after} min after."
+    impact = tr(IMPACT_NAMES[event.impact]) if event.impact in IMPACT_NAMES else event.impact
+    return tr(
+        "{title} ({currency}, {impact}) at {time:%H:%M} - "
+        "entries are restricted {before} min before to {after} min after.",
+        title=event.title,
+        currency=event.currency,
+        impact=impact,
+        time=event.time,
+        before=before,
+        after=after,
     )
 
 
@@ -173,7 +182,11 @@ def cooloff_violation(settings) -> Violation:
     reason = f" ({settings.cooloff_reason})" if settings.cooloff_reason else ""
     return Violation(
         "KILL_SWITCH",
-        f"Cool-off active until {settings.cooloff_until:%d %b %Y %H:%M}{reason}. No new trades.",
+        tr(
+            "Cool-off active until {until:%d %b %Y %H:%M}{reason}. No new trades.",
+            until=settings.cooloff_until,
+            reason=reason,
+        ),
         "block",
     )
 
@@ -222,8 +235,8 @@ def parse_forexfactory(items, tz_name: str) -> list[dict]:
             continue
         seen.add(key)
         figures = [
-            f"{label} {str(item[field]).strip()}"
-            for field, label in (("forecast", "Forecast"), ("previous", "Previous"))
+            f"{tr(label)} {str(item[field]).strip()}"
+            for field, label in (("forecast", N_("Forecast")), ("previous", N_("Previous")))
             if str(item.get(field) or "").strip()
         ]
         events.append(
