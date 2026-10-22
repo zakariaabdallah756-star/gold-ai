@@ -6,17 +6,23 @@ conversion happens here.
 
 * The **heatmap** buckets trades by the weekday (0 = Monday) and hour of *entry*:
   it answers "when do I trade well?", which is a question about the decision time.
-* The **calendar** attributes each trade to the day it *closed* (exit time, or
-  entry time when no exit was recorded), like the dashboard's daily P&L.
+* The **calendar** books realised P&L on the day it was realised, like the
+  dashboard's daily P&L (``analytics.bookings``): each fill of a managed trade
+  on its fill day - partial exits included, even while the trade is still
+  open - with the fees on the closing fill, and any other closed trade on the
+  day it closed. Trade counts and win rates count the trades *closed* that day;
+  ``partials`` counts the fills that did not close their trade.
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Collection, Iterable, Sequence
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from statistics import fmean
 from typing import Protocol
+
+from .analytics import Booking, booking_stats, bookings
 
 HOURS_PER_DAY = 24
 DAYS_PER_WEEK = 7
@@ -96,10 +102,6 @@ def month_grid(month: date) -> tuple[date, date, date, date]:
     return first, last, start, end
 
 
-def _day_stats(trades: Sequence[TimedTrade]) -> dict:
-    return {"pnl": _net(trades), **_counts(trades)}
-
-
 def _extreme(days: list[dict], pick) -> dict | None:
     if not days:
         return None
@@ -116,24 +118,26 @@ def calendar_month(
 ) -> dict:
     """The month as whole Monday-Sunday weeks, with per-day, per-week and month totals.
 
-    ``weeks`` total the full seven days of each grid row (adjacent-month days
-    included, as they are shown); ``month_total`` covers the month's own days.
-    The best day is the most profitable green day and the worst day the
-    deepest red day, so either is ``None`` when the month has none.
+    ``trades`` are the trades with P&L booked in the grid (open trades with
+    partial exits included). ``weeks`` total the full seven days of each grid
+    row (adjacent-month days included, as they are shown); ``month_total``
+    covers the month's own days. A day with any booking - a closed trade or a
+    partial exit - is a trading day. The best day is the most profitable green
+    day and the worst day the deepest red day, so either is ``None`` when the
+    month has none.
     """
     first, last, start, end = month_grid(month)
-    by_day: dict[date, list] = defaultdict(list)
-    for trade in trades:
-        day = trade.close_time.date()
-        if start <= day <= end:
-            by_day[day].append(trade)
+    by_day: dict[date, list[Booking]] = defaultdict(list)
+    since, before = datetime.combine(start, time.min), datetime.combine(end + timedelta(days=1), time.min)
+    for booking in bookings(trades, since=since, before=before):
+        by_day[booking.time.date()].append(booking)
 
     dates = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
     days = [
         {
             "date": day.isoformat(),
             "in_month": first <= day <= last,
-            **_day_stats(by_day.get(day, [])),
+            **booking_stats(by_day.get(day, [])),
             "has_review": day in reviewed,
             "checklist_complete": day in checklist_complete,
         }
@@ -142,15 +146,15 @@ def calendar_month(
     weeks = [
         {
             "week_start": dates[index].isoformat(),
-            **_day_stats([t for day in dates[index : index + DAYS_PER_WEEK] for t in by_day.get(day, [])]),
+            **booking_stats([b for day in dates[index : index + DAYS_PER_WEEK] for b in by_day.get(day, [])]),
         }
         for index in range(0, len(dates), DAYS_PER_WEEK)
     ]
 
-    month_days = [d for d in days if d["in_month"] and d["trades"]]
+    month_days = [d for d in days if d["in_month"] and (d["trades"] or d["partials"])]
     green = [d for d in month_days if d["pnl"] > 0]
     red = [d for d in month_days if d["pnl"] < 0]
-    month_trades = [t for day, group in by_day.items() if first <= day <= last for t in group]
+    month_bookings = [b for day, group in by_day.items() if first <= day <= last for b in group]
     return {
         "month": first.strftime("%Y-%m"),
         "start": start.isoformat(),
@@ -158,7 +162,7 @@ def calendar_month(
         "days": days,
         "weeks": weeks,
         "month_total": {
-            **_day_stats(month_trades),
+            **booking_stats(month_bookings),
             "trading_days": len(month_days),
             "green_days": len(green),
             "red_days": len(red),

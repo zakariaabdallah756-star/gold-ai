@@ -48,8 +48,9 @@ class NameCount(FiniteModel):
 
 
 class ReviewStats(FiniteModel):
-    trades: int
-    net_pnl: float
+    trades: int  # closed that day
+    net_pnl: float  # booked that day, partial exits included
+    partials: int = 0  # fills that did not close their trade
     wins: int
     losses: int
     win_rate: float | None
@@ -73,11 +74,12 @@ class ReviewHistoryRow(FiniteModel):
     followed_plan: bool | None
     pnl: float
     trades: int
+    partials: int = 0
 
 
 @router.get("/reviews", response_model=list[ReviewHistoryRow])
 def read_history(settings: SettingsDep, db: DbDep, days: int = Query(30, ge=1, le=366)):
-    """Every day of the last ``days`` days (today first), reviewed or not, with its closed P&L."""
+    """Every day of the last ``days`` days (today first), reviewed or not, with the P&L booked that day."""
     return reviews.history(db, local_today(settings), days)
 
 

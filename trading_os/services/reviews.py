@@ -1,7 +1,9 @@
 """Post-market daily reviews: storage, the day's trading stats and the review history.
 
-A day's trades are the trades *closed* that day (exit time, or entry time when no
-exit was recorded) - the same attribution as the P&L calendar and daily P&L.
+A day's P&L is the P&L *booked* that day - each fill of a managed trade on its
+fill day (partial exits included), any other trade on the day it closed - the
+same attribution as the P&L calendar and daily P&L. Trade counts, win rate,
+compliance, mistakes and emotions come from the trades *closed* that day.
 """
 
 from __future__ import annotations
@@ -11,10 +13,11 @@ from collections.abc import Iterable, Mapping, Sequence
 from datetime import date, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..models import ChecklistDay, DailyReview, Trade
-from .account import CLOSE_TIME, day_bounds
+from .account import CLOSE_TIME, booked_clause, day_bounds
+from .analytics import Booking, bookings
 
 REVIEW_FIELDS = (
     "discipline_rating",
@@ -47,27 +50,40 @@ def review_fields(record: DailyReview | None) -> dict:
     return values
 
 
-def closed_between(db: Session, first: date, last: date) -> list[Trade]:
-    """Closed trades whose close date falls in ``[first, last]``, in close order."""
+def booked_between(db: Session, first: date, last: date, load=(selectinload(Trade.events),)) -> list[Trade]:
+    """Trades (open or closed) with P&L booked in ``[first, last]``, in close order, ``load`` options applied."""
     start, _ = day_bounds(first)
     _, end = day_bounds(last)
-    stmt = select(Trade).where(Trade.status == "closed", CLOSE_TIME >= start, CLOSE_TIME < end)
+    stmt = select(Trade).where(booked_clause(start, end)).options(*load)
     return list(db.scalars(stmt.order_by(CLOSE_TIME.asc(), Trade.id.asc())))
+
+
+def bookings_between(trades: Iterable[Trade], first: date, last: date) -> list[Booking]:
+    """The bookings of ``trades`` dated in ``[first, last]``, in time order."""
+    start, _ = day_bounds(first)
+    _, end = day_bounds(last)
+    return bookings(trades, since=start, before=end)
 
 
 def _ranked(counter: Counter) -> list[dict]:
     return [{"name": name, "count": count} for name, count in sorted(counter.items(), key=lambda kv: (-kv[1], kv[0]))]
 
 
-def day_stats(closed: Sequence[Trade], opened: int) -> dict:
-    """Summary of the trades closed on a day; ``opened`` is the number of trades entered that day."""
+def day_stats(booked: Sequence[Booking], opened: int) -> dict:
+    """Summary of a day's bookings; ``opened`` is the number of trades entered that day.
+
+    ``net_pnl`` is everything booked that day, ``partials`` the fills that did
+    not close their trade; the other figures describe the trades closed that day.
+    """
+    closed = [b.trade for b in booked if b.closes]
     count = len(closed)
     wins = sum(1 for t in closed if t.outcome == "win")
     rated = [t for t in closed if t.rule_compliant is not None]
     followed = sum(1 for t in rated if t.rule_compliant)
     return {
         "trades": count,
-        "net_pnl": round(sum(t.pnl or 0.0 for t in closed), 2),
+        "net_pnl": round(sum(b.amount for b in booked), 2),
+        "partials": len(booked) - count,
         "wins": wins,
         "losses": sum(1 for t in closed if t.outcome == "loss"),
         "win_rate": round(wins / count * 100, 2) if count else None,
@@ -89,7 +105,7 @@ def get_review(db: Session, day: date) -> dict:
         "day": day,
         "exists": record is not None,
         **review_fields(record),
-        "stats": day_stats(closed_between(db, day, day), _opened_on(db, day)),
+        "stats": day_stats(bookings_between(booked_between(db, day, day), day, day), _opened_on(db, day)),
     }
 
 
@@ -107,15 +123,16 @@ def history(db: Session, today: date, days: int) -> list[dict]:
     """One row per day for the ``days`` days up to and including ``today``, newest first."""
     first = today - timedelta(days=days - 1)
     records = {r.day: r for r in db.scalars(select(DailyReview).where(DailyReview.day.between(first, today)))}
-    by_day: dict[date, list[Trade]] = defaultdict(list)
-    for trade in closed_between(db, first, today):
-        by_day[trade.close_time.date()].append(trade)
+    by_day: dict[date, list[Booking]] = defaultdict(list)
+    for booking in bookings_between(booked_between(db, first, today), first, today):
+        by_day[booking.time.date()].append(booking)
 
     rows = []
     for offset in range(days):
         day = today - timedelta(days=offset)
         record = records.get(day)
-        trades = by_day.get(day, [])
+        booked = by_day.get(day, [])
+        closed = sum(1 for b in booked if b.closes)
         rows.append(
             {
                 "day": day,
@@ -123,8 +140,9 @@ def history(db: Session, today: date, days: int) -> list[dict]:
                 "discipline_rating": record.discipline_rating if record else None,
                 "mood": record.mood if record else "",
                 "followed_plan": record.followed_plan if record else None,
-                "pnl": round(sum(t.pnl or 0.0 for t in trades), 2),
-                "trades": len(trades),
+                "pnl": round(sum(b.amount for b in booked), 2),
+                "trades": closed,
+                "partials": len(booked) - closed,
             }
         )
     return rows

@@ -11,8 +11,18 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..models import AccountSettings, ChecklistDay, Market, Strategy, Trade, TradeTarget, TradingSession
 from ..schemas import TradeIn
-from . import context_rules, positions, prop_rules, uploads
-from .account import CLOSE_TIME, compute_day_state, day_bounds, equity_at, local_now, local_today, realized_pnl
+from . import analytics, context_rules, positions, prop_rules, uploads
+from .account import (
+    CLOSE_TIME,
+    booked_clause,
+    compute_day_state,
+    day_bounds,
+    equity_at,
+    local_now,
+    local_today,
+    realized_pnl,
+    report_base_equity,
+)
 from .copilot import TradeContext, strategy_violations
 from .guardrails import (
     DAILY_CODES,
@@ -484,7 +494,44 @@ def list_trades(
 
 
 def closed_trades(db: Session, filters: TradeFilters) -> list[Trade]:
-    """Closed trades in chronological close order - the input of analytics."""
+    """Closed trades in chronological close order - the input of the trade statistics."""
     filters = replace(filters, status="closed", by_close_date=True)
-    stmt = apply_filters(select(Trade), filters).order_by(CLOSE_TIME.asc(), Trade.id.asc())
-    return list(db.scalars(stmt))
+    stmt = apply_filters(select(Trade), filters).options(selectinload(Trade.events))
+    return list(db.scalars(stmt.order_by(CLOSE_TIME.asc(), Trade.id.asc())))
+
+
+def report_window(filters: TradeFilters) -> tuple[datetime | None, datetime | None]:
+    """``[since, before)`` covering the filters' whole days (``None`` = open-ended)."""
+    since = datetime.combine(filters.date_from, datetime.min.time()) if filters.date_from else None
+    before = datetime.combine(filters.date_to + timedelta(days=1), datetime.min.time()) if filters.date_to else None
+    return since, before
+
+
+def booked_trades(db: Session, filters: TradeFilters) -> list[Trade]:
+    """Trades (open or closed) with P&L booked in the filters' date window, with their fills loaded.
+
+    The other filters (asset, strategy, ...) apply as usual; the status filter does not.
+    """
+    since, before = report_window(filters)
+    rest = replace(filters, status=None, date_from=None, date_to=None, by_close_date=False)
+    stmt = apply_filters(select(Trade), rest).where(booked_clause(since, before)).options(selectinload(Trade.events))
+    return list(db.scalars(stmt.order_by(CLOSE_TIME.asc(), Trade.id.asc())))
+
+
+def report_bookings(db: Session, filters: TradeFilters) -> list[analytics.Booking]:
+    """The bookings (see ``analytics.bookings``) inside the filters' date window."""
+    since, before = report_window(filters)
+    return analytics.bookings(booked_trades(db, filters), since=since, before=before)
+
+
+def performance_report(db: Session, settings: AccountSettings, filters: TradeFilters) -> tuple[list[Trade], dict]:
+    """The journal's performance report for ``filters`` and the closed trades it is built from.
+
+    Trade statistics cover the trades *closed* in the date range, each with its
+    whole P&L. Daily P&L and the equity curve follow the P&L *booked* in the
+    range - partial exits on their fill day, open trades included - starting
+    from the account equity at the start of the range.
+    """
+    trades = closed_trades(db, filters)
+    base_equity = report_base_equity(db, settings, filters.date_from)
+    return trades, analytics.full_report(trades, base_equity, report_bookings(db, filters))
