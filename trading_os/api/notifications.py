@@ -15,6 +15,7 @@ from sqlalchemy import delete, func, select
 from ..models import AccountSettings, NotificationChannel, NotificationLog, TradingSession
 from ..schemas import FiniteModel
 from ..services import account, notify, notify_channels, webpush
+from ..services.i18n import N_, tr
 from .deps import DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api/notifications", tags=["notifications"])
@@ -23,7 +24,7 @@ UserEvent = Literal["strategy_alert", "risk", "news"]
 Name = Annotated[str, StringConstraints(max_length=80, strip_whitespace=True)]
 APP_URL_RE = re.compile(r"^https?://[^\s/?#@]+(/[^\s?#]*)?$")
 CONTACT_RE = re.compile(r"^(mailto:[^\s@/]+@[^\s@/]+\.[^\s@/]+|https://[^\s/]+\S*)$")
-WEBPUSH_FROM_DEVICE = (
+WEBPUSH_FROM_DEVICE = N_(
     "Web Push is turned on from the device itself: open this page there and choose “Enable on this device”."
 )
 
@@ -43,14 +44,14 @@ class SettingsIn(FiniteModel):
             return None
         value = value.rstrip("/")
         if value and not APP_URL_RE.match(value):
-            raise ValueError("The app link must be an http:// or https:// address, e.g. http://192.168.1.20:8765")
+            raise ValueError(tr("The app link must be an http:// or https:// address, e.g. http://192.168.1.20:8765"))
         return value
 
     @field_validator("vapid_contact")
     @classmethod
     def _contact(cls, value: str | None) -> str | None:
         if value is not None and not CONTACT_RE.match(value):
-            raise ValueError("The contact must be mailto:you@example.com or an https:// address")
+            raise ValueError(tr("The contact must be mailto:you@example.com or an https:// address"))
         return value
 
 
@@ -115,7 +116,7 @@ def _settings_out(db, settings: AccountSettings) -> dict:
         "webpush_available": webpush.AVAILABLE,
         "channels_count": db.scalar(select(func.count(NotificationChannel.id))) or 0,
         "events_available": [
-            {"id": event, "label": notify.EVENT_LABELS[event], "description": notify.EVENT_DESCRIPTIONS[event]}
+            {"id": event, "label": notify.event_label(event), "description": notify.event_description(event)}
             for event in notify.USER_EVENTS
         ],
     }
@@ -148,7 +149,7 @@ def _log_out(row: NotificationLog) -> dict:
         "id": row.id,
         "created_at": row.created_at,
         "event": row.event,
-        "event_label": notify.EVENT_LABELS.get(row.event, row.event),
+        "event_label": notify.event_label(row.event),
         "title": row.title,
         "body": row.body,
         "url": row.url,
@@ -204,7 +205,7 @@ def list_channels(db: DbDep) -> list[dict]:
 @router.post("/channels", status_code=201)
 def create_channel(body: ChannelIn, db: DbDep) -> dict:
     if body.kind == "webpush":
-        raise HTTPException(status_code=422, detail=WEBPUSH_FROM_DEVICE)
+        raise HTTPException(status_code=422, detail=tr(WEBPUSH_FROM_DEVICE))
     try:
         config = notify_channels.validate(body.kind, body.config)
     except notify_channels.ChannelConfigError as exc:
@@ -311,4 +312,8 @@ def clear_log(db: DbDep, settings: SettingsDep) -> Response:
 
 @router.get("/jobs")
 def jobs(request: Request) -> list[dict]:
-    return [job for job in request.app.state.scheduler.status() if job["name"] in notify.JOB_NAMES]
+    return [
+        {**job, "description": tr(job["description"])}
+        for job in request.app.state.scheduler.status()
+        if job["name"] in notify.JOB_NAMES
+    ]
