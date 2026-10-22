@@ -56,3 +56,12 @@ def update_settings(client, **changes) -> dict:
     response = client.put("/api/settings", json=settings)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.fixture(autouse=True)
+def _no_network_lookups(monkeypatch):
+    """The suite never looks up this computer's LAN addresses or name: tests that need them set their own."""
+    from trading_os.services import network
+
+    monkeypatch.setattr(network, "lan_addresses", lambda: ())
+    monkeypatch.setattr(network, "machine_names", lambda: ("tradingpc", "tradingpc.local"))

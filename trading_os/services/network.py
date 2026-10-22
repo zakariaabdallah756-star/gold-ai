@@ -559,6 +559,7 @@ class NetworkState:
 
     def __init__(self, policy: NetworkPolicy, port: int):
         self.policy = policy
+        self.port = port
         self.cookie_name = session_cookie_name(port)
         self.limiter = LoginLimiter()
         self._revoked: dict[str, int] = {}  # signed-out session nonce -> its expiry
@@ -593,8 +594,9 @@ class NetworkState:
             self._logged_hosts.add(name)
         logger.warning(
             "Refused a request for the host name %s. Allow it under Trading Plan > Network & access "
-            "(open http://localhost on this computer) or in TRADING_OS_ALLOWED_HOSTS.",
+            "(open %s on this computer) or in TRADING_OS_ALLOWED_HOSTS.",
             repr(name)[:100],
+            url_for("localhost", self.port),
         )
 
 
