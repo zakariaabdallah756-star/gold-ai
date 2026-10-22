@@ -321,7 +321,7 @@ function tunnelsCard(data) {
       { class: "card-head" },
       h("div", {}, h("h2", {}, t("Tunnels and remote access")), h("p", {}, t("Reach Trading OS from outside your home network. Keep it on this computer and run the tunnel here too."))),
     ),
-    data.push_token_set
+    data.access.password_set
       ? null
       : h(
           "div",
@@ -331,9 +331,13 @@ function tunnelsCard(data) {
             "div",
             {},
             h("strong", {}, t("Before you open a tunnel")),
-            t("Set a remote-access password above, and a push token on Strategy Alerts so only your platform can send candles."),
-            " ",
-            h("a", { href: "#/alerts" }, t("Open Strategy Alerts")),
+            data.push_token_set
+              ? t("Set a remote-access password above: without it, anyone who has the tunnel address can open and change your journal.")
+              : [
+                  t("Set a remote-access password above, and a push token on Strategy Alerts so only your platform can send candles."),
+                  " ",
+                  h("a", { href: "#/alerts" }, t("Open Strategy Alerts")),
+                ],
           ),
         ),
     h(

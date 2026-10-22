@@ -92,7 +92,7 @@ password end every other device's session. With a password set, a candle push fr
 needs the push token from *Strategy Alerts → Data providers*.
 
 Allowed names, the password and sign-outs can be changed only on the computer running Trading OS
-(at `http://localhost:8765`), never from a phone or through a tunnel, so a remote visitor cannot lock you
+(at `http://localhost:8765`, or at the address given with `--host`), never from a phone or through a tunnel, so a remote visitor cannot lock you
 out or widen access. The tab also shows how the current device is connected and which rule let it in.
 
 ## What's inside
@@ -198,6 +198,8 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
   Set *App link* (e.g. `http://192.168.1.20:8765`) so a tap on a notification opens the right page. Every channel has a Test button, and the history shows what was delivered and why something failed.
 
   *Quiet outside my active sessions* holds strategy alerts and news reminders while none of your active sessions is open: they stay on the Alerts page and in the history (marked *held*), but are not pushed. Risk events and tests always come through.
+
+**Language.** English or Italian, under *Trading Plan → Account & risk rules → Language / Lingua*. It covers menus, labels, messages, guardrail warnings, notifications, PDF reports and the AI answers (Vision AI and chart Q&A). What you type yourself, such as strategy names and notes, stays as written. The page reloads when you switch.
 
 **Trading Plan.** Renaming a confluence or session updates the strategies and alert rules that use it, and deleting a strategy that still has backtest trades asks for confirmation first. Tabs for:
 - Account & risk rules, including news guardrail, cool-off and position-management defaults
