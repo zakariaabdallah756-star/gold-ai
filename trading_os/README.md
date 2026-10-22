@@ -199,6 +199,8 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 
   *Quiet outside my active sessions* holds strategy alerts and news reminders while none of your active sessions is open: they stay on the Alerts page and in the history (marked *held*), but are not pushed. Risk events and tests always come through.
 
+**Language.** English or Italian, under *Trading Plan → Account & risk rules → Language / Lingua*. It covers menus, labels, messages, guardrail warnings, notifications, PDF reports and the AI answers (Vision AI and chart Q&A). What you type yourself, such as strategy names and notes, stays as written. The page reloads when you switch.
+
 **Trading Plan.** Renaming a confluence or session updates the strategies and alert rules that use it, and deleting a strategy that still has backtest trades asks for confirmation first. Tabs for:
 - Account & risk rules, including news guardrail, cool-off and position-management defaults
 - Markets (contract specs)

@@ -8,5 +8,5 @@ statistical dashboard that measures whether the trader has an edge.
 Run it with ``python trading_os/run.py`` (or ``python -m trading_os`` from its parent folder).
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 APP_NAME = "Trading OS"
