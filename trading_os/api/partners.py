@@ -11,7 +11,8 @@ from ..models import Partner
 from ..schemas import FiniteModel
 from ..services import disclaimer
 from ..services.account import local_now
-from ..services.partners import partner_link
+from ..services.i18n import tr
+from ..services.partners import display_text, partner_link
 from .deps import DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api", tags=["partners"])
@@ -21,7 +22,7 @@ Url = Annotated[str, StringConstraints(max_length=500, strip_whitespace=True)]
 
 def _http_url(value: str) -> str:
     if value and not value.lower().startswith(("http://", "https://")):
-        raise ValueError("Links must start with http:// or https://")
+        raise ValueError(tr("Links must start with http:// or https://"))
     return value
 
 
@@ -67,7 +68,7 @@ def _commit(db) -> None:
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="A partner with that name already exists") from exc
+        raise HTTPException(status_code=409, detail=tr("A partner with that name already exists")) from exc
 
 
 def _ordered():
@@ -82,8 +83,8 @@ def list_partners(db: DbDep):
             "id": p.id,
             "name": p.name,
             "kind": p.kind,
-            "description": p.description,
-            "highlights": p.highlights,
+            "description": display_text(p.description),
+            "highlights": [display_text(h) for h in p.highlights or []],
             "featured": p.featured,
             "website_url": p.website_url,
             "link": partner_link(p),
