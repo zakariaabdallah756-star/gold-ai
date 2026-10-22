@@ -5,6 +5,7 @@
 import { api, query } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, numberOrNull, segmented, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
+import { t } from "../i18n.js";
 import { handoff, state } from "../state.js";
 
 const NOTICE = "Alerts are informational: nothing is executed automatically - the final decision is always yours.";
@@ -197,6 +198,9 @@ function alertCard(alert, { onReview, onDismiss, onDelete }) {
       h("span", { class: "badge" }, alert.timeframe),
       alert.strategy ? h("span", { class: "al-strategy" }, alert.strategy) : h("span", { class: "al-strategy muted" }, details.rule_name || "Rule"),
       alert.in_test ? h("span", { class: "badge warn", title: "Strategy is still in the incubator" }, "In test") : null,
+      alert.notification_status === "held"
+        ? h("span", { class: "badge", title: t("Found outside your active sessions: shown here but not pushed (quiet hours).") }, icon("clock"), t("Not pushed"))
+        : null,
       h("span", { class: "spacer" }),
       h("span", { class: `badge ${STATUS_BADGE[alert.status] || ""}` }, STATUS_LABEL[alert.status] || alert.status),
     ),

@@ -68,6 +68,7 @@ class AccountSettings(TimestampMixin, Base):
     # Process rules
     require_checklist: Mapped[bool] = mapped_column(Boolean, default=True)
     warn_outside_sessions: Mapped[bool] = mapped_column(Boolean, default=True)
+    session_rule_mode: Mapped[str] = mapped_column(String(8), default="warn")  # warn | block (off-session entries)
 
     # Economic news guardrail
     news_mode: Mapped[str] = mapped_column(String(8), default="warn")  # off | warn | block
@@ -101,6 +102,8 @@ class AccountSettings(TimestampMixin, Base):
     notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     notify_events: Mapped[list[str]] = mapped_column(JSON, default=lambda: ["strategy_alert", "risk", "news"])
     news_reminder_min: Mapped[int] = mapped_column(Integer, default=15)  # minutes before a high-impact release
+    # Hold strategy alerts and news reminders while no active session is open (risk events always go out).
+    notify_quiet_outside_sessions: Mapped[bool] = mapped_column(Boolean, default=False)
     app_url: Mapped[str] = mapped_column(String(200), default="")  # link opened from a notification
     # Web Push (VAPID) key pair, generated on first use. Both stay on this machine (not in backups).
     vapid_public_key: Mapped[str] = mapped_column(String(200), default="")

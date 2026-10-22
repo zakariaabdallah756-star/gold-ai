@@ -3,6 +3,7 @@
 import { api } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
+import { t } from "../i18n.js";
 import { loadPlan, loadStatus, state } from "../state.js";
 import { renderNotificationSettings } from "./notifications.js";
 import { renderPartnerSettings } from "./partners.js";
@@ -254,7 +255,17 @@ function rulesSection() {
   const processRules = buildForm(
     [
       { name: "require_checklist", label: "Require the pre-market checklist before entries", type: "checkbox", full: true },
-      { name: "warn_outside_sessions", label: "Warn on entries outside my active sessions", type: "checkbox", full: true },
+      { name: "warn_outside_sessions", label: t("Check entries against my active sessions"), type: "checkbox", full: true },
+      {
+        name: "session_rule_mode",
+        label: t("Entries outside my active sessions"),
+        type: "select",
+        options: [
+          ["warn", t("Warn only")],
+          ["block", t("Block live entries")],
+        ],
+        help: t("Your active sessions are set under Sessions. Trades logged after the fact are always saved, with the warning attached."),
+      },
     ],
     s,
   );

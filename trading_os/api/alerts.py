@@ -16,7 +16,7 @@ from pydantic import Field, StringConstraints, field_validator, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from ..models import AlertRule, Candle, Market, Strategy, StrategyAlert, Trade
+from ..models import AlertRule, Candle, Market, NotificationLog, Strategy, StrategyAlert, Trade
 from ..schemas import FiniteModel
 from ..services import alerts, detectors, market_data
 from ..services.account import local_now
@@ -195,7 +195,7 @@ def _rule_out(rule: AlertRule, strategy: Strategy | None) -> dict:
     }
 
 
-def _alert_out(alert: StrategyAlert) -> dict:
+def _alert_out(alert: StrategyAlert, notification_status: str | None = None) -> dict:
     details = alert.details or {}
     precheck = details.get("precheck") or []
     return {
@@ -221,7 +221,15 @@ def _alert_out(alert: StrategyAlert) -> dict:
         "status": alert.status,
         "trade_id": alert.trade_id,
         "notification_id": alert.notification_id,
+        "notification_status": notification_status,  # sent | partial | failed | skipped | held | None
     }
+
+
+def _notification_statuses(db, alerts_: list[StrategyAlert]) -> dict[int, str]:
+    ids = [a.notification_id for a in alerts_ if a.notification_id]
+    if not ids:
+        return {}
+    return dict(db.execute(select(NotificationLog.id, NotificationLog.status).where(NotificationLog.id.in_(ids))).all())
 
 
 def _strategy_or_422(db, strategy_id: int | None) -> Strategy | None:
@@ -513,12 +521,18 @@ def list_alerts(db: DbDep, status: Literal[alerts.ALERT_STATUSES] | None = None,
     counts = dict.fromkeys(alerts.ALERT_STATUSES, 0)
     for key, count in db.execute(select(StrategyAlert.status, func.count()).group_by(StrategyAlert.status)):
         counts[key] = count
-    return {"alerts": [_alert_out(a) for a in db.scalars(query)], "counts": {**counts, "all": sum(counts.values())}}
+    rows = list(db.scalars(query))
+    statuses = _notification_statuses(db, rows)
+    return {
+        "alerts": [_alert_out(a, statuses.get(a.notification_id)) for a in rows],
+        "counts": {**counts, "all": sum(counts.values())},
+    }
 
 
 @router.get("/{alert_id}")
 def get_alert(alert_id: int, db: DbDep):
-    return _alert_out(get_or_404(db, StrategyAlert, alert_id))
+    alert = get_or_404(db, StrategyAlert, alert_id)
+    return _alert_out(alert, _notification_statuses(db, [alert]).get(alert.notification_id))
 
 
 @router.post("/{alert_id}/status")

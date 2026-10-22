@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, Request, Response
 from pydantic import Field, StringConstraints, field_validator
 from sqlalchemy import delete, func, select
 
-from ..models import AccountSettings, NotificationChannel, NotificationLog
+from ..models import AccountSettings, NotificationChannel, NotificationLog, TradingSession
 from ..schemas import FiniteModel
 from ..services import account, notify, notify_channels, webpush
 from .deps import DbDep, SettingsDep, get_or_404
@@ -34,6 +34,7 @@ class SettingsIn(FiniteModel):
     news_reminder_min: int | None = Field(None, ge=0, le=120)
     app_url: Annotated[str, StringConstraints(max_length=200, strip_whitespace=True)] | None = None
     vapid_contact: Annotated[str, StringConstraints(max_length=120, strip_whitespace=True)] | None = None
+    quiet_outside_sessions: bool | None = None
 
     @field_validator("app_url")
     @classmethod
@@ -91,6 +92,10 @@ class UnsubscribeIn(FiniteModel):
 # --------------------------------------------------------------- serializers
 
 
+def _any_active_session(db) -> bool:
+    return db.scalar(select(func.count(TradingSession.id)).where(TradingSession.active.is_(True))) > 0
+
+
 def _settings_out(db, settings: AccountSettings) -> dict:
     return {
         "enabled": settings.notifications_enabled,
@@ -98,6 +103,14 @@ def _settings_out(db, settings: AccountSettings) -> dict:
         "news_reminder_min": settings.news_reminder_min,
         "app_url": settings.app_url,
         "vapid_contact": settings.vapid_contact,
+        "quiet_outside_sessions": settings.notify_quiet_outside_sessions,
+        "quiet_events": list(notify.QUIET_EVENTS),
+        "active_sessions": [
+            s.name for s in db.scalars(select(TradingSession).order_by(TradingSession.start_utc)) if s.active
+        ],
+        "in_trading_window_now": (
+            None if not _any_active_session(db) else not notify.outside_trading_window(db, settings)
+        ),
         "vapid_public_key": settings.vapid_public_key,
         "webpush_available": webpush.AVAILABLE,
         "channels_count": db.scalar(select(func.count(NotificationChannel.id))) or 0,
@@ -173,6 +186,8 @@ def update_settings(body: SettingsIn, db: DbDep, settings: SettingsDep) -> dict:
         settings.app_url = body.app_url
     if body.vapid_contact is not None:
         settings.vapid_contact = body.vapid_contact
+    if body.quiet_outside_sessions is not None:
+        settings.notify_quiet_outside_sessions = body.quiet_outside_sessions
     db.commit()
     return _settings_out(db, settings)
 

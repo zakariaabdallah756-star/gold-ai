@@ -4,6 +4,7 @@
 import { api } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, toast } from "../dom.js";
 import { fmt } from "../format.js";
+import { N_, t } from "../i18n.js";
 import { loadPlan } from "../state.js";
 
 const BASE = "/api/notifications";
@@ -15,6 +16,7 @@ const STATUS = {
   partial: { cls: "warn", icon: "alert", label: "Partly sent" },
   failed: { cls: "bad", icon: "x", label: "Failed" },
   skipped: { cls: "", icon: "info", label: "No channel" },
+  held: { cls: "", icon: "clock", label: N_("Held (off-session)") },
 };
 const SECRET_HINT = "Leave the masked value as it is to keep the saved one.";
 
@@ -136,7 +138,7 @@ function switchControl(checked, label, onchange, { title } = {}) {
 
 function statusBadge(status) {
   const meta = STATUS[status] || STATUS.skipped;
-  return h("span", { class: `badge ${meta.cls}` }, icon(meta.icon, "icon nt-badge-icon"), meta.label);
+  return h("span", { class: `badge ${meta.cls}` }, icon(meta.icon, "icon nt-badge-icon"), t(meta.label));
 }
 
 function eventBadge(event) {
@@ -216,6 +218,38 @@ export async function renderNotificationSettings(container) {
         );
       }),
     );
+    const quiet = h("input", { type: "checkbox", checked: Boolean(s.quiet_outside_sessions) });
+    const sessionsLink = h("a", { href: "#/plan?tab=sessions" }, t("Trading Plan → Sessions"));
+    const quietBox = h(
+      "div",
+      { class: "nt-event nt-quiet" },
+      h(
+        "label",
+        { class: "nt-event-main" },
+        quiet,
+        h(
+          "span",
+          {},
+          h("strong", {}, t("Quiet outside my active sessions")),
+          h("span", { class: "muted small" }, t("Strategy alerts and news reminders found while none of your active sessions is open are held: kept on the Alerts page and in the history below, but not pushed. Risk events always come through.")),
+        ),
+      ),
+      h(
+        "p",
+        { class: "muted small nt-event-extra" },
+        s.active_sessions?.length
+          ? t("Active sessions: {sessions} - right now you are {state}.", {
+              sessions: s.active_sessions.join(", "),
+              state: s.in_trading_window_now ? t("inside your trading window") : t("outside your trading window"),
+            })
+          : t("No session is marked active, so nothing is held."),
+        " ",
+        t("Choose your active sessions under"),
+        " ",
+        sessionsLink,
+        ".",
+      ),
+    );
     const appUrl = h("input", { type: "url", value: s.app_url, placeholder: "http://192.168.1.20:8765", spellcheck: false, inputmode: "url" });
     const contact = h("input", { value: s.vapid_contact || "", placeholder: "mailto:you@example.com", spellcheck: false, maxlength: 120 });
     const saveBtn = h("button", { class: "btn primary", type: "submit" }, icon("check"), "Save");
@@ -235,6 +269,7 @@ export async function renderNotificationSettings(container) {
           enabled: master.input.checked,
           events: USER_EVENTS.filter((id) => eventBoxes[id]?.checked),
           news_reminder_min: value,
+          quiet_outside_sessions: quiet.checked,
           app_url: appUrl.value.trim(),
           ...(contact.value.trim() ? { vapid_contact: contact.value.trim() } : {}), // empty keeps the current contact
         });
@@ -263,6 +298,7 @@ export async function renderNotificationSettings(container) {
       h("div", { class: "nt-master" }, master.el),
       h("div", { class: "nt-label" }, "Send me"),
       eventsBox,
+      quietBox,
       h(
         "div",
         { class: "form-grid nt-link" },
@@ -675,7 +711,13 @@ export async function renderNotificationSettings(container) {
                   ),
                 ),
               )
-            : h("p", { class: "muted small" }, "No channel was set up for this notification type."),
+            : h(
+                "p",
+                { class: "muted small" },
+                row.status === "held"
+                  ? t("Held: none of your active sessions was open, so it was not pushed.")
+                  : "No channel was set up for this notification type.",
+              ),
         ),
       ),
     );

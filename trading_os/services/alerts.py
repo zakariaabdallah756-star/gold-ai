@@ -36,7 +36,7 @@ from . import detectors, market_data, notify, trades
 from .account import current_equity, get_settings, local_now
 from .copilot import TradeContext, strategy_violations
 from .guardrails import Violation
-from .sessions import classify_session
+from .sessions import classify_session, open_sessions
 from .sizing import SizingError, blended_rr, calculate_position_size
 
 log = logging.getLogger("trading_os.alerts")
@@ -324,9 +324,11 @@ def copilot_violations(
     confluences: list[str],
     planned_rr: float | None,
     bias: str,
+    open_sessions: list[str] | None = None,
 ) -> list[Violation]:
     """Strategy Co-Pilot findings for a setup, including the strategy's minimum number of confluences."""
-    ctx = TradeContext(direction, session, timeframe, list(confluences), planned_rr, bias)
+    # Every session open at the candle close counts (overlaps), as for a trade logged at that time.
+    ctx = TradeContext(direction, session, timeframe, list(confluences), planned_rr, bias, list(open_sessions or []))
     violations = strategy_violations(settings, strategy, ctx)
     if strategy.min_confluences and len(confluences) < strategy.min_confluences:
         severity = "block" if settings.trade_rule_mode == "block" else "warn"
@@ -468,6 +470,7 @@ def evaluate(
             ev.confluences,
             ev.levels.planned_rr,
             today.bias if today else "",
+            open_sessions(ev.candle_time, settings.timezone, windows),
         )
         if _copilot_blockers(ev.copilot):
             ev.reason = f"Co-Pilot: the setup does not meet every {ev.strategy.name} requirement yet."

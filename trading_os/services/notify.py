@@ -9,8 +9,11 @@ Contract used by the rest of the app (keep these signatures):
 * ``send(db, settings, note)`` delivers ``note`` synchronously to every enabled
   channel subscribed to its event, records a ``NotificationLog`` row and returns
   it. It returns None without sending when notifications are off or the event
-  type is disabled - except ``test``, which is always sent. It never raises
-  because a channel failed; failures are recorded per channel in the log row.
+  type is disabled - except ``test``, which is always sent. With
+  ``AccountSettings.notify_quiet_outside_sessions`` on, strategy alerts and news
+  reminders are not sent while no active session is open: the row is logged with
+  status ``held`` (risk events always go out). It never raises because a channel
+  failed; failures are recorded per channel in the log row.
 * ``register_jobs(scheduler, config)`` registers background watchers (risk
   events, news reminders) on the app's ``services.scheduler.Scheduler``.
 
@@ -32,14 +35,16 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..models import AccountSettings, Market, NewsEvent, NotificationChannel, NotificationLog
+from ..models import AccountSettings, Market, NewsEvent, NotificationChannel, NotificationLog, TradingSession
 from . import account, news, notify_channels, webpush
 from .notify_channels import DeliveryError, Message, SubscriptionExpired, VapidKeys, truncate
+from .sessions import in_trading_window
 
 log = logging.getLogger("trading_os.notify")
 
 EVENTS = ("strategy_alert", "risk", "news", "test")
 USER_EVENTS = ("strategy_alert", "risk", "news")  # the ones a user can switch on and off
+QUIET_EVENTS = ("strategy_alert", "news")  # held outside the trading window when quiet hours are on
 EVENT_LABELS = {
     "strategy_alert": "Strategy alerts",
     "risk": "Risk events",
@@ -109,10 +114,22 @@ def event_enabled(settings: AccountSettings, event: str) -> bool:
     return bool(settings.notifications_enabled) and event in (settings.notify_events or [])
 
 
+def outside_trading_window(db: Session, settings: AccountSettings) -> bool:
+    """True while no active session is open (False when no session is marked active)."""
+    windows = db.scalars(select(TradingSession)).all()
+    return in_trading_window(account.local_now(settings), settings.timezone, windows) is False
+
+
 def send(db: Session, settings: AccountSettings, note: Note) -> NotificationLog | None:
     """Deliver ``note`` to every enabled channel subscribed to its event (see module docstring)."""
     if note.event != "test" and not event_enabled(settings, note.event):
         return None
+    if (
+        note.event in QUIET_EVENTS
+        and getattr(settings, "notify_quiet_outside_sessions", False)
+        and outside_trading_window(db, settings)
+    ):
+        return _held(db, settings, note)
     channels = db.scalars(
         select(NotificationChannel).where(NotificationChannel.enabled.is_(True)).order_by(NotificationChannel.id)
     ).all()
@@ -197,6 +214,24 @@ def _status(results: list[dict]) -> str:
     if delivered == len(results):
         return "sent"
     return "partial" if delivered else "failed"
+
+
+def _held(db: Session, settings: AccountSettings, note: Note) -> NotificationLog:
+    """Log ``note`` as held (outside the trading window) without contacting any channel."""
+    message = _message(settings, note)
+    row = NotificationLog(
+        created_at=account.local_now(settings),
+        event=note.event,
+        title=message.title,
+        body=message.body,
+        data=message.data,
+        url=message.path[:300],
+        status="held",
+        results=[],
+    )
+    db.add(row)
+    db.commit()
+    return row
 
 
 def _dispatch(db: Session, settings: AccountSettings, note: Note, channels: list) -> NotificationLog:
@@ -350,13 +385,14 @@ def risk_notes(status: dict) -> list[Note]:
 
 
 RETRY_AFTER = timedelta(minutes=10)  # a failed or undeliverable notice is tried again after this
+HANDLED_STATUSES = ("sent", "partial", "held")  # never repeated within the dedupe period
 
 
 def _logged_values(db: Session, event: str, key: str, since: datetime, now: datetime) -> set:
     """Values of ``data[key]`` already handled for ``event`` since ``since`` (dedupe without extra columns).
 
-    Delivered rows (sent / partial) count for the whole period; failed or skipped attempts only for
-    ``RETRY_AFTER``, so a notice is retried when the network or a channel comes back.
+    Delivered rows (sent / partial) and held rows count for the whole period; failed or skipped attempts
+    only for ``RETRY_AFTER``, so a notice is retried when the network or a channel comes back.
     """
     rows = db.execute(
         select(NotificationLog.data, NotificationLog.status, NotificationLog.created_at).where(
@@ -366,7 +402,7 @@ def _logged_values(db: Session, event: str, key: str, since: datetime, now: date
     return {
         data.get(key)
         for data, status, created in rows
-        if isinstance(data, dict) and (status in ("sent", "partial") or created >= now - RETRY_AFTER)
+        if isinstance(data, dict) and (status in HANDLED_STATUSES or created >= now - RETRY_AFTER)
     }
 
 

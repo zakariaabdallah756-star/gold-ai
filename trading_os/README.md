@@ -137,6 +137,8 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 
   Set *App link* (e.g. `http://192.168.1.20:8765`) so a tap on a notification opens the right page. Every channel has a Test button, and the history shows what was delivered and why something failed.
 
+  *Quiet outside my active sessions* holds strategy alerts and news reminders while none of your active sessions is open: they stay on the Alerts page and in the history (marked *held*), but are not pushed. Risk events and tests always come through.
+
 **Trading Plan.** Renaming a confluence or session updates the strategies and alert rules that use it, and deleting a strategy that still has backtest trades asks for confirmation first. Tabs for:
 - Account & risk rules, including news guardrail, cool-off and position-management defaults
 - Markets (contract specs)
@@ -162,7 +164,7 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 | Max risk per trade | risk > max % of equity (default 2%) | `trade_rule_mode` |
 | Strategy Co-Pilot | the strategy's required confluences, minimum confluence count, allowed sessions / timeframes / direction, stricter min R:R or bias alignment are not met | `trade_rule_mode` (incubator and retired strategies only warn) |
 | No take profit | no target, so R:R can't be verified | warn |
-| Outside trading window | entry outside your active sessions | warn (optional) |
+| Outside trading window | entry outside your active sessions (*Trading Plan → Sessions*, "Part of my trading window") | off / warn / block (`session_rule_mode`) |
 | Max daily loss | today's realised loss ≥ limit (default 3% of start-of-day equity) | `daily_limit_mode`: lock / warn |
 | Max trades per day | trade count reached (0 = off) | `daily_limit_mode` |
 | Daily risk budget | this trade's risk + open risk could breach the daily limit | `daily_limit_mode` |

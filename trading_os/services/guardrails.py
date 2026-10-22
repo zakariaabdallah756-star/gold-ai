@@ -138,7 +138,8 @@ def trade_rule_violations(
         )
 
     if settings.warn_outside_sessions and in_trading_window is False:
-        violations.append(Violation("OUTSIDE_SESSION", "Entry is outside your active trading sessions.", "warn"))
+        severity = "block" if getattr(settings, "session_rule_mode", "warn") == "block" else "warn"
+        violations.append(Violation("OUTSIDE_SESSION", "Entry is outside your active trading sessions.", severity))
 
     return violations
 
