@@ -559,7 +559,7 @@ export async function render(root) {
         }),
         h("span", {}, h("strong", {}, t("Trailing stop")), h("span", { class: "muted small" }, t("Locks in profit as price moves"))),
       ),
-      h("div", { class: "sig-toggle-fields" }, field(t("Distance (pips)"), trailDistance), field(t("Start"), trailTrigger)),
+      h("div", { class: "sig-toggle-fields" }, field(t("Distance (pips)"), trailDistance), field(t("Start at"), trailTrigger)),
     );
 
     clear(

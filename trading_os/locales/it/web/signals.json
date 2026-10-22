@@ -110,7 +110,7 @@
   "Signal message": "Messaggio del segnale",
   "Signal parser": "Parser dei segnali",
   "Size every trade from your stop - never from a feeling. Account currency: {currency}": "Dimensiona ogni trade dal tuo stop - mai da una sensazione. Valuta del conto: {currency}",
-  "Start": "Avvio",
+  "Start at": "Attivazione da",
   "Stop": "Stop",
   "Stop in pips / points": "Stop in pip / punti",
   "Stop loss": "Stop loss",
