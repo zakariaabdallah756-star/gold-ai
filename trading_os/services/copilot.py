@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .guardrails import EPSILON, Violation
+from .i18n import N_, tr
 
 COPILOT_CODES = frozenset(
     {
@@ -26,6 +27,7 @@ COPILOT_CODES = frozenset(
         "STRATEGY_RETIRED",
     }
 )
+BIAS_LABELS = {"bullish": N_("bullish"), "bearish": N_("bearish")}
 
 
 @dataclass
@@ -45,7 +47,7 @@ def _join(items: list[str]) -> str:
     items = list(items)
     if len(items) <= 1:
         return "".join(items)
-    return ", ".join(items[:-1]) + " and " + items[-1]
+    return tr("{items} and {last}", items=", ".join(items[:-1]), last=items[-1])
 
 
 def strategy_violations(settings, strategy, ctx: TradeContext) -> list[Violation]:
@@ -58,14 +60,21 @@ def strategy_violations(settings, strategy, ctx: TradeContext) -> list[Violation
 
     if strategy.status == "retired":
         violations.append(
-            Violation("STRATEGY_RETIRED", f"Co-Pilot: {name} is retired - it is no longer part of your plan.", "warn")
+            Violation(
+                "STRATEGY_RETIRED",
+                tr("Co-Pilot: {strategy} is retired - it is no longer part of your plan.", strategy=name),
+                "warn",
+            )
         )
     elif strategy.status == "incubator":
         violations.append(
             Violation(
                 "STRATEGY_INCUBATOR",
-                f"Co-Pilot: {name} is still in the incubator. Prove its edge in backtests before trading it live, "
-                "or trade it at reduced size.",
+                tr(
+                    "Co-Pilot: {strategy} is still in the incubator. Prove its edge in backtests before trading it "
+                    "live, or trade it at reduced size.",
+                    strategy=name,
+                ),
                 "warn",
             )
         )
@@ -77,8 +86,13 @@ def strategy_violations(settings, strategy, ctx: TradeContext) -> list[Violation
         violations.append(
             Violation(
                 "STRATEGY_REQUIRED_CONFLUENCES",
-                f"Co-Pilot: {name} requires {_join(required)}. Missing: {_join(missing)}. "
-                "Wait until every required confluence is present.",
+                tr(
+                    "Co-Pilot: {strategy} requires {required}. Missing: {missing}. "
+                    "Wait until every required confluence is present.",
+                    strategy=name,
+                    required=_join(required),
+                    missing=_join(missing),
+                ),
                 severity,
             )
         )
@@ -88,29 +102,49 @@ def strategy_violations(settings, strategy, ctx: TradeContext) -> list[Violation
         violations.append(
             Violation(
                 "STRATEGY_DIRECTION",
-                f"Co-Pilot: {name} only takes {allowed_direction} setups; this is a {ctx.direction} trade.",
+                tr(
+                    "Co-Pilot: {strategy} only takes {allowed} setups; this is a {direction} trade.",
+                    strategy=name,
+                    allowed=allowed_direction,
+                    direction=ctx.direction,
+                ),
                 severity,
             )
         )
 
     sessions = list(strategy.allowed_sessions or [])
     if sessions and ctx.session not in sessions and not set(ctx.open_sessions) & set(sessions):
-        where = f"in {ctx.session}" if ctx.session else "outside every session"
-        violations.append(
-            Violation(
-                "STRATEGY_SESSION",
-                f"Co-Pilot: {name} is only traded in {_join(sessions)}; this entry is {where}. "
-                f"Wait for {_join(sessions)}.",
-                severity,
+        if ctx.session:
+            message = tr(
+                "Co-Pilot: {strategy} is only traded in {sessions}; this entry is in {session}. Wait for {sessions}.",
+                strategy=name,
+                sessions=_join(sessions),
+                session=ctx.session,
             )
-        )
+        else:
+            message = tr(
+                "Co-Pilot: {strategy} is only traded in {sessions}; this entry is outside every session. "
+                "Wait for {sessions}.",
+                strategy=name,
+                sessions=_join(sessions),
+            )
+        violations.append(Violation("STRATEGY_SESSION", message, severity))
 
     timeframes = list(strategy.allowed_timeframes or [])
     if timeframes:
         if not ctx.timeframe:
-            message = f"Co-Pilot: select the setup timeframe - {name} is traded on {_join(timeframes)}."
+            message = tr(
+                "Co-Pilot: select the setup timeframe - {strategy} is traded on {timeframes}.",
+                strategy=name,
+                timeframes=_join(timeframes),
+            )
         elif ctx.timeframe not in timeframes:
-            message = f"Co-Pilot: {name} is traded on {_join(timeframes)}, not {ctx.timeframe}."
+            message = tr(
+                "Co-Pilot: {strategy} is traded on {timeframes}, not {timeframe}.",
+                strategy=name,
+                timeframes=_join(timeframes),
+                timeframe=ctx.timeframe,
+            )
         else:
             message = ""
         if message:
@@ -122,28 +156,42 @@ def strategy_violations(settings, strategy, ctx: TradeContext) -> list[Violation
                 violations.append(
                     Violation(
                         "STRATEGY_BIAS",
-                        f"Co-Pilot: {name} trades with the daily bias, which is {ctx.bias} today; "
-                        f"this is a {ctx.direction} trade. Wait for a setup in the direction of the bias.",
+                        tr(
+                            "Co-Pilot: {strategy} trades with the daily bias, which is {bias} today; "
+                            "this is a {direction} trade. Wait for a setup in the direction of the bias.",
+                            strategy=name,
+                            bias=tr(BIAS_LABELS[ctx.bias]),
+                            direction=ctx.direction,
+                        ),
                         severity,
                     )
                 )
         else:
-            reason = "today's bias is neutral" if ctx.bias == "neutral" else "today's bias is not set"
-            violations.append(
-                Violation(
-                    "STRATEGY_BIAS",
-                    f"Co-Pilot: {name} only trades with the daily bias, and {reason}. "
+            if ctx.bias == "neutral":
+                message = tr(
+                    "Co-Pilot: {strategy} only trades with the daily bias, and today's bias is neutral. "
                     "Set a directional bias in the pre-market routine first.",
-                    severity,
+                    strategy=name,
                 )
-            )
+            else:
+                message = tr(
+                    "Co-Pilot: {strategy} only trades with the daily bias, and today's bias is not set. "
+                    "Set a directional bias in the pre-market routine first.",
+                    strategy=name,
+                )
+            violations.append(Violation("STRATEGY_BIAS", message, severity))
 
     if strategy.min_rr and ctx.planned_rr is not None and ctx.planned_rr < strategy.min_rr - EPSILON:
         violations.append(
             Violation(
                 "STRATEGY_MIN_RR",
-                f"Co-Pilot: {name} needs at least 1:{strategy.min_rr:g}; this plan is 1:{ctx.planned_rr:.2f}. "
-                "Wait for a better entry or a further target.",
+                tr(
+                    "Co-Pilot: {strategy} needs at least 1:{minimum:g}; this plan is 1:{rr:.2f}. "
+                    "Wait for a better entry or a further target.",
+                    strategy=name,
+                    minimum=strategy.min_rr,
+                    rr=ctx.planned_rr,
+                ),
                 severity,
             )
         )
