@@ -13,8 +13,6 @@ import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
-from .services.network import parse_patterns
-
 PACKAGE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = PACKAGE_DIR / "static"
 
@@ -81,6 +79,8 @@ def migrate_legacy_data_dir() -> Path | None:
 
 def load_config(data_dir: str | Path | None = None) -> AppConfig:
     """Build the config, giving precedence to an explicit ``data_dir``."""
+    from .services.network import parse_patterns  # here: the CLI imports this module before checking packages
+
     resolved = data_dir or os.environ.get("TRADING_OS_DATA_DIR") or DEFAULT_DATA_DIR
     max_upload_mb = int(os.environ.get("TRADING_OS_MAX_UPLOAD_MB", DEFAULT_MAX_UPLOAD_MB))
     background_jobs = os.environ.get("TRADING_OS_BACKGROUND_JOBS", "1").strip().lower() not in (

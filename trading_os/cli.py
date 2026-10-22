@@ -12,10 +12,10 @@ from collections.abc import Iterable
 
 from . import APP_NAME, __version__
 from .config import DEFAULT_HOST, DEFAULT_PORT, DEMO_DATA_DIR
-from .services import network
-from .services.i18n import tr
 
 REQUIRED_MODULES = ("fastapi", "uvicorn", "sqlalchemy", "pydantic", "multipart")
+EVERY_NETWORK = ("0.0.0.0", "::")  # bind addresses that listen on all interfaces
+# The app's own modules (services.network, ...) are imported only after the dependency check.
 
 
 def _check_dependencies() -> None:
@@ -57,7 +57,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--no-browser", action="store_true", help="do not open the browser automatically")
     args = parser.parse_args(argv)
-    if args.lan and args.host not in (None, *network.ALL_INTERFACES):
+    if args.lan and args.host not in (None, *EVERY_NETWORK):
         parser.error("--lan already listens on every network: leave out --host")
     args.host = args.host or ("0.0.0.0" if args.lan else DEFAULT_HOST)
     return args
@@ -65,6 +65,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def display_urls(host: str, port: int, lan_ips: Iterable[str] = ()) -> tuple[str, list[str]]:
     """(the address to type on this computer, the addresses other devices can open). IPv6 is bracketed."""
+    from .services import network
+
     return network.local_url(host, port), network.lan_urls(host, port, lan_ips)
 
 
@@ -72,6 +74,9 @@ def network_lines(
     host: str, port: int, lan_ips: Iterable[str] = (), *, password_set: bool = False, ignored: Iterable[str] = ()
 ) -> list[str]:
     """Start-up hints about addresses and access, in the journal's language."""
+    from .services import network
+    from .services.i18n import tr
+
     local, others = display_urls(host, port, lan_ips)
     lines = [tr("Tip: type {url} in the browser address bar, not the search box.", url=local)]
     if not network.is_loopback_bind(host):
@@ -100,7 +105,7 @@ def main(argv: list[str] | None = None) -> None:
 
     from .app import create_app
     from .config import LEGACY_DATA_DIR, load_config, migrate_legacy_data_dir
-    from .services import i18n
+    from .services import i18n, network
 
     if not args.data_dir and not args.demo and not os.environ.get("TRADING_OS_DATA_DIR"):
         moved = migrate_legacy_data_dir()
