@@ -8,6 +8,7 @@ from fastapi.responses import Response
 
 from ..services import backup
 from ..services import trades as trade_service
+from ..services.i18n import tr
 from .deps import ConfigDep, DbDep
 
 router = APIRouter(prefix="/api", tags=["backup"])
@@ -50,7 +51,7 @@ def export_zip(db: DbDep, config: ConfigDep):
 async def import_backup(db: DbDep, config: ConfigDep, file: Annotated[UploadFile, File()]):
     raw = await file.read(MAX_RESTORE_BYTES + 1)
     if len(raw) > MAX_RESTORE_BYTES:
-        raise backup.BackupError("Backup file is too large")
+        raise backup.BackupError(tr("Backup file is too large"))
     snapshot = backup.write_safety_snapshot(db, config.backups_dir)
     counts = backup.restore_upload(db, raw, file.filename or "", config.uploads_dir, config.max_upload_bytes)
     return {"restored": counts, "safety_snapshot": snapshot.name}

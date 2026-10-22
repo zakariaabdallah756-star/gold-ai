@@ -145,7 +145,7 @@ class Scheduler:
         return [
             {
                 "name": job.name,
-                "description": job.description,
+                "description": i18n.tr(job.description),  # registered with N_(), translated when shown
                 "running": self.running,
                 "last_run_at": job.last_run_at,
                 "last_duration_ms": job.last_duration_ms,
