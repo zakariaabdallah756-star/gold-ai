@@ -4,6 +4,7 @@ import { api, query } from "../api.js";
 import { chartsAvailable, dailyPnlChart, distributionChart, equityChart } from "../charts.js";
 import { clear, field, h, icon, select } from "../dom.js";
 import { fmt, pnlClass, toInputDate } from "../format.js";
+import { t } from "../i18n.js";
 import { accountNow, state } from "../state.js";
 
 const PRESETS = [
@@ -298,9 +299,15 @@ function detailCard(s) {
   );
 }
 
+/** Realised P&L in the range when it differs from the closed trades' P&L (partial exits on either side of the range). */
+function realisedNote(s) {
+  if (Math.abs((s.realized_pnl ?? 0) - (s.net_pnl ?? 0)) < 0.005) return null;
+  return h("div", { class: "sub" }, t("Realised in this range: {amount} - partial exits count on the day they were filled", { amount: fmt.signedMoney(s.realized_pnl) }));
+}
+
 function renderReport(data, charts) {
   const s = data.summary;
-  if (!s.trades) {
+  if (!s.trades && !data.daily_pnl.length) {
     return [
       h(
         "div",
@@ -314,11 +321,11 @@ function renderReport(data, charts) {
 
   const equity = chartCard({
     title: "Equity curve",
-    subtitle: `Closed-trade equity · ${fmt.money(s.start_equity)} → ${fmt.money(s.end_equity)}`,
+    subtitle: t("Realised equity · {start} → {end}", { start: fmt.money(s.start_equity), end: fmt.money(s.end_equity) }),
     build: (canvas) => equityChart(canvas, data.equity_curve),
     table: {
-      head: ["Trade", "Date", "Symbol", "P&L", "Equity"],
-      rows: data.equity_curve.slice(1).map((p) => [`#${p.n}`, fmt.date(p.t), p.symbol, fmt.signedMoney(p.pnl), fmt.money(p.equity)]),
+      head: [t("Trade"), t("Exit"), t("Date"), t("Symbol"), t("P&L"), t("Equity")],
+      rows: data.equity_curve.slice(1).map((p) => [`#${p.trade_id}`, p.closes ? t("Trade closed") : t("Partial exit"), fmt.date(p.t), p.symbol, fmt.signedMoney(p.pnl), fmt.money(p.equity)]),
     },
     tall: true,
   });
@@ -331,10 +338,24 @@ function renderReport(data, charts) {
     ]),
     build: (canvas) => dailyPnlChart(canvas, data.daily_pnl),
     table: {
-      head: ["Date", "Trades", "W / L", "P&L", "Cumulative"],
-      rows: [...data.daily_pnl].reverse().map((d) => [fmt.date(d.date), d.trades, `${d.wins} / ${d.losses}`, fmt.signedMoney(d.pnl), fmt.signedMoney(d.cumulative)]),
+      head: ["Date", "Trades", "W / L", t("Partial exits"), "P&L", "Cumulative"],
+      rows: [...data.daily_pnl].reverse().map((d) => [fmt.date(d.date), d.trades, `${d.wins} / ${d.losses}`, d.partials, fmt.signedMoney(d.pnl), fmt.signedMoney(d.cumulative)]),
     },
   });
+  if (!s.trades) {
+    // Only partial exits were booked in the range: their trades close later, or are still open.
+    charts.push(equity, daily);
+    return [
+      h(
+        "div",
+        { class: "card empty" },
+        h("strong", {}, "No closed trades in this range"),
+        t("Partial exits booked in this range: {amount}. Trade statistics appear once their trades close.", { amount: fmt.signedMoney(s.realized_pnl) }),
+      ),
+      equity.card,
+      daily.card,
+    ];
+  }
   const distribution = chartCard({
     title: "Win / loss distribution",
     subtitle: `R-multiples · ${s.wins} wins, ${s.losses} losses, ${s.breakeven} breakeven`,
@@ -360,6 +381,7 @@ function renderReport(data, charts) {
         h("div", { class: "label" }, "Net P&L"),
         h("div", { class: `value ${pnlClass(s.net_pnl)}` }, fmt.signedMoney(s.net_pnl)),
         h("div", { class: "sub" }, `${fmt.pct(s.return_pct, 2)} return on ${fmt.money(s.start_equity)} · ${s.trades} closed trades`, data.open_trades ? ` · ${data.open_trades} open` : ""),
+        realisedNote(s),
       ),
       compareCard(s),
     ),
@@ -446,7 +468,7 @@ export async function render(root) {
 
   clear(
     root,
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Performance"), h("p", {}, "Statistics over closed trades, filtered by close date")), exportLink),
+    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, "Performance"), h("p", {}, t("Trade statistics by close date; daily P&L and equity by the day each exit was filled"))), exportLink),
     buildFilters(load),
     body,
   );

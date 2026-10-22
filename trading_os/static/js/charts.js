@@ -4,6 +4,7 @@
 // every tooltip value is signed.
 
 import { fmt } from "./format.js";
+import { t, tn } from "./i18n.js";
 
 const C = {
   surface: "#16171a",
@@ -152,11 +153,17 @@ export function equityChart(canvas, points) {
           callbacks: {
             title: (items) => {
               const p = points[items[0].dataIndex];
+              // Realised equity points (journal) carry the booking kind: a partial exit or a trade's close.
+              if (p.n !== 0 && p.kind) {
+                const params = { id: p.trade_id, symbol: p.symbol, date: fmt.date(p.t) };
+                return p.closes ? t("Trade #{id} closed · {symbol} · {date}", params) : t("Partial exit · trade #{id} · {symbol} · {date}", params);
+              }
               return p.n === 0 ? "Starting balance" : `Trade #${p.n} · ${p.symbol} · ${fmt.date(p.t)}`;
             },
             label: (item) => `Equity ${fmt.money(item.parsed.y)}`,
             footer: (items) => {
               const p = points[items[0].dataIndex];
+              if (p.pnl !== null && p.kind) return t("Booked P&L {pnl}", { pnl: fmt.signedMoney(p.pnl) });
               return p.pnl === null ? "" : `Trade P&L ${fmt.signedMoney(p.pnl)}`;
             },
           },
@@ -205,7 +212,8 @@ export function dailyPnlChart(canvas, days) {
             label: (item) => `Day P&L ${fmt.signedMoney(item.parsed.y)}`,
             footer: (items) => {
               const d = days[items[0].dataIndex];
-              return `${d.trades} trade${d.trades === 1 ? "" : "s"} · ${d.wins}W / ${d.losses}L`;
+              const partials = d.partials ? ` · ${tn(d.partials, "{n} partial exit", "{n} partial exits")}` : "";
+              return `${d.trades} trade${d.trades === 1 ? "" : "s"} · ${d.wins}W / ${d.losses}L${partials}`;
             },
           },
         },

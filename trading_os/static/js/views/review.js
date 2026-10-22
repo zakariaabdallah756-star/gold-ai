@@ -1,9 +1,11 @@
 // Post-market review: rate the day's discipline, name the mistakes and write the lessons
-// down. The day's numbers come from the trades closed that day; edits save automatically.
+// down. The day's P&L is what was booked that day (partial exits on their fill day); the trade
+// counts come from the trades closed that day. Edits save automatically.
 
 import { api } from "../api.js";
 import { clear, h, icon, toast } from "../dom.js";
 import { fmt, pnlClass, toInputDate } from "../format.js";
+import { tn } from "../i18n.js";
 import { loadStatus, state } from "../state.js";
 
 const RATING_LABELS = ["Poor", "Weak", "Average", "Good", "Excellent"];
@@ -148,21 +150,23 @@ function historyRow(row, current) {
       { class: "review-row-state" },
       row.exists
         ? [row.discipline_rating ? miniStars(row.discipline_rating) : h("span", { class: "muted small" }, "Reviewed"), planIcon, row.mood ? h("span", { class: "muted small" }, row.mood) : null]
-        : row.trades
+        : row.trades || row.partials
           ? h("span", { class: "badge warn" }, "To review")
           : h("span", { class: "muted small" }, "Not reviewed"),
     ),
     h(
       "span",
       { class: "review-row-pnl" },
-      row.trades ? [h("span", { class: `num ${pnlClass(row.pnl)}` }, fmt.signedMoney(row.pnl)), h("span", { class: "muted small" }, plural(row.trades, "trade"))] : h("span", { class: "muted small" }, "No trades"),
+      row.trades || row.partials
+        ? [h("span", { class: `num ${pnlClass(row.pnl)}` }, fmt.signedMoney(row.pnl)), h("span", { class: "muted small" }, row.trades ? plural(row.trades, "trade") : tn(row.partials, "{n} partial exit", "{n} partial exits"))]
+        : h("span", { class: "muted small" }, "No trades"),
     ),
   );
 }
 
 function historyCard(rows, current) {
   const reviewed = rows.filter((r) => r.exists).length;
-  const missing = rows.filter((r) => !r.exists && r.trades).length;
+  const missing = rows.filter((r) => !r.exists && (r.trades || r.partials)).length;
   return h(
     "div",
     { class: "card review-history" },
@@ -176,11 +180,12 @@ function historyCard(rows, current) {
 function summaryStrip(stats) {
   const mistakeCount = stats.mistakes.reduce((sum, m) => sum + m.count, 0);
   const tally = (items) => items.map((m) => (m.count > 1 ? `${m.name} ×${m.count}` : m.name)).join(" · ");
+  const partials = stats.partials ? ` · ${tn(stats.partials, "{n} partial exit", "{n} partial exits")}` : "";
   return [
     h(
       "div",
       { class: "kpis" },
-      kpi("Net P&L", fmt.signedMoney(stats.net_pnl), stats.trades ? `${plural(stats.trades, "trade")} closed` : "No trades closed", pnlClass(stats.net_pnl)),
+      kpi("Net P&L", fmt.signedMoney(stats.net_pnl), (stats.trades ? `${plural(stats.trades, "trade")} closed` : "No trades closed") + partials, pnlClass(stats.net_pnl)),
       kpi("Trades", stats.trades, `${stats.wins}W · ${stats.losses}L · ${stats.opened} opened`),
       kpi("Win rate", fmt.pct(stats.win_rate), "Wins / closed trades"),
       kpi("Rule compliance", fmt.pct(stats.compliance_rate, 0), "Of rated trades"),
