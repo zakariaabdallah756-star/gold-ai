@@ -14,6 +14,7 @@ from datetime import datetime
 from xml.sax.saxutils import escape as xml_escape
 
 from .disclaimer import FOOTER_TEXT
+from .i18n import N_, tr
 
 
 class ReportUnavailable(RuntimeError):
@@ -279,6 +280,10 @@ class _Builder:
 # ---------------------------------------------------------------------- reports
 
 BREAKDOWN_SECTIONS = (("symbol", "By asset"), ("strategy", "By strategy"), ("session", "By session"))
+BOOKING_NOTE = N_(
+    "P&L is booked on the day it was realised: each partial exit on the day it was filled, the rest of "
+    "the trade - with its fees - when it closed. Trade statistics count each trade once, at its close."
+)
 
 
 def _breakdown_rows(rows: list[dict], currency: str, limit: int = 10):
@@ -299,12 +304,44 @@ def _breakdown_rows(rows: list[dict], currency: str, limit: int = 10):
     )
 
 
+def _realised_equity(b: _Builder, report: dict, currency: str) -> None:
+    curve = [point["equity"] for point in report.get("equity_curve", [])]
+    b.line_chart(curve, tr("Realised equity ({currency})", currency=currency), reference=curve[0] if curve else None)
+
+
+def _recent_days(b: _Builder, days: list[dict], currency: str) -> None:
+    b.heading("Most recent trading days")
+    recent = days[-15:][::-1]
+    b.table(
+        ["Date", "Trades", "W / L", tr("Partial exits"), "P&L", "Cumulative"],
+        [
+            [
+                d["date"],
+                str(d["trades"]),
+                f"{d['wins']} / {d['losses']}",
+                str(d.get("partials", 0)),
+                money(d["pnl"], currency),
+                money(d["cumulative"], currency),
+            ]
+            for d in recent
+        ],
+        signs={4: [d["pnl"] for d in recent]},
+    )
+    b.paragraph(tr(BOOKING_NOTE), "small")
+
+
 def build_performance_pdf(report: dict, *, account: str, currency: str, period: str, filters: str = "") -> bytes:
     """Journal performance summary from ``analytics.full_report`` output."""
     s = report["summary"]
+    days = report.get("daily_pnl") or []
     b = _Builder("Trading performance report", f"{account} - {period}" + (f" - {filters}" if filters else ""))
     if not s["trades"]:
         b.paragraph("No closed trades in this period.")
+        if days:  # only partial exits of trades that close later (or are still open) were booked
+            b.paragraph(tr("Realised in this period: {amount}", amount=money(s.get("realized_pnl"), currency)))
+            b.spacer(10)
+            _realised_equity(b, report, currency)
+            _recent_days(b, days, currency)
         return b.build()
 
     b.kpis(
@@ -326,9 +363,13 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
             ("Fees", plain_money(s.get("total_fees"), currency)),
         ]
     )
+    realized = s.get("realized_pnl")
+    if realized is not None and abs(realized - (s["net_pnl"] or 0.0)) >= 0.005:
+        # Partial exits on either side of the range: what was booked in it differs from the closed trades' P&L.
+        b.spacer(4)
+        b.paragraph(tr("Realised in this period: {amount}", amount=money(realized, currency)))
     b.spacer(10)
-    curve = [point["equity"] for point in report.get("equity_curve", [])]
-    b.line_chart(curve, f"Closed-trade equity ({currency})", reference=curve[0] if curve else None)
+    _realised_equity(b, report, currency)
 
     followed, broke = s.get("followed_plan"), s.get("broke_rules")
     if followed and broke:
@@ -381,24 +422,8 @@ def build_performance_pdf(report: dict, *, account: str, currency: str, period: 
             signs={3: [c["net_pnl"] for c in costs[:10]]},
         )
 
-    days = report.get("daily_pnl") or []
     if days:
-        b.heading("Most recent trading days")
-        recent = days[-15:][::-1]
-        b.table(
-            ["Date", "Trades", "W / L", "P&L", "Cumulative"],
-            [
-                [
-                    d["date"],
-                    str(d["trades"]),
-                    f"{d['wins']} / {d['losses']}",
-                    money(d["pnl"], currency),
-                    money(d["cumulative"], currency),
-                ]
-                for d in recent
-            ],
-            signs={3: [d["pnl"] for d in recent]},
-        )
+        _recent_days(b, days, currency)
     return b.build()
 
 

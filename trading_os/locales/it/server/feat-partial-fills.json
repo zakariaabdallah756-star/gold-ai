@@ -1,0 +1,6 @@
+{
+  "P&L is booked on the day it was realised: each partial exit on the day it was filled, the rest of the trade - with its fees - when it closed. Trade statistics count each trade once, at its close.": "Il P&L viene registrato nel giorno in cui è stato realizzato: ogni uscita parziale nel giorno della sua esecuzione, il resto del trade - con le commissioni - alla chiusura. Le statistiche contano ogni trade una sola volta, alla chiusura.",
+  "Partial exits": "Uscite parziali",
+  "Realised equity ({currency})": "Equity realizzata ({currency})",
+  "Realised in this period: {amount}": "Realizzato nel periodo: {amount}"
+}

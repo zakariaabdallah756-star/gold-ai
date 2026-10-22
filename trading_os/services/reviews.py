@@ -50,7 +50,10 @@ def review_fields(record: DailyReview | None) -> dict:
     return values
 
 
-def booked_between(db: Session, first: date, last: date, load=(selectinload(Trade.events),)) -> list[Trade]:
+FILLS_LOADED = (selectinload(Trade.events),)
+
+
+def booked_between(db: Session, first: date, last: date, load=FILLS_LOADED) -> list[Trade]:
     """Trades (open or closed) with P&L booked in ``[first, last]``, in close order, ``load`` options applied."""
     start, _ = day_bounds(first)
     _, end = day_bounds(last)
