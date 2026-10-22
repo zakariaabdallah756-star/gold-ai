@@ -312,7 +312,7 @@ def test_undoing_a_mistyped_manual_partial_rewinds_price_tracking(live):
     assert trade["status"] == "open" and trade["current_stop"] < 2653  # the trail follows real prices only
 
 
-def test_date_filtered_reports_count_partials_taken_before_the_range_once(live):
+def test_date_filtered_reports_book_partials_on_their_fill_day(live):
     from datetime import timedelta
 
     from trading_os.models import Trade, TradeEvent
@@ -321,16 +321,35 @@ def test_date_filtered_reports_count_partials_taken_before_the_range_once(live):
 
     trade = create(live, position_size=0.3, fees=0.0)
     post(live, f"/api/trades/{trade['id']}/partial-close", {"lots": 0.1, "price": 2655})  # +50
-    closed = post(live, f"/api/trades/{trade['id']}/close", {"price": 2658})["trade"]
+    closed = post(live, f"/api/trades/{trade['id']}/close", {"price": 2658})["trade"]  # +160 today
     earlier = now_utc() - timedelta(days=3)
     with live.app.state.session_factory() as db:  # the partial was taken three days ago
         db.get(Trade, trade["id"]).entry_time = earlier
         event = next(e for e in db.query(TradeEvent).filter_by(trade_id=trade["id"]) if e.kind == "partial")
         event.time = earlier
         db.commit()
-    start = (now_utc().date() - timedelta(days=1)).isoformat()
-    summary = live.get("/api/analytics", params={"date_from": start}).json()["summary"]
     starting = live.get("/api/settings").json()["starting_balance"]
-    assert summary["start_equity"] == starting
-    assert summary["end_equity"] == starting + closed["pnl"]  # the +50 partial counted once
-    assert live.get("/api/reports/performance.pdf", params={"date_from": start}).status_code == 200
+    start = (now_utc().date() - timedelta(days=1)).isoformat()
+
+    # From yesterday: the trade closed in range counts in full in the trade statistics, but the range's
+    # P&L is only what was booked in it - the +50 partial is in the starting equity, counted once.
+    report = live.get("/api/analytics", params={"date_from": start}).json()
+    summary = report["summary"]
+    assert summary["trades"] == 1 and summary["net_pnl"] == closed["pnl"] == 210.0
+    assert summary["start_equity"] == starting + 50
+    assert summary["realized_pnl"] == 160.0 and summary["end_equity"] == starting + closed["pnl"]
+    assert [(d["pnl"], d["trades"], d["partials"]) for d in report["daily_pnl"]] == [(160.0, 1, 0)]
+    assert all(d["date"] >= start for d in report["daily_pnl"])
+    assert [p["equity"] for p in report["equity_curve"]] == [starting + 50, starting + 210]
+
+    # The day of the partial alone: P&L booked, no trade closed.
+    day = earlier.date().isoformat()
+    report = live.get("/api/analytics", params={"date_from": day, "date_to": day}).json()
+    assert report["summary"]["trades"] == 0 and report["summary"]["realized_pnl"] == 50.0
+    assert report["summary"]["start_equity"] == starting and report["summary"]["end_equity"] == starting + 50
+    assert [(d["date"], d["pnl"], d["trades"], d["partials"]) for d in report["daily_pnl"]] == [(day, 50.0, 0, 1)]
+    assert report["equity_curve"][-1]["kind"] == "partial" and report["equity_curve"][-1]["closes"] is False
+
+    for params in ({"date_from": start}, {"date_from": day, "date_to": day}):
+        response = live.get("/api/reports/performance.pdf", params=params)
+        assert response.status_code == 200 and response.content.startswith(b"%PDF")

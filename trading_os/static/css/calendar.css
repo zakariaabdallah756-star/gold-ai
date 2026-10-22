@@ -78,6 +78,7 @@
 .cal-modal-stats > div { display: flex; flex-direction: column; gap: 2px; background: var(--surface-2); border-radius: var(--radius-sm); padding: 10px 12px; }
 .cal-modal-stats strong { display: inline-flex; align-items: center; gap: 4px; }
 .cal-modal .nowrap { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cal-fill-symbol { white-space: nowrap; }
 .cal-review { display: flex; flex-direction: column; gap: 10px; }
 .cal-review .badge { display: inline-flex; align-items: center; gap: 4px; }
 .cal-review .badge svg { width: 12px; height: 12px; }
@@ -151,6 +152,10 @@
   .cal-pnl > .full { display: none; }
   .cal-pnl > .compact { display: inline; }
   .cal-meta, .cal-week-label { display: none; }
+  /* The day's exits fit a phone: lots and R hide, symbol and exit wrap. */
+  .cal-fill-opt { display: none; }
+  .cal-fill-symbol, .cal-fill-exit { white-space: normal; }
+  .cal-modal td, .cal-modal th { padding-left: 6px; padding-right: 6px; }
   .cal-week-grid { grid-template-columns: minmax(0, 1fr); }
   .cal-weekday { min-height: 0; }
   .bar-row { grid-template-columns: 40px minmax(40px, 1fr) auto; }

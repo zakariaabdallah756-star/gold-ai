@@ -118,7 +118,7 @@ The journal has search, filters, sorting, pagination and full CRUD.
 
 ### Improve
 
-**Calendar.** A monthly and weekly P&L calendar with daily cards and a weekly totals column; click a day to see its trades and review. A *time of day* heatmap (weekday × hour) shows net P&L, win rate or trade count, with a table view.
+**Calendar.** A monthly and weekly P&L calendar with daily cards and a weekly totals column. P&L is booked on the day it was realised: each partial exit on the day it was filled (also while the trade is still open), and the rest of the trade on its closing day. The day's total therefore matches the status bar's *Today*. Click a day to see the fills behind its P&L and its review. A *time of day* heatmap (weekday × hour) shows net P&L, win rate or trade count, with a table view.
 
 **Review.** A post-market review with a discipline rating (1-5), mood, whether you followed the plan, mistakes (pre-filled from the day's trades), what went well, what went wrong, lessons and tomorrow's focus. It autosaves and keeps a 30-day history.
 
@@ -242,7 +242,8 @@ platform sends. Set a push token on the Strategy Alerts page before exposing thi
 - **Planned R:R** = |target − entry| / |entry − stop|. With several targets, the **blended R:R** = Σ (close % × target R:R).
 - **Executed R:R** = signed (exit − entry) / |entry − stop|. **R-multiple** = net P&L / risk amount.
 - **Win rate** = wins / all closed trades (breakevens count as non-wins). **Profit factor** = gross profit / |gross loss|.
-- **Expectancy** = net P&L / trades. **Max drawdown** = largest peak-to-trough fall of the closed-trade equity curve. Reports filter trades by close date; with a start date, the curve starts from the account equity at that date (without partial profits that reported trades took earlier, since each trade counts its whole P&L when it closes).
+- **Expectancy** = net P&L / trades. **Max drawdown** = largest peak-to-trough fall of the realised equity curve.
+- **When P&L counts.** Daily P&L, the equity curve, drawdown and return follow the money realised in the period. Each partial exit is booked on its fill day, and the closing exit carries the trade's fees. Trade statistics (count, win rate, profit factor, expectancy, R) count each trade once, at its close. With a date range, the dashboard and PDF start from the account equity at the start date and include partial exits taken in the range on trades that close later.
 - **Equity** = starting balance + realised P&L. Partial closes count when they are filled, and the daily loss limit uses equity at the start of the day.
 - **Prop drawdown floor**: static = account size × (1 − max drawdown %); trailing = highest end-of-day balance − max drawdown % of the account size, capped at the account size.
 

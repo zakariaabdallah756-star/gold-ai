@@ -1,10 +1,13 @@
-// P&L calendar (month and week views, trades attributed to their close day) and the
-// time-of-day heatmap (weekday x entry hour on the account clock).
+// P&L calendar (month and week views; realised P&L on the day it was booked - each partial
+// exit on its fill day, the rest of a trade on its close day) and the time-of-day heatmap
+// (weekday x entry hour on the account clock).
 
 import { api, query } from "../api.js";
 import { clear, h, icon, modal, segmented, select, toast } from "../dom.js";
 import { fmt, pnlClass, toInputDate } from "../format.js";
+import { t, tn } from "../i18n.js";
 import { state } from "../state.js";
+import { eventLabel } from "./positions.js";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -83,15 +86,29 @@ function wash(pnl, trades, maxAbs) {
   return rgba(kind === "up" ? PROFIT : LOSS, 0.08 + 0.22 * Math.min(1, Math.abs(pnl) / maxAbs));
 }
 
-function totals(trades) {
-  const wins = trades.filter((t) => t.outcome === "win").length;
+/** A day or week with P&L booked: a trade closed or a partial exit filled. */
+const active = (stats) => (stats.trades || 0) + (stats.partials || 0);
+
+/** Several days' detail summed up (week view); the counts follow the server's day stats. */
+function totals(details) {
+  const sum = (key) => details.reduce((total, d) => total + d.stats[key], 0);
+  const trades = sum("trades");
   return {
-    pnl: trades.reduce((sum, t) => sum + (t.pnl || 0), 0),
-    trades: trades.length,
-    wins,
-    losses: trades.filter((t) => t.outcome === "loss").length,
-    win_rate: trades.length ? (wins / trades.length) * 100 : null,
+    pnl: details.reduce((total, d) => total + d.pnl, 0),
+    trades,
+    wins: sum("wins"),
+    losses: sum("losses"),
+    partials: sum("partials"),
+    win_rate: trades ? (sum("wins") / trades) * 100 : null,
   };
+}
+
+/** The activity lines of a day or week cell: "2 trades · 50%", then the partial exits. */
+function activity(stats) {
+  return [
+    stats.trades ? h("span", { class: "cal-meta num" }, h("span", {}, plural(stats.trades, "trade")), h("span", { class: "cal-wr" }, ` · ${fmt.pct(stats.win_rate, 0)}`)) : null,
+    stats.partials ? h("span", { class: "cal-meta num" }, tn(stats.partials, "{n} partial", "{n} partials")) : null,
+  ];
 }
 
 function kpi(label, value, sub, valueClass = "") {
@@ -119,9 +136,11 @@ function flags(day) {
   );
 }
 
-function describeDay(day, pnl, trades, winRate) {
+function describeDay(day, pnl, trades, winRate, partials = 0) {
   const parts = [fmt.longDate(day.date)];
-  parts.push(trades ? `${fmt.signedMoney(pnl)} net, ${plural(trades, "trade")}, ${fmt.pct(winRate, 0)} win rate` : "no trades");
+  if (trades || !partials) parts.push(trades ? `${fmt.signedMoney(pnl)} net, ${plural(trades, "trade")}, ${fmt.pct(winRate, 0)} win rate` : "no trades");
+  else parts.push(t("{pnl} net", { pnl: fmt.signedMoney(pnl) }));
+  if (partials) parts.push(tn(partials, "{n} partial exit", "{n} partial exits"));
   if (day.checklist_complete) parts.push("pre-market checklist complete");
   if (day.has_review) parts.push("review written");
   return parts.join(", ");
@@ -150,32 +169,50 @@ function stars(rating) {
   );
 }
 
-function tradeTable(trades) {
-  if (!trades.length) return h("p", { class: "muted small" }, "No trades closed on this day.");
-  return h(
+/** What a booked exit says about its trade: still open, closed another day, or its total when exits span days. */
+function fillNote(fill, date, bookedByTrade) {
+  let text = null;
+  if (!fill.closes_trade) {
+    const closedOn = fill.trade_exit_time?.slice(0, 10);
+    if (fill.trade_status === "open") text = t("Trade still open");
+    else if (closedOn && closedOn !== date) text = t("Trade closed {date}", { date: fmt.shortDate(closedOn) });
+  } else if (fill.trade_pnl !== null && Math.abs(bookedByTrade.get(fill.trade_id) - fill.trade_pnl) >= 0.005) {
+    text = t("Trade total {pnl}", { pnl: fmt.signedMoney(fill.trade_pnl) });
+  }
+  return text ? h("div", { class: "muted small" }, text) : null;
+}
+
+/** The exits booked on a day - partial exits on their fill day, closes with the trade's fees - so the day's P&L adds up. */
+function fillTable(fills, date) {
+  if (!fills.length) return h("p", { class: "muted small" }, t("No P&L booked on this day."));
+  const bookedByTrade = new Map();
+  for (const fill of fills) bookedByTrade.set(fill.trade_id, (bookedByTrade.get(fill.trade_id) || 0) + fill.pnl);
+  const table = h(
     "div",
     { class: "table-wrap" },
     h(
       "table",
       {},
-      h("thead", {}, h("tr", {}, ["Closed", "Symbol", "Side", "P&L", "R"].map((c, i) => h("th", { class: i > 2 ? "num" : "" }, c)))),
+      h("thead", {}, h("tr", {}, [t("Time"), t("Symbol"), t("Exit"), t("Lots"), t("P&L"), t("R")].map((c, i) => h("th", { class: `${i > 2 ? "num" : ""}${i === 3 || i === 5 ? " cal-fill-opt" : ""}` }, c)))),
       h(
         "tbody",
         {},
-        trades.map((t) =>
+        fills.map((fill) =>
           h(
             "tr",
             {},
-            h("td", { class: "nowrap" }, fmt.time(t.exit_time || t.entry_time)),
-            h("td", {}, t.symbol),
-            h("td", {}, directionBadge(t.direction)),
-            h("td", { class: `num ${pnlClass(t.pnl)}` }, fmt.signedMoney(t.pnl)),
-            h("td", { class: "num" }, fmt.r(t.r_multiple)),
+            h("td", { class: "nowrap" }, fmt.time(fill.time)),
+            h("td", { class: "cal-fill-symbol" }, fill.symbol, " ", directionBadge(fill.direction)),
+            h("td", { class: "cal-fill-exit" }, eventLabel(fill), fillNote(fill, date, bookedByTrade)),
+            h("td", { class: "num cal-fill-opt" }, fmt.lots(fill.lots)),
+            h("td", { class: `num ${pnlClass(fill.pnl)}` }, fmt.signedMoney(fill.pnl)),
+            h("td", { class: "num cal-fill-opt" }, fill.closes_trade ? fmt.r(fill.r_multiple) : "—"),
           ),
         ),
       ),
     ),
   );
+  return [table, h("p", { class: "muted small" }, t("Each exit is booked on the day it was filled; the closing exit also carries the trade's fees."))];
 }
 
 function reviewSummary(review) {
@@ -208,7 +245,7 @@ async function openDay(date, today) {
     toast(error.message, "error");
     return;
   }
-  const stats = totals(detail.trades);
+  const stats = detail.stats;
   const canReview = date <= today;
   let ref = null;
   const body = h(
@@ -220,6 +257,7 @@ async function openDay(date, today) {
       h("div", {}, h("span", { class: "muted small" }, "Net P&L"), h("strong", { class: `num ${pnlClass(detail.pnl)}` }, fmt.signedMoney(detail.pnl))),
       h("div", {}, h("span", { class: "muted small" }, "Trades"), h("strong", { class: "num" }, `${stats.trades} · ${stats.wins}W ${stats.losses}L`)),
       h("div", {}, h("span", { class: "muted small" }, "Win rate"), h("strong", { class: "num" }, fmt.pct(stats.win_rate, 0))),
+      stats.partials ? h("div", {}, h("span", { class: "muted small" }, t("Partial exits")), h("strong", { class: "num" }, stats.partials)) : null,
       h(
         "div",
         {},
@@ -227,7 +265,7 @@ async function openDay(date, today) {
         h("strong", { class: detail.checklist_complete ? "pos" : "flat" }, icon(detail.checklist_complete ? "checkCircle" : "x"), detail.checklist_complete ? " Complete" : " Not completed"),
       ),
     ),
-    tradeTable(detail.trades),
+    fillTable(detail.fills, date),
     h("div", {}, h("div", { class: "section-title" }, "Post-market review"), reviewSummary(detail.review)),
   );
   ref = modal({
@@ -243,32 +281,34 @@ async function openDay(date, today) {
 // --------------------------------------------------------------- month view
 
 function dayCell(day, today, maxAbs) {
-  const kind = tone(day.pnl, day.trades);
+  const kind = tone(day.pnl, active(day));
   return h(
     "button",
     {
       type: "button",
       class: `cal-day ${kind}${day.in_month ? "" : " out"}${day.date === today ? " today" : ""}`,
-      style: { background: wash(day.pnl, day.trades, maxAbs) },
-      "aria-label": describeDay(day, day.pnl, day.trades, day.win_rate),
+      style: { background: wash(day.pnl, active(day), maxAbs) },
+      "aria-label": describeDay(day, day.pnl, day.trades, day.win_rate, day.partials),
       onclick: () => openDay(day.date, today),
     },
     h("span", { class: "cal-top" }, h("span", { class: "cal-date num" }, String(Number(day.date.slice(8)))), flags(day)),
-    day.trades ? signedPnl(day.pnl, "cal-pnl") : null,
-    day.trades ? h("span", { class: "cal-meta num" }, h("span", {}, plural(day.trades, "trade")), h("span", { class: "cal-wr" }, ` · ${fmt.pct(day.win_rate, 0)}`)) : null,
+    active(day) ? signedPnl(day.pnl, "cal-pnl") : null,
+    active(day) ? activity(day) : null,
   );
 }
 
 function weekCell(week) {
-  const label = week.trades
+  let label = week.trades
     ? `Week of ${fmt.date(week.week_start)}: ${fmt.signedMoney(week.pnl)} net, ${plural(week.trades, "trade")}, ${fmt.pct(week.win_rate, 0)} win rate`
     : `Week of ${fmt.date(week.week_start)}: no trades`;
+  if (!week.trades && week.partials) label = t("Week of {date}: {pnl} net", { date: fmt.date(week.week_start), pnl: fmt.signedMoney(week.pnl) });
+  if (week.partials) label += `, ${tn(week.partials, "{n} partial exit", "{n} partial exits")}`;
   return h(
     "div",
-    { class: `cal-week ${tone(week.pnl, week.trades)}`, role: "note", title: label, "aria-label": label },
+    { class: `cal-week ${tone(week.pnl, active(week))}`, role: "note", title: label, "aria-label": label },
     h("span", { class: "cal-week-label" }, "Week"),
-    week.trades ? signedPnl(week.pnl, "cal-pnl") : h("span", { class: "muted" }, "—"),
-    week.trades ? h("span", { class: "cal-meta num" }, h("span", {}, plural(week.trades, "trade")), h("span", { class: "cal-wr" }, ` · ${fmt.pct(week.win_rate, 0)}`)) : null,
+    active(week) ? signedPnl(week.pnl, "cal-pnl") : h("span", { class: "muted" }, "—"),
+    active(week) ? activity(week) : null,
   );
 }
 
@@ -279,11 +319,12 @@ function bestWorst(day) {
 async function renderMonth(today, redraw) {
   const data = await api.get(`/api/analytics/calendar${query({ month: view.month })}`);
   const total = data.month_total;
-  const traded = data.days.filter((d) => d.trades);
+  const traded = data.days.filter(active);
   const maxAbs = Math.max(1, ...traded.map((d) => Math.abs(d.pnl)));
   const [bestValue, bestSub, bestClass] = bestWorst(total.best_day);
   const [worstValue, worstSub, worstClass] = bestWorst(total.worst_day);
   const thisMonth = today.slice(0, 7);
+  const partialsNote = total.partials ? ` · ${tn(total.partials, "{n} partial exit", "{n} partial exits")}` : "";
 
   const cells = data.weeks.flatMap((week, row) => [...data.days.slice(row * 7, row * 7 + 7).map((day) => dayCell(day, today, maxAbs)), weekCell(week)]);
 
@@ -292,7 +333,7 @@ async function renderMonth(today, redraw) {
       "div",
       { class: "kpis" },
       kpi("Net P&L", fmt.signedMoney(total.pnl), plural(total.trading_days, "trading day"), pnlClass(total.pnl)),
-      kpi("Trades", total.trades, `${total.wins}W · ${total.losses}L`),
+      kpi("Trades", total.trades, `${total.wins}W · ${total.losses}L${partialsNote}`),
       kpi("Win rate", fmt.pct(total.win_rate), "Wins / closed trades"),
       kpi("Green / red days", `${total.green_days} / ${total.red_days}`, `${plural(total.green_days, "green day")} · ${plural(total.red_days, "red day")}`),
       kpi("Best day", bestValue, bestSub, bestClass),
@@ -336,14 +377,15 @@ async function renderMonth(today, redraw) {
 // ---------------------------------------------------------------- week view
 
 function weekDayCard(date, detail, today, maxAbs) {
-  const stats = totals(detail.trades);
-  const kind = tone(detail.pnl, stats.trades);
+  const stats = detail.stats;
+  const kind = tone(detail.pnl, active(stats));
+  const counts = [stats.trades ? `${plural(stats.trades, "trade")} · ${fmt.pct(stats.win_rate, 0)} win rate` : null, stats.partials ? tn(stats.partials, "{n} partial exit", "{n} partial exits") : null];
   return h(
     "section",
     {
       class: `cal-weekday ${kind}${date === today ? " today" : ""}`,
-      style: { background: wash(detail.pnl, stats.trades, maxAbs) },
-      "aria-label": describeDay({ date, has_review: Boolean(detail.review), checklist_complete: detail.checklist_complete }, detail.pnl, stats.trades, stats.win_rate),
+      style: { background: wash(detail.pnl, active(stats), maxAbs) },
+      "aria-label": describeDay({ date, has_review: Boolean(detail.review), checklist_complete: detail.checklist_complete }, detail.pnl, stats.trades, stats.win_rate, stats.partials),
     },
     h(
       "div",
@@ -351,22 +393,22 @@ function weekDayCard(date, detail, today, maxAbs) {
       h("strong", {}, weekdayDateFormat.format(parseDay(date))),
       flags({ has_review: Boolean(detail.review), checklist_complete: detail.checklist_complete }),
     ),
-    stats.trades
+    active(stats)
       ? [
           h("div", { class: `cal-weekday-pnl num ${pnlClass(detail.pnl)}` }, fmt.signedMoney(detail.pnl)),
-          h("div", { class: "muted small num" }, `${plural(stats.trades, "trade")} · ${fmt.pct(stats.win_rate, 0)} win rate`),
+          h("div", { class: "muted small num" }, counts.filter(Boolean).join(" · ")),
           h(
             "ul",
             { class: "cal-trades" },
-            detail.trades.map((t) =>
+            detail.fills.map((fill) =>
               h(
                 "li",
                 {},
-                h("span", { class: "cal-trade-time muted num" }, `Closed ${fmt.time(t.exit_time || t.entry_time)}`),
-                h("span", { class: "sym" }, t.symbol),
-                directionBadge(t.direction),
-                h("span", { class: `num ${pnlClass(t.pnl)}` }, fmt.signedMoney(t.pnl)),
-                h("span", { class: "cal-trade-r muted num" }, fmt.r(t.r_multiple)),
+                h("span", { class: "cal-trade-time muted num" }, `${eventLabel(fill)} · ${fmt.time(fill.time)}`),
+                h("span", { class: "sym" }, fill.symbol),
+                directionBadge(fill.direction),
+                h("span", { class: `num ${pnlClass(fill.pnl)}` }, fmt.signedMoney(fill.pnl)),
+                h("span", { class: "cal-trade-r muted num" }, fill.closes_trade ? fmt.r(fill.r_multiple) : "—"),
               ),
             ),
           ),
@@ -379,21 +421,22 @@ function weekDayCard(date, detail, today, maxAbs) {
 async function renderWeek(today, redraw) {
   const dates = Array.from({ length: 7 }, (_, i) => shiftDay(view.weekStart, i));
   const details = await Promise.all(dates.map((date) => api.get(`/api/analytics/day/${date}`)));
-  const all = totals(details.flatMap((d) => d.trades));
-  const traded = details.filter((d) => d.trades.length);
+  const all = totals(details);
+  const traded = details.filter((d) => d.fills.length);
   const maxAbs = Math.max(1, ...traded.map((d) => Math.abs(d.pnl)));
   const reviewed = traded.filter((d) => d.review).length;
   const green = traded.filter((d) => d.pnl > 0.005).length;
   const red = traded.filter((d) => d.pnl < -0.005).length;
   const thisWeek = mondayOf(today);
   const range = `${fmt.shortDate(dates[0])} – ${fmt.date(dates[6])}`;
+  const partialsNote = all.partials ? ` · ${tn(all.partials, "{n} partial exit", "{n} partial exits")}` : "";
 
   return [
     h(
       "div",
       { class: "kpis" },
       kpi("Net P&L", fmt.signedMoney(all.pnl), plural(traded.length, "trading day"), pnlClass(all.pnl)),
-      kpi("Trades", all.trades, `${all.wins}W · ${all.losses}L`),
+      kpi("Trades", all.trades, `${all.wins}W · ${all.losses}L${partialsNote}`),
       kpi("Win rate", fmt.pct(all.win_rate), "Wins / closed trades"),
       kpi("Green / red days", `${green} / ${red}`, `${plural(green, "green day")} · ${plural(red, "red day")}`),
       kpi("Reviews", `${reviewed} / ${traded.length}`, "Trading days reviewed"),
@@ -695,7 +738,7 @@ export async function render(root, { params }) {
     h(
       "div",
       { class: "page-head" },
-      h("div", {}, h("h1", {}, "P&L calendar"), h("p", {}, "Closed trades by the day they closed (partial exits included), with your review and checklist streaks")),
+      h("div", {}, h("h1", {}, "P&L calendar"), h("p", {}, t("Realised P&L on the day it was booked - each partial exit on the day it was filled - with your review and checklist streaks"))),
       h("a", { class: "btn", href: `#/review?date=${today}` }, icon("review"), "Today's review"),
     ),
     tabs,

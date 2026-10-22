@@ -153,11 +153,17 @@ export function equityChart(canvas, points) {
           callbacks: {
             title: (items) => {
               const p = points[items[0].dataIndex];
+              // Realised equity points (journal) carry the booking kind: a partial exit or a trade's close.
+              if (p.n !== 0 && p.kind) {
+                const params = { id: p.trade_id, symbol: p.symbol, date: fmt.date(p.t) };
+                return p.closes ? t("Trade #{id} closed · {symbol} · {date}", params) : t("Partial exit · trade #{id} · {symbol} · {date}", params);
+              }
               return p.n === 0 ? t("Starting balance") : t("Trade #{n} · {symbol} · {date}", { n: p.n, symbol: p.symbol, date: fmt.date(p.t) });
             },
             label: (item) => t("Equity {value}", { value: fmt.money(item.parsed.y) }),
             footer: (items) => {
               const p = points[items[0].dataIndex];
+              if (p.pnl !== null && p.kind) return t("Booked P&L {pnl}", { pnl: fmt.signedMoney(p.pnl) });
               return p.pnl === null ? "" : t("Trade P&L {pnl}", { pnl: fmt.signedMoney(p.pnl) });
             },
           },
@@ -206,7 +212,8 @@ export function dailyPnlChart(canvas, days) {
             label: (item) => t("Day P&L {pnl}", { pnl: fmt.signedMoney(item.parsed.y) }),
             footer: (items) => {
               const d = days[items[0].dataIndex];
-              return `${tn(d.trades, "{n} trade", "{n} trades")} · ${t("{wins}W / {losses}L", { wins: d.wins, losses: d.losses })}`;
+              const partials = d.partials ? ` · ${tn(d.partials, "{n} partial exit", "{n} partial exits")}` : "";
+              return `${tn(d.trades, "{n} trade", "{n} trades")} · ${t("{wins}W / {losses}L", { wins: d.wins, losses: d.losses })}${partials}`;
             },
           },
         },

@@ -10,10 +10,26 @@ Definitions
   Equivalent to ``win_rate * avg_win - loss_rate * avg_loss``.
 * **R-multiple** = net P&L / initial risk (falls back to the price-based
   executed R:R when no risk amount was recorded).
-* **Max drawdown** = largest peak-to-trough decline of the closed-trade
-  equity curve, in money and in % of the peak.
+* **Max drawdown** = largest peak-to-trough decline of the realised equity
+  curve (one point per booking, see below), in money and in % of the peak.
 * **Mistake cost** = net P&L of the trades tagged with a mistake. A trade
   tagged with several mistakes counts towards each of them.
+
+Bookings: when the money was realised
+-------------------------------------
+Outputs come in two families, following the position ledger of
+``services.account.realized_pnl``:
+
+* **Period P&L** (daily P&L, equity curve, drawdown, end equity, return) is
+  built from *bookings*. A managed trade books each fill at its fill time, so
+  partial exits land on the day they were filled, even while the trade is
+  still open; its closing fill also carries the fees. Any other closed trade
+  books its whole net P&L at its close time.
+* **Trade statistics** (count, win rate, profit factor, expectancy, R,
+  streaks, breakdowns) count each closed trade once, with its full net P&L.
+
+Backtest rows and other adapters without fills book at their close, so every
+function here keeps working for them unchanged.
 """
 
 from __future__ import annotations
@@ -21,8 +37,10 @@ from __future__ import annotations
 import math
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from datetime import datetime
 from statistics import fmean
-from typing import Protocol
+from typing import Any, Protocol
 
 WEEKDAYS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
 R_BIN_WIDTH = 0.5
@@ -57,6 +75,103 @@ class ClosedTrade(Protocol):
 
 def _round(value: float | None, digits: int = 2) -> float | None:
     return None if value is None else round(value, digits)
+
+
+# ------------------------------------------------------------------ bookings
+
+
+@dataclass(frozen=True)
+class Booking:
+    """Realised P&L booked at one moment: a fill of a managed trade, or a whole trade at its close."""
+
+    time: datetime
+    amount: float  # net of the fees on the closing booking, gross on earlier fills
+    trade: Any
+    kind: str  # fill kind (tp | partial | stop | close); "close" for a trade without fills
+    closes: bool  # True on the booking that closes the trade (it carries the trade's outcome)
+    lots: float | None = None
+    price: float | None = None
+    target_level: int | None = None
+    event_id: int | None = None
+
+
+def _fills(trade) -> list:
+    """Fill events (lots > 0) of ``trade`` in ledger order: time, then id."""
+    fills = [event for event in getattr(trade, "events", None) or () if (event.lots or 0.0) > 0]
+    return sorted(fills, key=lambda e: (e.time, e.id if getattr(e, "id", None) is not None else math.inf))
+
+
+def trade_bookings(trade) -> list[Booking]:
+    """When ``trade`` realised its P&L (same rules as ``services.account.realized_pnl``).
+
+    A managed trade books every fill at its fill time. The fill that closes the
+    trade books what is left of the trade's net P&L (fees included), so a
+    trade's bookings always add up exactly to ``trade.pnl``; the fills of a
+    trade still open book their gross P&L. Any other closed trade books its net
+    P&L at its close time, and an open trade without fills books nothing.
+    """
+    closed = getattr(trade, "status", "closed") == "closed" and trade.pnl is not None
+    fills = _fills(trade) if getattr(trade, "managed", False) else []
+    if not fills:
+        if not closed:
+            return []
+        return [
+            Booking(
+                trade.close_time,
+                trade.pnl,
+                trade,
+                "close",
+                True,
+                lots=getattr(trade, "position_size", None),
+                price=getattr(trade, "exit_price", None),
+            )
+        ]
+    out = []
+    booked = 0.0
+    for index, event in enumerate(fills):
+        closes = closed and index == len(fills) - 1
+        amount = round(trade.pnl - booked, 2) if closes else (event.pnl or 0.0)
+        booked += amount
+        out.append(
+            Booking(
+                event.time,
+                amount,
+                trade,
+                event.kind,
+                closes,
+                lots=event.lots,
+                price=event.price,
+                target_level=getattr(event, "target_level", None),
+                event_id=getattr(event, "id", None),
+            )
+        )
+    return out
+
+
+def bookings(trades: Iterable, *, since: datetime | None = None, before: datetime | None = None) -> list[Booking]:
+    """Every booking of ``trades`` within ``[since, before)``, in time order (then trade id, then ledger order)."""
+    out = [
+        booking
+        for trade in trades
+        for booking in trade_bookings(trade)
+        if (since is None or booking.time >= since) and (before is None or booking.time < before)
+    ]
+    out.sort(key=lambda b: (b.time, getattr(b.trade, "id", None) or 0))
+    return out
+
+
+def booking_stats(booked: Sequence[Booking]) -> dict:
+    """P&L booked in a period, the trades it closed (with their outcomes) and its partial exits."""
+    closed = [b.trade for b in booked if b.closes]
+    wins = sum(1 for t in closed if t.outcome == "win")
+    return {
+        "pnl": round(sum(b.amount for b in booked), 2),
+        "trades": len(closed),
+        "wins": wins,
+        "losses": sum(1 for t in closed if t.outcome == "loss"),
+        "win_rate": round(wins / len(closed) * 100, 2) if closed else None,
+        "partials": len(booked) - len(closed),
+    }
 
 
 def _mistakes(trade: ClosedTrade) -> list[str]:
@@ -104,11 +219,11 @@ def _streaks(trades: Iterable[ClosedTrade]) -> tuple[int, int, int]:
     return best_win, best_loss, current
 
 
-def _drawdown(trades: Iterable[ClosedTrade], base_equity: float) -> tuple[float, float]:
+def _drawdown(amounts: Iterable[float], base_equity: float) -> tuple[float, float]:
     equity = peak = base_equity
     max_dd = max_dd_pct = 0.0
-    for trade in trades:
-        equity += trade.pnl
+    for amount in amounts:
+        equity += amount
         peak = max(peak, equity)
         drawdown = peak - equity
         max_dd = max(max_dd, drawdown)
@@ -117,15 +232,22 @@ def _drawdown(trades: Iterable[ClosedTrade], base_equity: float) -> tuple[float,
     return max_dd, max_dd_pct
 
 
-def summarize(trades: Sequence[ClosedTrade], base_equity: float) -> dict:
-    """Full metric set for the dashboard. ``trades`` must be in close order."""
+def summarize(trades: Sequence[ClosedTrade], base_equity: float, booked: Sequence[Booking] | None = None) -> dict:
+    """Full metric set for the dashboard. ``trades`` must be in close order.
+
+    With ``booked`` (see :func:`bookings`), the drawdown, end equity, return and
+    ``realized_pnl`` follow the money realised in the period; without it each
+    trade counts at its close (backtests).
+    """
     stats = core_stats(trades)
     win_pnls = [t.pnl for t in trades if t.outcome == "win"]
     loss_pnls = [t.pnl for t in trades if t.outcome == "loss"]
     avg_win = fmean(win_pnls) if win_pnls else None
     avg_loss = fmean(loss_pnls) if loss_pnls else None
     best_win, best_loss, current = _streaks(trades)
-    max_dd, max_dd_pct = _drawdown(trades, base_equity)
+    amounts = [b.amount for b in booked] if booked is not None else [t.pnl for t in trades]
+    realized = sum(amounts)
+    max_dd, max_dd_pct = _drawdown(amounts, base_equity)
 
     holds = [
         (t.exit_time - t.entry_time).total_seconds() / 60
@@ -153,8 +275,9 @@ def summarize(trades: Sequence[ClosedTrade], base_equity: float) -> dict:
             "max_drawdown": _round(max_dd),
             "max_drawdown_pct": _round(max_dd_pct),
             "start_equity": _round(base_equity),
-            "end_equity": _round(base_equity + sum(t.pnl for t in trades)),
-            "return_pct": _round(sum(t.pnl for t in trades) / base_equity * 100) if base_equity > 0 else None,
+            "end_equity": _round(base_equity + realized),
+            "return_pct": _round(realized / base_equity * 100) if base_equity > 0 else None,
+            "realized_pnl": _round(realized),
             "total_fees": _round(sum(t.fees or 0.0 for t in trades)),
             "avg_hold_minutes": _round(fmean(holds), 1) if holds else None,
             "avg_planned_rr": _round(fmean(planned)) if planned else None,
@@ -189,7 +312,7 @@ def mistake_cost(trades: Sequence[ClosedTrade]) -> list[dict]:
 
 
 def equity_curve(trades: Sequence[ClosedTrade], base_equity: float) -> list[dict]:
-    """One point per closed trade, preceded by the starting equity."""
+    """One point per closed trade at its close, preceded by the starting equity (backtests)."""
     points = [{"n": 0, "t": None, "equity": _round(base_equity), "pnl": None, "symbol": None, "trade_id": None}]
     equity = base_equity
     for index, trade in enumerate(trades, start=1):
@@ -207,14 +330,54 @@ def equity_curve(trades: Sequence[ClosedTrade], base_equity: float) -> list[dict
     return points
 
 
-def daily_pnl(trades: Sequence[ClosedTrade]) -> list[dict]:
-    days: dict = defaultdict(lambda: {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0})
-    for trade in trades:
-        bucket = days[trade.close_time.date()]
-        bucket["pnl"] += trade.pnl
-        bucket["trades"] += 1
-        bucket["wins"] += trade.outcome == "win"
-        bucket["losses"] += trade.outcome == "loss"
+def booking_equity_curve(booked: Sequence[Booking], base_equity: float) -> list[dict]:
+    """The realised equity curve: one point per booking, preceded by the starting equity."""
+    points = [
+        {
+            "n": 0,
+            "t": None,
+            "equity": _round(base_equity),
+            "pnl": None,
+            "symbol": None,
+            "trade_id": None,
+            "kind": None,
+            "closes": None,
+        }
+    ]
+    equity = base_equity
+    for index, booking in enumerate(booked, start=1):
+        equity += booking.amount
+        points.append(
+            {
+                "n": index,
+                "t": booking.time.isoformat(),
+                "equity": _round(equity),
+                "pnl": _round(booking.amount),
+                "symbol": booking.trade.symbol,
+                "trade_id": booking.trade.id,
+                "kind": booking.kind,
+                "closes": booking.closes,
+            }
+        )
+    return points
+
+
+def daily_pnl(trades: Sequence[ClosedTrade], booked: Sequence[Booking] | None = None) -> list[dict]:
+    """P&L per day it was booked (default: the bookings of ``trades``).
+
+    ``trades``/``wins``/``losses`` count the trades closed that day; ``partials``
+    counts the fills that did not close their trade.
+    """
+    days: dict = defaultdict(lambda: {"pnl": 0.0, "trades": 0, "wins": 0, "losses": 0, "partials": 0})
+    for booking in bookings(trades) if booked is None else booked:
+        bucket = days[booking.time.date()]
+        bucket["pnl"] += booking.amount
+        if booking.closes:
+            bucket["trades"] += 1
+            bucket["wins"] += booking.trade.outcome == "win"
+            bucket["losses"] += booking.trade.outcome == "loss"
+        else:
+            bucket["partials"] += 1
     cumulative = 0.0
     out = []
     for day in sorted(days):
@@ -227,6 +390,7 @@ def daily_pnl(trades: Sequence[ClosedTrade]) -> list[dict]:
                 "trades": bucket["trades"],
                 "wins": bucket["wins"],
                 "losses": bucket["losses"],
+                "partials": bucket["partials"],
                 "cumulative": _round(cumulative),
             }
         )
@@ -309,11 +473,15 @@ def breakdowns(trades: Sequence[ClosedTrade]) -> dict[str, list[dict]]:
     return out
 
 
-def full_report(trades: Sequence[ClosedTrade], base_equity: float) -> dict:
+def full_report(trades: Sequence[ClosedTrade], base_equity: float, booked: Sequence[Booking] | None = None) -> dict:
+    """Trade statistics over ``trades`` (closed, in close order) and the period P&L - daily P&L, realised
+    equity curve, drawdown - over ``booked``, by default the bookings of ``trades``."""
+    if booked is None:
+        booked = bookings(trades)
     return {
-        "summary": summarize(trades, base_equity),
-        "equity_curve": equity_curve(trades, base_equity),
-        "daily_pnl": daily_pnl(trades),
+        "summary": summarize(trades, base_equity, booked),
+        "equity_curve": booking_equity_curve(booked, base_equity),
+        "daily_pnl": daily_pnl(trades, booked),
         "distribution": r_distribution(trades),
         "breakdowns": breakdowns(trades),
     }

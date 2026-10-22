@@ -117,6 +117,7 @@ def test_calendar_month_days_weeks_and_totals():
         "wins": 1,
         "losses": 1,
         "win_rate": 50.0,
+        "partials": 0,
         "has_review": True,
         "checklist_complete": False,
     }
@@ -137,6 +138,57 @@ def test_calendar_month_days_weeks_and_totals():
     assert (total["trading_days"], total["green_days"], total["red_days"]) == (4, 2, 1)
     assert total["best_day"] == {"date": "2026-03-10", "pnl": 250.0, "trades": 1}
     assert total["worst_day"] == {"date": "2026-03-03", "pnl": -80.0, "trades": 1}
+
+
+def managed_trade(fills, pnl, *, fees=0.0, status="closed", trade_id=7, entry=None):
+    """A scale-out: ``fills`` are (time, kind, lots, gross pnl) in ledger order."""
+    events = [
+        SimpleNamespace(id=index, time=when, kind=kind, lots=lots, pnl=gross, price=2650.0, target_level=None)
+        for index, (when, kind, lots, gross) in enumerate(fills, start=1)
+    ]
+    entry = entry or fills[0][0]
+    exit_time = fills[-1][0] if status == "closed" else None
+    trade = make_trade(entry, pnl or 0.0, exit_time=exit_time, trade_id=trade_id)
+    trade.__dict__.update(managed=True, status=status, events=events, pnl=pnl, fees=fees)
+    if pnl is None:
+        trade.outcome = None
+    return trade
+
+
+def test_partial_exits_are_booked_on_their_fill_day_across_months():
+    scale_out = managed_trade(
+        [(datetime(2026, 3, 31, 10), "tp", 0.1, 120.0), (datetime(2026, 4, 1, 9), "stop", 0.1, -50.0)],
+        68.0,
+        fees=2.0,
+    )
+    others = [make_trade(datetime(2026, 3, 30, 10), 50.0, trade_id=1)]
+
+    march = time_analytics.calendar_month([scale_out, *others], date(2026, 3, 1))
+    days = {d["date"]: d for d in march["days"]}
+    assert (days["2026-03-31"]["pnl"], days["2026-03-31"]["trades"], days["2026-03-31"]["partials"]) == (120.0, 0, 1)
+    assert days["2026-03-31"]["win_rate"] is None
+    # The closing fill is booked on 1 April, net of the fees, and the win is counted there.
+    assert (days["2026-04-01"]["pnl"], days["2026-04-01"]["trades"], days["2026-04-01"]["wins"]) == (-52.0, 1, 1)
+    total = march["month_total"]
+    assert (total["pnl"], total["trades"], total["partials"]) == (170.0, 1, 1)
+    # A day with only a partial exit is a trading (green) day and can be the best day.
+    assert (total["trading_days"], total["green_days"], total["red_days"]) == (2, 2, 0)
+    assert total["best_day"] == {"date": "2026-03-31", "pnl": 120.0, "trades": 0}
+    last_week = march["weeks"][-1]  # 30 Mar - 5 Apr holds both fills: the whole trade
+    assert (last_week["pnl"], last_week["trades"], last_week["partials"]) == (118.0, 2, 1)
+
+    april = time_analytics.calendar_month([scale_out, *others], date(2026, 4, 1))
+    total = april["month_total"]
+    assert (total["pnl"], total["trades"], total["wins"], total["partials"]) == (-52.0, 1, 1, 0)
+    assert (total["red_days"], total["worst_day"]["date"]) == (1, "2026-04-01")
+    assert next(d for d in april["days"] if d["date"] == "2026-03-31")["in_month"] is False
+
+
+def test_open_trade_partials_count_in_the_calendar():
+    still_open = managed_trade([(datetime(2026, 6, 3, 11), "partial", 0.1, -40.0)], None, status="open", fees=5.0)
+    total = time_analytics.calendar_month([still_open], date(2026, 6, 1))["month_total"]
+    assert (total["pnl"], total["trades"], total["partials"], total["red_days"]) == (-40.0, 0, 1, 1)
+    assert total["win_rate"] is None and total["worst_day"]["pnl"] == -40.0
 
 
 def test_calendar_month_without_red_or_green_days():

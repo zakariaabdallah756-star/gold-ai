@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models import AccountSettings, Trade, TradeEvent
@@ -76,22 +76,41 @@ def equity_at(db: Session, settings: AccountSettings, when: datetime) -> float:
     return settings.starting_balance + realized_pnl(db, before=when)
 
 
-def report_base_equity(db: Session, settings: AccountSettings, date_from: date | None, trades) -> float:
-    """Equity a date-filtered report starts from: the account equity at ``date_from``, minus partial
-    profits taken before it on the reported ``trades`` - each reported trade counts its whole P&L at
-    its close, so those partials would otherwise be counted twice."""
+def booked_clause(since: datetime | None = None, before: datetime | None = None):
+    """SQL condition: the trade has realised P&L booked within ``[since, before)``.
+
+    Same rules as :func:`realized_pnl` and ``analytics.trade_bookings``: a closed
+    unmanaged trade at its close time, a managed trade (open or closed) at any of
+    its fills - its fees are booked on the closing fill.
+    """
+
+    def window(column) -> list:
+        return [
+            *([column >= since] if since is not None else []),
+            *([column < before] if before is not None else []),
+        ]
+
+    fill_in_window = (
+        select(TradeEvent.id)
+        .where(TradeEvent.trade_id == Trade.id, TradeEvent.lots > 0, *window(TradeEvent.time))
+        .exists()
+    )
+    return or_(
+        and_(Trade.managed.is_(False), Trade.status == "closed", *window(CLOSE_TIME)),
+        and_(Trade.managed.is_(True), fill_in_window),
+    )
+
+
+def report_base_equity(db: Session, settings: AccountSettings, date_from: date | None) -> float:
+    """Equity a date-filtered report starts from: the account equity at the start of ``date_from``.
+
+    Reports book P&L when it was realised, so everything booked before
+    ``date_from`` (partial exits of trades closing later included) is in this
+    base and nothing in the report counts it again.
+    """
     if date_from is None:
         return settings.starting_balance
-    cutoff = datetime.combine(date_from, time.min)
-    managed = [trade.id for trade in trades if getattr(trade, "managed", False)]
-    early = 0.0
-    if managed:
-        early = db.scalar(
-            select(func.coalesce(func.sum(TradeEvent.pnl), 0.0)).where(
-                TradeEvent.trade_id.in_(managed), TradeEvent.lots > 0, TradeEvent.time < cutoff
-            )
-        )
-    return settings.starting_balance + realized_pnl(db, before=cutoff) - float(early or 0.0)
+    return equity_at(db, settings, datetime.combine(date_from, time.min))
 
 
 def current_equity(db: Session, settings: AccountSettings) -> float:
