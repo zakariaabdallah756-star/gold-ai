@@ -137,6 +137,7 @@
   "{currency} news in {minutes} min: {title}": "News {currency} tra {minutes} min: {title}",
   "{first} or {last}": "{first} o {last}",
   "{host} answered with a redirect (HTTP {status}); use the final address": "{host} ha risposto con un reindirizzamento (HTTP {status}): usa l'indirizzo finale",
+  "{impact} impact": "impatto {impact}",
   "{key} is too long (max {limit} characters)": "{key} è troppo lungo (massimo {limit} caratteri)",
   "{key} must be text": "{key} deve essere un testo",
   "{label} must be a full {wanted} address": "{label} deve essere un indirizzo completo {wanted}",

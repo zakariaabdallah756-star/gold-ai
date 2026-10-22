@@ -479,7 +479,10 @@ def news_notes(events: list[NewsEvent], settings: AccountSettings, markets: list
         if not _relevant(event, settings, markets):
             continue
         minutes = max(1, math.ceil((event.time - now).total_seconds() / 60))
-        impact = tr(IMPACT_LABELS[event.impact]) if event.impact in IMPACT_LABELS else f"{event.impact} impact"
+        if event.impact in IMPACT_LABELS:
+            impact = tr(IMPACT_LABELS[event.impact])
+        else:
+            impact = tr("{impact} impact", impact=event.impact)
         notes.append(
             Note(
                 event="news",
