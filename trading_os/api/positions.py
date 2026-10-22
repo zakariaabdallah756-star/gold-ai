@@ -20,6 +20,7 @@ from ..models import Market, Trade, TradeEvent
 from ..schemas import FiniteModel, ShortText, Symbol, TradeEventOut, TradeOut
 from ..services import positions as position_service
 from ..services import trades as trade_service
+from ..services.i18n import tr
 from ..services.position_engine import PositionConflict, PositionError
 from .deps import DbDep, SettingsDep
 
@@ -124,7 +125,7 @@ def _position_errors() -> Iterator[None]:
 def _load(db, trade_id: int) -> Trade:
     trade = trade_service.get_trade(db, trade_id)
     if trade is None:
-        raise HTTPException(status_code=404, detail=f"Trade {trade_id} not found")
+        raise HTTPException(status_code=404, detail=tr("Trade {trade_id} not found", trade_id=trade_id))
     return trade
 
 
@@ -264,7 +265,10 @@ def undo_event(trade_id: int, event_id: int, settings: SettingsDep, db: DbDep):
     trade = _load(db, trade_id)
     event = next((event for event in trade.events if event.id == event_id), None)
     if event is None:
-        raise HTTPException(status_code=404, detail=f"Event {event_id} not found on trade {trade_id}")
+        raise HTTPException(
+            status_code=404,
+            detail=tr("Event {event_id} not found on trade {trade_id}", event_id=event_id, trade_id=trade_id),
+        )
     with _position_errors():
         position_service.undo_event(db, settings, trade, event)
     return {"trade": _load(db, trade_id)}

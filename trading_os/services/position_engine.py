@@ -37,6 +37,8 @@ from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
 from typing import Protocol
 
+from .i18n import N_, tr
+
 EPSILON = 1e-9
 LOT_DECIMALS = 8
 PRICE_DECIMALS = 8
@@ -48,10 +50,10 @@ AUTOMATIC_KINDS = frozenset({"tp", "stop", "breakeven", "trail"})
 STOP_KINDS = ("initial", "breakeven", "trail", "manual")
 STOP_KIND_BY_EVENT = {"breakeven": "breakeven", "trail": "trail", "stop_move": "manual"}
 STOP_FILL_NOTES = {
-    "initial": "initial stop",
-    "breakeven": "break-even stop",
-    "trail": "trailing stop",
-    "manual": "manual stop",
+    "initial": N_("initial stop"),
+    "breakeven": N_("break-even stop"),
+    "trail": N_("trailing stop"),
+    "manual": N_("manual stop"),
 }
 
 
@@ -169,24 +171,41 @@ def normalize_bar(price: float | None, high: float | None, low: float | None) ->
     if price is None and (high is None) != (low is None):
         price = high if high is not None else low
     if price is None and high is None:
-        raise PositionError("Provide the current price, or the high and low since the last update")
+        raise PositionError(tr("Provide the current price, or the high and low since the last update"))
     high = price if high is None else high
     low = price if low is None else low
     if high < low:
-        raise PositionError(f"High ({high:g}) cannot be below low ({low:g})")
+        raise PositionError(tr("High ({high:g}) cannot be below low ({low:g})", high=high, low=low))
     if price is not None and not low <= price <= high:
-        raise PositionError(f"Price {price:g} must lie between the low ({low:g}) and the high ({high:g})")
+        raise PositionError(
+            tr(
+                "Price {price:g} must lie between the low ({low:g}) and the high ({high:g})",
+                price=price,
+                low=low,
+                high=high,
+            )
+        )
     return price, high, low
 
 
 def check_time(pos: Position, when: datetime) -> None:
     """Events must not precede the entry or the latest recorded event."""
     if when < pos.entry_time:
-        raise PositionError(f"Event time {when:%Y-%m-%d %H:%M} is before the entry ({pos.entry_time:%Y-%m-%d %H:%M})")
+        raise PositionError(
+            tr(
+                "Event time {when:%Y-%m-%d %H:%M} is before the entry ({entry:%Y-%m-%d %H:%M})",
+                when=when,
+                entry=pos.entry_time,
+            )
+        )
     if pos.last_event_time is not None and when < pos.last_event_time:
         raise PositionError(
-            f"Event time {when:%Y-%m-%d %H:%M} is before the latest position event "
-            f"({pos.last_event_time:%Y-%m-%d %H:%M}); events must be recorded in order"
+            tr(
+                "Event time {when:%Y-%m-%d %H:%M} is before the latest position event "
+                "({latest:%Y-%m-%d %H:%M}); events must be recorded in order",
+                when=when,
+                latest=pos.last_event_time,
+            )
         )
 
 
@@ -225,12 +244,12 @@ def _better(pos: Position, price: float, than: float) -> bool:
 
 def _require_open(pos: Position) -> None:
     if not pos.is_open:
-        raise PositionConflict("This position is closed - undo its last event to reopen it")
+        raise PositionConflict(tr("This position is closed - undo its last event to reopen it"))
 
 
 def _require_size(pos: Position) -> None:
     if not pos.size or pos.remaining is None:
-        raise PositionError("Set the position size (lots) on this trade before recording fills or price updates")
+        raise PositionError(tr("Set the position size (lots) on this trade before recording fills or price updates"))
 
 
 def _track_best(pos: Position, price: float) -> None:
@@ -277,7 +296,7 @@ def _move(pos: Position, kind: str, when: datetime, stop: float, *, price: float
 
 
 def _stop_out(pos: Position, when: datetime) -> Draft:
-    return _fill(pos, "stop", when, pos.stop, pos.remaining, note=STOP_FILL_NOTES[pos.stop_kind])
+    return _fill(pos, "stop", when, pos.stop, pos.remaining, note=tr(STOP_FILL_NOTES[pos.stop_kind]))
 
 
 # --------------------------------------------------------------------------- price updates
@@ -350,7 +369,7 @@ def _hit_targets(pos: Position, spec: LotSpec, favourable: float, when: datetime
                     price=target.price,
                     lots=0.0,
                     target_level=target.level,
-                    note=f"{label} reached - share below the minimum lot, nothing closed",
+                    note=tr("{label} reached - share below the minimum lot, nothing closed", label=label),
                 )
             )
     return drafts
@@ -363,7 +382,10 @@ def _break_even(pos: Position, spec: LotSpec, when: datetime) -> list[Draft]:
     if not _better(pos, stop, pos.stop) or not _better(pos, pos.best_price, stop):
         return []
     pos.be_done = True
-    note = "Stop to break-even" + (f" +{pos.be_offset_pips:g} pips" if pos.be_offset_pips else "")
+    if pos.be_offset_pips:
+        note = tr("Stop to break-even +{pips:g} pips", pips=pos.be_offset_pips)
+    else:
+        note = tr("Stop to break-even")
     return [_move(pos, "breakeven", when, stop, price=pos.best_price, note=note)]
 
 
@@ -375,7 +397,7 @@ def _trail(pos: Position, spec: LotSpec, when: datetime) -> list[Draft]:
     stop = _price(pos.best_price - pos.sign * pos.trail_distance_pips * spec.pip_size)
     if not _better(pos, stop, pos.stop):
         return []
-    note = f"Trailing {pos.trail_distance_pips:g} pips behind {pos.best_price:g}"
+    note = tr("Trailing {pips:g} pips behind {price:g}", pips=pos.trail_distance_pips, price=pos.best_price)
     return [_move(pos, "trail", when, stop, price=pos.best_price, note=note)]
 
 
@@ -402,23 +424,30 @@ def partial_close(
     _require_size(pos)
     check_time(pos, when)
     if lots > pos.remaining + EPSILON:
-        raise PositionError(f"Only {pos.remaining:g} lots remain open")
+        raise PositionError(tr("Only {remaining:g} lots remain open", remaining=pos.remaining))
     if lots >= pos.remaining - EPSILON:
         return close_remainder(pos, price=price, when=when, pnl=pnl, note=note)
 
     lots = floor_lots(lots, spec.lot_step) if spec is not None else round(lots, LOT_DECIMALS)
     if lots <= EPSILON:
-        raise PositionError(f"Lot size is below the lot step ({spec.lot_step:g})")
+        raise PositionError(tr("Lot size is below the lot step ({step:g})", step=spec.lot_step))
     if spec is not None:
         if lots < spec.min_lot - EPSILON:
-            raise PositionError(f"A partial close needs at least the minimum lot ({spec.min_lot:g})")
+            raise PositionError(
+                tr("A partial close needs at least the minimum lot ({minimum:g})", minimum=spec.min_lot)
+            )
         left = round(pos.remaining - lots, LOT_DECIMALS)
         if left < spec.min_lot - EPSILON:
             raise PositionError(
-                f"That would leave {left:g} lots open, below the minimum lot ({spec.min_lot:g}) - "
-                "close the whole position instead"
+                tr(
+                    "That would leave {left:g} lots open, below the minimum lot ({minimum:g}) - "
+                    "close the whole position instead",
+                    left=left,
+                    minimum=spec.min_lot,
+                )
             )
     _observe(pos, price, when)
+    # Default notes ("Partial close", "Closed") stay in English: the journal hides them by comparing the text.
     return _fill(pos, "partial", when, price, lots, pnl=pnl, pnl_manual=pnl is not None, note=note or "Partial close")
 
 
@@ -444,13 +473,19 @@ def move_stop(pos: Position, *, stop: float, when: datetime, note: str = "") -> 
     check_time(pos, when)
     stop = _price(stop)
     if abs(stop - pos.stop) <= EPSILON:
-        raise PositionError(f"The stop is already at {stop:g}")
+        raise PositionError(tr("The stop is already at {stop:g}", stop=stop))
     if pos.last_price is not None and _reached(pos, stop, pos.last_price):
-        side = "below" if pos.sign > 0 else "above"
-        raise PositionError(
-            f"A {pos.direction} stop must stay {side} the last price ({pos.last_price:g}) - "
-            "close the position instead"
-        )
+        if pos.sign > 0:
+            message = tr(
+                "A long stop must stay below the last price ({price:g}) - close the position instead",
+                price=pos.last_price,
+            )
+        else:
+            message = tr(
+                "A short stop must stay above the last price ({price:g}) - close the position instead",
+                price=pos.last_price,
+            )
+        raise PositionError(message)
     if not note:
-        note = "Stop tightened" if _better(pos, stop, pos.stop) else "Stop widened"
+        note = tr("Stop tightened") if _better(pos, stop, pos.stop) else tr("Stop widened")
     return _move(pos, "stop_move", when, stop, price=pos.last_price, note=note)

@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 from ..models import AccountSettings, Market, Trade, TradeEvent
 from . import position_engine as engine
 from .account import local_now
+from .i18n import tr
 from .position_engine import EPSILON, PositionConflict, PositionError, outcome_for
 from .sizing import conversion_hint, executed_rr, gross_pnl, risk_for_lots
 
@@ -114,8 +115,10 @@ def fill_pnl(trade: Trade, market: Market | None, settings: AccountSettings, pri
 
 def _manual_pnl_hint(symbol: str, market: Market | None, settings: AccountSettings) -> str:
     if market is None:
-        return f"{symbol} is not in your markets, so fill P&L can't be calculated - enter the P&L manually"
-    return conversion_hint(market, settings.currency) + " - or enter the fill P&L manually"
+        return tr(
+            "{symbol} is not in your markets, so fill P&L can't be calculated - enter the P&L manually", symbol=symbol
+        )
+    return tr("{hint} - or enter the fill P&L manually", hint=conversion_hint(market, settings.currency))
 
 
 def risk_at_stop(trade: Trade, market: Market | None, settings: AccountSettings, lots: float | None) -> float | None:
@@ -168,7 +171,7 @@ def recompute(trade: Trade, market: Market | None, settings: AccountSettings) ->
         return
 
     if not trade.position_size:
-        raise PositionError("A trade with recorded fills needs its position size (lots)")
+        raise PositionError(tr("A trade with recorded fills needs its position size (lots)"))
     for event in fills:
         if event.pnl_manual:
             continue
@@ -225,21 +228,27 @@ def validate_edit(
     if not events:
         return
     if entry_time > events[0].time:
-        raise PositionError(f"Entry time can't be after the first position event ({events[0].time:%Y-%m-%d %H:%M})")
+        raise PositionError(
+            tr("Entry time can't be after the first position event ({time:%Y-%m-%d %H:%M})", time=events[0].time)
+        )
     if direction != trade.direction:
-        raise PositionError("Direction can't change once the position has events - undo them first")
+        raise PositionError(tr("Direction can't change once the position has events - undo them first"))
     fills = [event for event in events if event.is_fill]
     if not fills:
         return
     filled = filled_lots(trade)
     if not position_size or position_size < filled - EPSILON:
-        raise PositionError(f"Position size can't be below the {filled:g} lots already closed")
+        raise PositionError(tr("Position size can't be below the {filled:g} lots already closed", filled=filled))
     calculated = [event for event in fills if not event.pnl_manual]
     if calculated and (symbol != trade.symbol or abs(entry_price - trade.entry_price) > EPSILON):
         sample = calculated[0]
         if market is None or gross_pnl(market, settings.currency, direction, entry_price, sample.price, 1.0) is None:
             raise PositionError(
-                f"The recorded fills can't be revalued for {symbol} ({_manual_pnl_hint(symbol, market, settings)})"
+                tr(
+                    "The recorded fills can't be revalued for {symbol} ({hint})",
+                    symbol=symbol,
+                    hint=_manual_pnl_hint(symbol, market, settings),
+                )
             )
 
 
@@ -294,8 +303,11 @@ def _record(
 def _require_market(trade: Trade, market: Market | None) -> Market:
     if market is None:
         raise PositionError(
-            f"{trade.symbol} is not in your markets: add it (contract size, pip size) to track prices, "
-            "or record closes manually with their P&L"
+            tr(
+                "{symbol} is not in your markets: add it (contract size, pip size) to track prices, "
+                "or record closes manually with their P&L",
+                symbol=trade.symbol,
+            )
         )
     return market
 
@@ -344,7 +356,7 @@ def symbol_price_update(
     with _atomic(db):
         market = _market(db, symbol)
         if market is None:
-            raise PositionError(f"{symbol} is not in your markets: add it to track prices")
+            raise PositionError(tr("{symbol} is not in your markets: add it to track prices", symbol=symbol))
         for trade in trades:
             skipped = _skip_reason(trade, when)
             if skipped:
@@ -361,11 +373,11 @@ def symbol_price_update(
 
 def _skip_reason(trade: Trade, when: datetime | None) -> str | None:
     if not trade.position_size:
-        return "No position size set"
+        return tr("No position size set")
     if when is not None and when < trade.entry_time:
-        return "Opened after this price"
+        return tr("Opened after this price")
     if when is not None and any(event.time > when for event in trade.events):
-        return "Has position events after this price"
+        return tr("Has position events after this price")
     return None
 
 
@@ -440,7 +452,7 @@ def undo_event(db: Session, settings: AccountSettings, trade: Trade, event: Trad
     """
     events = ordered_events(trade)
     if not events or events[-1].id != event.id:
-        raise PositionConflict("Only the most recent position event can be undone - undo the later events first")
+        raise PositionConflict(tr("Only the most recent position event can be undone - undo the later events first"))
     with _atomic(db):
         trade.events.remove(event)
         best, worst, last, last_at = engine.rebuild_tracking(trade.direction, trade.entry_price, events[:-1])
