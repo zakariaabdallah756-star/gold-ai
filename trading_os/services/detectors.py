@@ -20,6 +20,8 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from .i18n import N_, tr
+
 
 class BarLike(Protocol):
     open: float
@@ -40,7 +42,7 @@ class Result:
 @dataclass(frozen=True)
 class ParamSpec:
     name: str
-    label: str
+    label: str  # English source text (N_): translated where shown
     kind: str  # int | float | choice | levels
     default: Any
     min: float | None = None
@@ -51,21 +53,21 @@ class ParamSpec:
     def to_dict(self) -> dict:
         return {
             "name": self.name,
-            "label": self.label,
+            "label": tr(self.label),
             "kind": self.kind,
             "default": list(self.default) if isinstance(self.default, (list, tuple)) else self.default,
             "min": self.min,
             "max": self.max,
             "choices": list(self.choices),
-            "help": self.help,
+            "help": tr(self.help) if self.help else "",
         }
 
 
 @dataclass(frozen=True)
 class ConditionType:
     key: str
-    label: str
-    description: str
+    label: str  # English source text (N_): translated where shown
+    description: str  # English source text (N_)
     directional: bool  # False = neutral filter that never sets the direction on its own
     confluence: str  # default confluence label (matches the default plan confluences where natural)
     params: tuple[ParamSpec, ...]
@@ -75,8 +77,8 @@ class ConditionType:
     def to_dict(self) -> dict:
         return {
             "key": self.key,
-            "label": self.label,
-            "description": self.description,
+            "label": tr(self.label),
+            "description": tr(self.description),
             "directional": self.directional,
             "confluence": self.confluence,
             "params": [spec.to_dict() for spec in self.params],
@@ -201,7 +203,7 @@ def _closes(bars: Sequence[BarLike]) -> list[float]:
 
 
 def _not_enough(needed: int, have: int) -> Result:
-    return Result(False, None, f"Not enough data (needs {needed} candles, has {have}).")
+    return Result(False, None, tr("Not enough data (needs {needed} candles, has {have}).", needed=needed, have=have))
 
 
 # --------------------------------------------------------------------------- condition types
@@ -213,22 +215,33 @@ def _ema_trend(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
     fast, slow = ema(closes, fast_n)[-1], ema(closes, slow_n)[-1]
     close = closes[-1]
     details = {"ema_fast": fast, "ema_slow": slow, "close": close}
-    values = f"EMA {fast_n} {fmt_price(fast)}, EMA {slow_n} {fmt_price(slow)}, close {fmt_price(close)}"
+    values = tr(
+        "EMA {fast_n} {fast}, EMA {slow_n} {slow}, close {close}",
+        fast_n=fast_n,
+        fast=fmt_price(fast),
+        slow_n=slow_n,
+        slow=fmt_price(slow),
+        close=fmt_price(close),
+    )
     if fast > slow and close > slow:
-        return Result(
-            True,
-            "long",
-            f"Uptrend: EMA {fast_n} above EMA {slow_n}, price above EMA {slow_n} ({values}).",
-            details=details,
+        label = tr(
+            "Uptrend: EMA {fast_n} above EMA {slow_n}, price above EMA {slow_n} ({values}).",
+            fast_n=fast_n,
+            slow_n=slow_n,
+            values=values,
         )
+        return Result(True, "long", label, details=details)
     if fast < slow and close < slow:
-        return Result(
-            True,
-            "short",
-            f"Downtrend: EMA {fast_n} below EMA {slow_n}, price below EMA {slow_n} ({values}).",
-            details=details,
+        label = tr(
+            "Downtrend: EMA {fast_n} below EMA {slow_n}, price below EMA {slow_n} ({values}).",
+            fast_n=fast_n,
+            slow_n=slow_n,
+            values=values,
         )
-    return Result(False, None, f"No clear trend: EMAs and price disagree ({values}).", details=details)
+        return Result(True, "short", label, details=details)
+    return Result(
+        False, None, tr("No clear trend: EMAs and price disagree ({values}).", values=values), details=details
+    )
 
 
 def _ema_cross(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -238,21 +251,18 @@ def _ema_cross(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
     now_diff, prev_diff = fast[-1] - slow[-1], fast[-2] - slow[-2]
     details = {"ema_fast": fast[-1], "ema_slow": slow[-1]}
     values = f"EMA {fast_n} {fmt_price(fast[-1])}, EMA {slow_n} {fmt_price(slow[-1])}"
+    shown = {"fast_n": fast_n, "slow_n": slow_n, "values": values}
     if prev_diff <= 0 < now_diff:
-        return Result(
-            True, "long", f"EMA {fast_n} crossed above EMA {slow_n} on the signal candle ({values}).", details=details
-        )
+        label = tr("EMA {fast_n} crossed above EMA {slow_n} on the signal candle ({values}).", **shown)
+        return Result(True, "long", label, details=details)
     if prev_diff >= 0 > now_diff:
-        return Result(
-            True, "short", f"EMA {fast_n} crossed below EMA {slow_n} on the signal candle ({values}).", details=details
-        )
-    where = "above" if now_diff > 0 else "below"
-    return Result(
-        False,
-        None,
-        f"No cross on the signal candle - EMA {fast_n} stays {where} EMA {slow_n} ({values}).",
-        details=details,
-    )
+        label = tr("EMA {fast_n} crossed below EMA {slow_n} on the signal candle ({values}).", **shown)
+        return Result(True, "short", label, details=details)
+    if now_diff > 0:
+        label = tr("No cross on the signal candle - EMA {fast_n} stays above EMA {slow_n} ({values}).", **shown)
+    else:
+        label = tr("No cross on the signal candle - EMA {fast_n} stays below EMA {slow_n} ({values}).", **shown)
+    return Result(False, None, label, details=details)
 
 
 def _rsi(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -262,22 +272,32 @@ def _rsi(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
     shown = f"RSI {period} = {value:.1f}"
     if params["mode"] == "reversal":
         if value <= oversold:
-            return Result(
-                True, "long", f"{shown} - oversold (at or below {oversold:g}), reversal up expected.", details=details
+            label = tr(
+                "{shown} - oversold (at or below {oversold:g}), reversal up expected.", shown=shown, oversold=oversold
             )
+            return Result(True, "long", label, details=details)
         if value >= overbought:
-            return Result(
-                True,
-                "short",
-                f"{shown} - overbought (at or above {overbought:g}), reversal down expected.",
-                details=details,
+            label = tr(
+                "{shown} - overbought (at or above {overbought:g}), reversal down expected.",
+                shown=shown,
+                overbought=overbought,
             )
-        return Result(False, None, f"{shown} - between {oversold:g} and {overbought:g}, no extreme.", details=details)
+            return Result(True, "short", label, details=details)
+        label = tr(
+            "{shown} - between {oversold:g} and {overbought:g}, no extreme.",
+            shown=shown,
+            oversold=oversold,
+            overbought=overbought,
+        )
+        return Result(False, None, label, details=details)
     if 50 < value < overbought:
-        return Result(True, "long", f"{shown} - bullish momentum (above 50, below {overbought:g}).", details=details)
+        label = tr("{shown} - bullish momentum (above 50, below {overbought:g}).", shown=shown, overbought=overbought)
+        return Result(True, "long", label, details=details)
     if oversold < value < 50:
-        return Result(True, "short", f"{shown} - bearish momentum (below 50, above {oversold:g}).", details=details)
-    return Result(False, None, f"{shown} - no momentum signal (flat at 50 or stretched).", details=details)
+        label = tr("{shown} - bearish momentum (below 50, above {oversold:g}).", shown=shown, oversold=oversold)
+        return Result(True, "short", label, details=details)
+    label = tr("{shown} - no momentum signal (flat at 50 or stretched).", shown=shown)
+    return Result(False, None, label, details=details)
 
 
 def _liquidity_sweep(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -289,33 +309,38 @@ def _liquidity_sweep(bars: Sequence[BarLike], params: dict, context: dict) -> Re
     swept_high = last.high > prior_high and last.close < prior_high
     if swept_low and swept_high:
         return Result(
-            False, None, "The signal candle swept both the high and the low - no clear side.", details=details
+            False,
+            None,
+            tr("The signal candle swept both the high and the low - no clear side."),
+            details=details,
         )
     if swept_low:
-        return Result(
-            True,
-            "long",
-            f"Sell-side liquidity swept: wick to {fmt_price(last.low)} took out the {lookback}-candle low "
-            f"{fmt_price(prior_low)} and closed back above at {fmt_price(last.close)}.",
-            stop_hint=last.low,
-            details=details,
+        label = tr(
+            "Sell-side liquidity swept: wick to {wick} took out the {lookback}-candle low {level} and closed back "
+            "above at {close}.",
+            wick=fmt_price(last.low),
+            lookback=lookback,
+            level=fmt_price(prior_low),
+            close=fmt_price(last.close),
         )
+        return Result(True, "long", label, stop_hint=last.low, details=details)
     if swept_high:
-        return Result(
-            True,
-            "short",
-            f"Buy-side liquidity swept: wick to {fmt_price(last.high)} took out the {lookback}-candle high "
-            f"{fmt_price(prior_high)} and closed back below at {fmt_price(last.close)}.",
-            stop_hint=last.high,
-            details=details,
+        label = tr(
+            "Buy-side liquidity swept: wick to {wick} took out the {lookback}-candle high {level} and closed back "
+            "below at {close}.",
+            wick=fmt_price(last.high),
+            lookback=lookback,
+            level=fmt_price(prior_high),
+            close=fmt_price(last.close),
         )
-    return Result(
-        False,
-        None,
-        f"No sweep: the {lookback}-candle range {fmt_price(prior_low)} - {fmt_price(prior_high)} was not taken out "
-        "with a close back inside.",
-        details=details,
+        return Result(True, "short", label, stop_hint=last.high, details=details)
+    label = tr(
+        "No sweep: the {lookback}-candle range {low} - {high} was not taken out with a close back inside.",
+        lookback=lookback,
+        low=fmt_price(prior_low),
+        high=fmt_price(prior_high),
     )
+    return Result(False, None, label, details=details)
 
 
 def _break_of_structure(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -323,34 +348,30 @@ def _break_of_structure(bars: Sequence[BarLike], params: dict, context: dict) ->
     highs, lows = swings(bars[:-1], strength)
     last, prev = bars[-1], bars[-2]
     if not highs or not lows:
-        return Result(False, None, "No confirmed swing high and low yet.")
+        return Result(False, None, tr("No confirmed swing high and low yet."))
     swing_high, swing_low = highs[-1][1], lows[-1][1]
     details = {"swing_high": swing_high, "swing_low": swing_low}
     if prev.close <= swing_high < last.close:
-        return Result(
-            True,
-            "long",
-            f"Bullish break of structure: closed at {fmt_price(last.close)} above the swing high "
-            f"{fmt_price(swing_high)}.",
-            stop_hint=swing_low,
-            details=details,
+        label = tr(
+            "Bullish break of structure: closed at {close} above the swing high {level}.",
+            close=fmt_price(last.close),
+            level=fmt_price(swing_high),
         )
+        return Result(True, "long", label, stop_hint=swing_low, details=details)
     if prev.close >= swing_low > last.close:
-        return Result(
-            True,
-            "short",
-            f"Bearish break of structure: closed at {fmt_price(last.close)} below the swing low "
-            f"{fmt_price(swing_low)}.",
-            stop_hint=swing_high,
-            details=details,
+        label = tr(
+            "Bearish break of structure: closed at {close} below the swing low {level}.",
+            close=fmt_price(last.close),
+            level=fmt_price(swing_low),
         )
-    return Result(
-        False,
-        None,
-        f"No fresh break: the signal candle closed inside the swing range {fmt_price(swing_low)} - "
-        f"{fmt_price(swing_high)} (or the break happened earlier).",
-        details=details,
+        return Result(True, "short", label, stop_hint=swing_high, details=details)
+    label = tr(
+        "No fresh break: the signal candle closed inside the swing range {low} - {high} "
+        "(or the break happened earlier).",
+        low=fmt_price(swing_low),
+        high=fmt_price(swing_high),
     )
+    return Result(False, None, label, details=details)
 
 
 def _engulfing(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -362,17 +383,17 @@ def _engulfing(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
         return Result(
             True,
             "long",
-            "Bullish engulfing: the signal candle's body engulfs the previous bearish body.",
+            tr("Bullish engulfing: the signal candle's body engulfs the previous bearish body."),
             stop_hint=min(prev.low, last.low),
         )
     if bearish and last_body > prev_body:
         return Result(
             True,
             "short",
-            "Bearish engulfing: the signal candle's body engulfs the previous bullish body.",
+            tr("Bearish engulfing: the signal candle's body engulfs the previous bullish body."),
             stop_hint=max(prev.high, last.high),
         )
-    return Result(False, None, "No engulfing candle.")
+    return Result(False, None, tr("No engulfing candle."))
 
 
 def _pin_bar(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -380,29 +401,22 @@ def _pin_bar(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
     bar = bars[-1]
     full = bar.high - bar.low
     if full <= 0:
-        return Result(False, None, "No pin bar: the signal candle has no range.")
+        return Result(False, None, tr("No pin bar: the signal candle has no range."))
     body = max(abs(bar.close - bar.open), full * 0.02)
     lower, upper = min(bar.open, bar.close) - bar.low, bar.high - max(bar.open, bar.close)
     details = {"body": abs(bar.close - bar.open), "lower_wick": lower, "upper_wick": upper}
     if lower >= ratio * body and lower >= ratio * upper:
-        return Result(
-            True,
-            "long",
-            f"Bullish pin bar: lower wick {lower / body:.1f}x the body - buyers rejected the low.",
-            stop_hint=bar.low,
-            details=details,
+        label = tr(
+            "Bullish pin bar: lower wick {multiple:.1f}x the body - buyers rejected the low.", multiple=lower / body
         )
+        return Result(True, "long", label, stop_hint=bar.low, details=details)
     if upper >= ratio * body and upper >= ratio * lower:
-        return Result(
-            True,
-            "short",
-            f"Bearish pin bar: upper wick {upper / body:.1f}x the body - sellers rejected the high.",
-            stop_hint=bar.high,
-            details=details,
+        label = tr(
+            "Bearish pin bar: upper wick {multiple:.1f}x the body - sellers rejected the high.", multiple=upper / body
         )
-    return Result(
-        False, None, f"No pin bar: no wick at least {ratio:g}x the body and the opposite wick.", details=details
-    )
+        return Result(True, "short", label, stop_hint=bar.high, details=details)
+    label = tr("No pin bar: no wick at least {ratio:g}x the body and the opposite wick.", ratio=ratio)
+    return Result(False, None, label, details=details)
 
 
 def _fair_value_gap(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -418,11 +432,17 @@ def _fair_value_gap(bars: Sequence[BarLike], params: dict, context: dict) -> Res
             bottom, top = a.high, candle_c.low
             untouched = all(b.low > top for b in later)
             if untouched and last.low <= top and last.close > bottom:
+                label = tr(
+                    "Retest of a bullish fair value gap {bottom} - {top}: the signal candle traded into it and "
+                    "closed above its bottom at {close}.",
+                    bottom=fmt_price(bottom),
+                    top=fmt_price(top),
+                    close=fmt_price(last.close),
+                )
                 return Result(
                     True,
                     "long",
-                    f"Retest of a bullish fair value gap {fmt_price(bottom)} - {fmt_price(top)}: the signal candle "
-                    f"traded into it and closed above its bottom at {fmt_price(last.close)}.",
+                    label,
                     stop_hint=min(bottom, last.low),
                     details={"gap_low": bottom, "gap_high": top},
                 )
@@ -430,15 +450,25 @@ def _fair_value_gap(bars: Sequence[BarLike], params: dict, context: dict) -> Res
             bottom, top = candle_c.high, a.low
             untouched = all(b.high < bottom for b in later)
             if untouched and last.high >= bottom and last.close < top:
+                label = tr(
+                    "Retest of a bearish fair value gap {bottom} - {top}: the signal candle traded into it and "
+                    "closed below its top at {close}.",
+                    bottom=fmt_price(bottom),
+                    top=fmt_price(top),
+                    close=fmt_price(last.close),
+                )
                 return Result(
                     True,
                     "short",
-                    f"Retest of a bearish fair value gap {fmt_price(bottom)} - {fmt_price(top)}: the signal candle "
-                    f"traded into it and closed below its top at {fmt_price(last.close)}.",
+                    label,
                     stop_hint=max(top, last.high),
                     details={"gap_low": bottom, "gap_high": top},
                 )
-    return Result(False, None, f"No first retest of a fair value gap formed in the last {lookback} candles.")
+    return Result(
+        False,
+        None,
+        tr("No first retest of a fair value gap formed in the last {lookback} candles.", lookback=lookback),
+    )
 
 
 def _range_breakout(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -447,28 +477,29 @@ def _range_breakout(bars: Sequence[BarLike], params: dict, context: dict) -> Res
     high, low = max(b.high for b in window), min(b.low for b in window)
     details = {"range_high": high, "range_low": low}
     if last.close > high:
-        return Result(
-            True,
-            "long",
-            f"Closed at {fmt_price(last.close)} above the {count}-candle high {fmt_price(high)}.",
-            details=details,
+        label = tr(
+            "Closed at {close} above the {count}-candle high {level}.",
+            close=fmt_price(last.close),
+            count=count,
+            level=fmt_price(high),
         )
+        return Result(True, "long", label, details=details)
     if last.close < low:
-        return Result(
-            True,
-            "short",
-            f"Closed at {fmt_price(last.close)} below the {count}-candle low {fmt_price(low)}.",
-            details=details,
+        label = tr(
+            "Closed at {close} below the {count}-candle low {level}.",
+            close=fmt_price(last.close),
+            count=count,
+            level=fmt_price(low),
         )
-    return Result(
-        False, None, f"Inside the {count}-candle range {fmt_price(low)} - {fmt_price(high)}.", details=details
-    )
+        return Result(True, "short", label, details=details)
+    label = tr("Inside the {count}-candle range {low} - {high}.", count=count, low=fmt_price(low), high=fmt_price(high))
+    return Result(False, None, label, details=details)
 
 
 def _key_level(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
     levels = list(params["levels"]) or list(context.get("key_levels") or [])
     if not levels:
-        return Result(False, None, "No key levels: add levels to this condition or to today's pre-market routine.")
+        return Result(False, None, tr("No key levels: add levels to this condition or to today's pre-market routine."))
     current_atr = atr(bars, 14)[-1]
     tolerance = params["tolerance_atr"] * current_atr
     bar = bars[-1]
@@ -478,31 +509,30 @@ def _key_level(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
         return Result(
             False,
             None,
-            f"Not at a key level - nearest is {fmt_price(nearest)}.",
+            tr("Not at a key level - nearest is {nearest}.", nearest=fmt_price(nearest)),
             details={"nearest": nearest, "tolerance": tolerance},
         )
     level = min(touched, key=lambda value: abs(value - bar.close))
     middle = (bar.high + bar.low) / 2
     details = {"level": level, "tolerance": tolerance}
     if bar.low <= level + tolerance and bar.close > level and bar.close >= middle:
-        return Result(
-            True,
-            "long",
-            f"Rejected key level {fmt_price(level)} as support (low {fmt_price(bar.low)}, "
-            f"closed {fmt_price(bar.close)}).",
-            stop_hint=bar.low,
-            details=details,
+        label = tr(
+            "Rejected key level {level} as support (low {low}, closed {close}).",
+            level=fmt_price(level),
+            low=fmt_price(bar.low),
+            close=fmt_price(bar.close),
         )
+        return Result(True, "long", label, stop_hint=bar.low, details=details)
     if bar.high >= level - tolerance and bar.close < level and bar.close <= middle:
-        return Result(
-            True,
-            "short",
-            f"Rejected key level {fmt_price(level)} as resistance (high "
-            f"{fmt_price(bar.high)}, closed {fmt_price(bar.close)}).",
-            stop_hint=bar.high,
-            details=details,
+        label = tr(
+            "Rejected key level {level} as resistance (high {high}, closed {close}).",
+            level=fmt_price(level),
+            high=fmt_price(bar.high),
+            close=fmt_price(bar.close),
         )
-    return Result(True, None, f"Price is at key level {fmt_price(level)} (no clear rejection yet).", details=details)
+        return Result(True, "short", label, stop_hint=bar.high, details=details)
+    label = tr("Price is at key level {level} (no clear rejection yet).", level=fmt_price(level))
+    return Result(True, None, label, details=details)
 
 
 def _atr_filter(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
@@ -510,10 +540,12 @@ def _atr_filter(bars: Sequence[BarLike], params: dict, context: dict) -> Result:
     value = atr(bars, period)[-1]
     pct = value / bars[-1].close * 100 if bars[-1].close else 0.0
     details = {"atr": value, "atr_pct": pct}
-    shown = f"ATR {period} = {fmt_price(value)} ({pct:.3f}% of price)"
+    shown = tr("ATR {period} = {value} ({pct:.3f}% of price)", period=period, value=fmt_price(value), pct=pct)
     if pct >= minimum:
-        return Result(True, None, f"Enough volatility: {shown}, minimum {minimum:g}%.", details=details)
-    return Result(False, None, f"Too quiet: {shown}, below the minimum {minimum:g}%.", details=details)
+        label = tr("Enough volatility: {shown}, minimum {minimum:g}%.", shown=shown, minimum=minimum)
+        return Result(True, None, label, details=details)
+    label = tr("Too quiet: {shown}, below the minimum {minimum:g}%.", shown=shown, minimum=minimum)
+    return Result(False, None, label, details=details)
 
 
 def _p(name, label, kind, default, lo=None, hi=None, choices=(), help=""):
@@ -529,72 +561,78 @@ CONDITION_TYPES: dict[str, ConditionType] = {
     for spec in (
         ConditionType(
             "ema_trend",
-            "EMA trend",
-            "Fast EMA above the slow EMA with price above the slow EMA (long), or the mirror image (short).",
+            N_("EMA trend"),
+            N_("Fast EMA above the slow EMA with price above the slow EMA (long), or the mirror image (short)."),
             True,
             "HTF trend alignment",
             (
-                _p("fast", "Fast EMA", "int", 50, 2, MAX_HISTORY - 2),
-                _p("slow", "Slow EMA", "int", 200, 3, MAX_HISTORY - 1),
+                _p("fast", N_("Fast EMA"), "int", 50, 2, MAX_HISTORY - 2),
+                _p("slow", N_("Slow EMA"), "int", 200, 3, MAX_HISTORY - 1),
             ),
             _ema_trend,
             lambda p: p["slow"] + 1,
         ),
         ConditionType(
             "ema_cross",
-            "EMA cross",
-            "The fast EMA crosses the slow EMA on the signal candle.",
+            N_("EMA cross"),
+            N_("The fast EMA crosses the slow EMA on the signal candle."),
             True,
             "EMA cross",
             (
-                _p("fast", "Fast EMA", "int", 9, 2, MAX_HISTORY - 2),
-                _p("slow", "Slow EMA", "int", 21, 3, MAX_HISTORY - 1),
+                _p("fast", N_("Fast EMA"), "int", 9, 2, MAX_HISTORY - 2),
+                _p("slow", N_("Slow EMA"), "int", 21, 3, MAX_HISTORY - 1),
             ),
             _ema_cross,
             lambda p: p["slow"] + 1,
         ),
         ConditionType(
             "rsi",
-            "RSI",
-            "Reversal: oversold = long, overbought = short. Momentum: above 50 = long, below 50 = short "
-            "(not when stretched beyond the thresholds).",
+            N_("RSI"),
+            N_(
+                "Reversal: oversold = long, overbought = short. Momentum: above 50 = long, below 50 = short "
+                "(not when stretched beyond the thresholds)."
+            ),
             True,
             "RSI",
             (
-                _p("period", "Period", "int", 14, 2, 100),
-                _p("oversold", "Oversold", "float", 30, 1, 49),
-                _p("overbought", "Overbought", "float", 70, 51, 99),
-                _p("mode", "Mode", "choice", "reversal", choices=("reversal", "momentum")),
+                _p("period", N_("Period"), "int", 14, 2, 100),
+                _p("oversold", N_("Oversold"), "float", 30, 1, 49),
+                _p("overbought", N_("Overbought"), "float", 70, 51, 99),
+                _p("mode", N_("Mode"), "choice", "reversal", choices=("reversal", "momentum")),
             ),
             _rsi,
             lambda p: p["period"] + 2,
         ),
         ConditionType(
             "liquidity_sweep",
-            "Liquidity sweep",
-            "The signal candle's wick takes out the prior high or low of the lookback window and closes back "
-            "inside: long after a sweep of the lows, short after a sweep of the highs. Stop beyond the wick.",
+            N_("Liquidity sweep"),
+            N_(
+                "The signal candle's wick takes out the prior high or low of the lookback window and closes back "
+                "inside: long after a sweep of the lows, short after a sweep of the highs. Stop beyond the wick."
+            ),
             True,
             "Liquidity sweep",
-            (_p("lookback", "Lookback (candles)", "int", 20, 3, 200),),
+            (_p("lookback", N_("Lookback (candles)"), "int", 20, 3, 200),),
             _liquidity_sweep,
             lambda p: p["lookback"] + 1,
         ),
         ConditionType(
             "break_of_structure",
-            "Break of structure",
-            "The signal candle closes beyond the latest confirmed swing high (long) or swing low (short). "
-            "Stop at the opposite swing.",
+            N_("Break of structure"),
+            N_(
+                "The signal candle closes beyond the latest confirmed swing high (long) or swing low (short). "
+                "Stop at the opposite swing."
+            ),
             True,
             "Break of structure",
-            (_p("swing", "Swing strength (candles each side)", "int", 3, 1, 10),),
+            (_p("swing", N_("Swing strength (candles each side)"), "int", 3, 1, 10),),
             _break_of_structure,
             lambda p: 2 * p["swing"] + 3,
         ),
         ConditionType(
             "engulfing",
-            "Engulfing candle",
-            "The signal candle's body engulfs the previous opposite-coloured body.",
+            N_("Engulfing candle"),
+            N_("The signal candle's body engulfs the previous opposite-coloured body."),
             True,
             "Engulfing candle",
             (),
@@ -603,59 +641,63 @@ CONDITION_TYPES: dict[str, ConditionType] = {
         ),
         ConditionType(
             "pin_bar",
-            "Pin bar",
-            "A long rejection wick: at least the given multiple of the body and of the opposite wick.",
+            N_("Pin bar"),
+            N_("A long rejection wick: at least the given multiple of the body and of the opposite wick."),
             True,
             "Pin bar",
-            (_p("wick_ratio", "Wick / body ratio", "float", 2.0, 1.0, 10.0),),
+            (_p("wick_ratio", N_("Wick / body ratio"), "float", 2.0, 1.0, 10.0),),
             _pin_bar,
             lambda p: 1,
         ),
         ConditionType(
             "fair_value_gap",
-            "Fair value gap",
-            "A three-candle gap formed within the lookback; the signal candle is the first to trade into it and "
-            "does not close through it. Stop beyond the gap.",
+            N_("Fair value gap"),
+            N_(
+                "A three-candle gap formed within the lookback; the signal candle is the first to trade into it and "
+                "does not close through it. Stop beyond the gap."
+            ),
             True,
             "Order block / FVG",
-            (_p("lookback", "Lookback (candles)", "int", 10, 3, 100),),
+            (_p("lookback", N_("Lookback (candles)"), "int", 10, 3, 100),),
             _fair_value_gap,
             lambda p: 4,
         ),
         ConditionType(
             "range_breakout",
-            "Range breakout",
-            "The signal candle closes beyond the high (long) or low (short) of the previous N candles.",
+            N_("Range breakout"),
+            N_("The signal candle closes beyond the high (long) or low (short) of the previous N candles."),
             True,
             "Range breakout",
-            (_p("bars", "Range length (candles)", "int", 20, 3, MAX_HISTORY - 1),),
+            (_p("bars", N_("Range length (candles)"), "int", 20, 3, MAX_HISTORY - 1),),
             _range_breakout,
             lambda p: p["bars"] + 1,
         ),
         ConditionType(
             "key_level",
-            "Key level",
-            "Price trades at a key level (within a fraction of ATR). Neutral unless the signal candle rejects it: "
-            "support rejection = long, resistance rejection = short. Empty levels use the numbers in today's "
-            "pre-market key levels.",
+            N_("Key level"),
+            N_(
+                "Price trades at a key level (within a fraction of ATR). Neutral unless the signal candle rejects it: "
+                "support rejection = long, resistance rejection = short. Empty levels use the numbers in today's "
+                "pre-market key levels."
+            ),
             True,
             "Key level (S/R)",
             (
-                _p("levels", "Levels", "levels", (), help="Empty = today's pre-market key levels"),
-                _p("tolerance_atr", "Tolerance (x ATR 14)", "float", 0.25, 0.0, 5.0),
+                _p("levels", N_("Levels"), "levels", (), help=N_("Empty = today's pre-market key levels")),
+                _p("tolerance_atr", N_("Tolerance (x ATR 14)"), "float", 0.25, 0.0, 5.0),
             ),
             _key_level,
             lambda p: 15,
         ),
         ConditionType(
             "atr_filter",
-            "Volatility filter (ATR)",
-            "Neutral filter: ATR as a % of price must be at least the minimum, so dead markets are skipped.",
+            N_("Volatility filter (ATR)"),
+            N_("Neutral filter: ATR as a % of price must be at least the minimum, so dead markets are skipped."),
             False,
             "Volatility (ATR)",
             (
-                _p("period", "ATR period", "int", 14, 2, 100),
-                _p("min_atr_pct", "Minimum ATR %", "float", 0.05, 0.0, 20.0),
+                _p("period", N_("ATR period"), "int", 14, 2, 100),
+                _p("min_atr_pct", N_("Minimum ATR %"), "float", 0.05, 0.0, 20.0),
             ),
             _atr_filter,
             lambda p: p["period"] + 1,
@@ -670,42 +712,88 @@ def validate_params(kind: str, params: dict | None) -> dict:
     """Complete ``params`` with defaults and check bounds; raises ValueError with a readable message."""
     spec = CONDITION_TYPES.get(kind)
     if spec is None:
-        raise ValueError(f"Unknown condition type '{kind}'")
+        raise ValueError(tr("Unknown condition type '{kind}'", kind=kind))
     params = dict(params or {})
     unknown = set(params) - {p.name for p in spec.params}
     if unknown:
-        raise ValueError(f"{spec.label}: unknown parameter {', '.join(sorted(unknown))}")
+        raise ValueError(
+            tr("{condition}: unknown parameter {names}", condition=tr(spec.label), names=", ".join(sorted(unknown)))
+        )
     out: dict = {}
     for p in spec.params:
         value = params.get(p.name, p.default)
         if p.kind == "choice":
             if value not in p.choices:
-                raise ValueError(f"{spec.label}: {p.label} must be one of {', '.join(p.choices)}")
+                raise ValueError(
+                    tr(
+                        "{condition}: {parameter} must be one of {choices}",
+                        condition=tr(spec.label),
+                        parameter=tr(p.label),
+                        choices=", ".join(p.choices),
+                    )
+                )
         elif p.kind == "levels":
             if not isinstance(value, (list, tuple)) or len(value) > MAX_LEVELS:
-                raise ValueError(f"{spec.label}: {p.label} must be a list of up to {MAX_LEVELS} prices")
+                raise ValueError(
+                    tr(
+                        "{condition}: {parameter} must be a list of up to {maximum} prices",
+                        condition=tr(spec.label),
+                        parameter=tr(p.label),
+                        maximum=MAX_LEVELS,
+                    )
+                )
             try:
                 value = [float(v) for v in value]
             except (TypeError, ValueError):
-                raise ValueError(f"{spec.label}: {p.label} must be numbers") from None
+                raise ValueError(
+                    tr("{condition}: {parameter} must be numbers", condition=tr(spec.label), parameter=tr(p.label))
+                ) from None
             if any(not math.isfinite(v) or v <= 0 for v in value):
-                raise ValueError(f"{spec.label}: {p.label} must be positive prices")
+                raise ValueError(
+                    tr(
+                        "{condition}: {parameter} must be positive prices",
+                        condition=tr(spec.label),
+                        parameter=tr(p.label),
+                    )
+                )
         else:
             if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ValueError(f"{spec.label}: {p.label} must be a number")
+                raise ValueError(
+                    tr("{condition}: {parameter} must be a number", condition=tr(spec.label), parameter=tr(p.label))
+                )
             if p.kind == "int":
                 if value != int(value):
-                    raise ValueError(f"{spec.label}: {p.label} must be a whole number")
+                    raise ValueError(
+                        tr(
+                            "{condition}: {parameter} must be a whole number",
+                            condition=tr(spec.label),
+                            parameter=tr(p.label),
+                        )
+                    )
                 value = int(value)
             else:
                 value = float(value)
             if (p.min is not None and value < p.min) or (p.max is not None and value > p.max):
-                raise ValueError(f"{spec.label}: {p.label} must be between {p.min:g} and {p.max:g}")
+                raise ValueError(
+                    tr(
+                        "{condition}: {parameter} must be between {minimum:g} and {maximum:g}",
+                        condition=tr(spec.label),
+                        parameter=tr(p.label),
+                        minimum=p.min,
+                        maximum=p.max,
+                    )
+                )
         out[p.name] = value
     if kind in ("ema_trend", "ema_cross") and out["fast"] >= out["slow"]:
-        raise ValueError(f"{spec.label}: the fast EMA must be shorter than the slow EMA")
+        raise ValueError(tr("{condition}: the fast EMA must be shorter than the slow EMA", condition=tr(spec.label)))
     if spec.min_bars(out) > MAX_HISTORY:
-        raise ValueError(f"{spec.label}: needs more than the {MAX_HISTORY} candles of history the scanner loads")
+        raise ValueError(
+            tr(
+                "{condition}: needs more than the {maximum} candles of history the scanner loads",
+                condition=tr(spec.label),
+                maximum=MAX_HISTORY,
+            )
+        )
     return out
 
 
