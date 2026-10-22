@@ -1,0 +1,12 @@
+{
+  "Complete today's pre-market checklist before entering trades.": "Completa la checklist pre-market di oggi prima di aprire trade.",
+  "Daily loss limit reached: -{used} of {limit} ({cap:g}% max). Stop trading for today.": "Limite di perdita giornaliera raggiunto: -{used} su {limit} (massimo {cap:g}%). Per oggi smetti di fare trading.",
+  "Entry is outside your active trading sessions.": "L'entrata è fuori dalle tue sessioni di trading attive.",
+  "Max trades per day reached ({count}/{maximum}).": "Raggiunto il numero massimo di trade giornalieri ({count}/{maximum}).",
+  "No take profit set - R:R cannot be verified against your 1:{minimum:g} minimum.": "Nessun take profit impostato: impossibile verificare l'R:R rispetto al tuo minimo di 1:{minimum:g}.",
+  "Planned R:R 1:{rr:.2f} is below your 1:{minimum:g} minimum.": "L'R:R previsto 1:{rr:.2f} è sotto il tuo minimo di 1:{minimum:g}.",
+  "Risk of {risk:.2f}% of equity exceeds your {cap:g}% max per trade.": "Un rischio del {risk:.2f}% dell'equity supera il tuo massimo del {cap:g}% per trade.",
+  "This strategy requires {required} confluences; {checked} checked.": "Questa strategia richiede {required} confluenze; ne hai spuntate {checked}.",
+  "This trade risks {risk} but only {budget} of today's loss budget remains (after open risk). A stop-out would breach the daily limit.": "Questo trade rischia {risk}, ma del budget di perdita di oggi restano solo {budget} (dopo il rischio aperto). Uno stop-out sforerebbe il limite giornaliero.",
+  "{strategy} requires {required} confluences; {checked} checked.": "{strategy} richiede {required} confluenze; ne hai spuntate {checked}."
+}

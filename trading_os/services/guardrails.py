@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass
 from datetime import date
 
 from ..constants import DAILY_LOSS_WARNING_RATIO
+from .i18n import tr
 
 # Context rules recorded at entry time and kept unchanged when a trade is edited.
 DAILY_CODES = frozenset(
@@ -103,7 +104,10 @@ def trade_rule_violations(
             violations.append(
                 Violation(
                     "NO_TAKE_PROFIT",
-                    f"No take profit set - R:R cannot be verified against your 1:{settings.min_rr:g} minimum.",
+                    tr(
+                        "No take profit set - R:R cannot be verified against your 1:{minimum:g} minimum.",
+                        minimum=settings.min_rr,
+                    ),
                     "warn",
                 )
             )
@@ -111,7 +115,11 @@ def trade_rule_violations(
             violations.append(
                 Violation(
                     "RR_BELOW_MIN",
-                    f"Planned R:R 1:{planned_rr:.2f} is below your 1:{settings.min_rr:g} minimum.",
+                    tr(
+                        "Planned R:R 1:{rr:.2f} is below your 1:{minimum:g} minimum.",
+                        rr=planned_rr,
+                        minimum=settings.min_rr,
+                    ),
                     severity,
                 )
             )
@@ -122,24 +130,36 @@ def trade_rule_violations(
             violations.append(
                 Violation(
                     "RISK_ABOVE_MAX",
-                    f"Risk of {risk_pct:.2f}% of equity exceeds your {settings.max_risk_pct:g}% max per trade.",
+                    tr(
+                        "Risk of {risk:.2f}% of equity exceeds your {cap:g}% max per trade.",
+                        risk=risk_pct,
+                        cap=settings.max_risk_pct,
+                    ),
                     severity,
                 )
             )
 
     if strategy_min_confluences and confluence_count < strategy_min_confluences:
-        violations.append(
-            Violation(
-                "CONFLUENCES_BELOW_MIN",
-                f"{strategy_name or 'This strategy'} requires {strategy_min_confluences} confluences; "
-                f"{confluence_count} checked.",
-                severity,
+        if strategy_name:
+            message = tr(
+                "{strategy} requires {required} confluences; {checked} checked.",
+                strategy=strategy_name,
+                required=strategy_min_confluences,
+                checked=confluence_count,
             )
-        )
+        else:
+            message = tr(
+                "This strategy requires {required} confluences; {checked} checked.",
+                required=strategy_min_confluences,
+                checked=confluence_count,
+            )
+        violations.append(Violation("CONFLUENCES_BELOW_MIN", message, severity))
 
     if settings.warn_outside_sessions and in_trading_window is False:
         severity = "block" if getattr(settings, "session_rule_mode", "warn") == "block" else "warn"
-        violations.append(Violation("OUTSIDE_SESSION", "Entry is outside your active trading sessions.", severity))
+        violations.append(
+            Violation("OUTSIDE_SESSION", tr("Entry is outside your active trading sessions."), severity)
+        )
 
     return violations
 
@@ -153,7 +173,7 @@ def daily_violations(settings, day: DayState, new_risk: float | None = None) -> 
         violations.append(
             Violation(
                 "CHECKLIST_INCOMPLETE",
-                "Complete today's pre-market checklist before entering trades.",
+                tr("Complete today's pre-market checklist before entering trades."),
                 "block",
             )
         )
@@ -163,9 +183,12 @@ def daily_violations(settings, day: DayState, new_risk: float | None = None) -> 
         violations.append(
             Violation(
                 "DAILY_LOSS_LIMIT",
-                f"Daily loss limit reached: -{_money(day.loss_used, currency)} of "
-                f"{_money(day.daily_loss_limit, currency)} ({settings.max_daily_loss_pct:g}% max). "
-                "Stop trading for today.",
+                tr(
+                    "Daily loss limit reached: -{used} of {limit} ({cap:g}% max). Stop trading for today.",
+                    used=_money(day.loss_used, currency),
+                    limit=_money(day.daily_loss_limit, currency),
+                    cap=settings.max_daily_loss_pct,
+                ),
                 severity,
             )
         )
@@ -174,7 +197,11 @@ def daily_violations(settings, day: DayState, new_risk: float | None = None) -> 
         violations.append(
             Violation(
                 "MAX_TRADES_REACHED",
-                f"Max trades per day reached ({day.trades_today}/{settings.max_trades_per_day}).",
+                tr(
+                    "Max trades per day reached ({count}/{maximum}).",
+                    count=day.trades_today,
+                    maximum=settings.max_trades_per_day,
+                ),
                 severity,
             )
         )
@@ -185,9 +212,12 @@ def daily_violations(settings, day: DayState, new_risk: float | None = None) -> 
             violations.append(
                 Violation(
                     "DAILY_RISK_BUDGET",
-                    f"This trade risks {_money(new_risk, currency)} but only "
-                    f"{_money(max(budget, 0.0), currency)} of today's loss budget remains "
-                    "(after open risk). A stop-out would breach the daily limit.",
+                    tr(
+                        "This trade risks {risk} but only {budget} of today's loss budget remains "
+                        "(after open risk). A stop-out would breach the daily limit.",
+                        risk=_money(new_risk, currency),
+                        budget=_money(max(budget, 0.0), currency),
+                    ),
                     severity,
                 )
             )
