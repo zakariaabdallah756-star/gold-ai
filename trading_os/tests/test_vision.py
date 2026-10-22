@@ -13,6 +13,8 @@ import pytest
 
 from trading_os.services import ai_client, vision
 
+from .conftest import update_settings
+
 ANALYSIS = {
     "summary": "Gold is in an H1 uptrend, pulling back into demand above 2640.",
     "trend": {"direction": "bullish", "strength": "moderate", "description": "Higher highs and higher lows."},
@@ -73,6 +75,7 @@ ANALYSIS = {
     "caveats": ["Volume is not visible"],
     "symbol_guess": "XAUUSD",
     "timeframe_guess": "H1",
+    "extension": {"state": "normal", "reference": "20 EMA", "mean_price": 2648.0, "distance_atr": 0.8, "note": ""},
 }
 
 THINKING = {"type": "thinking", "thinking": "", "signature": "sig-1"}
@@ -607,3 +610,94 @@ def test_a_mid_output_fallback_is_read_whole_and_replayed_without_the_declined_t
     replayed = fake.calls[-1]["messages"][1]["content"]
     assert [b.get("signature") for b in replayed if b["type"] == "thinking"] == ["served"]
     assert [b["type"] for b in replayed] == ["text", "fallback", "thinking", "text"]
+
+
+# ------------------------------------------------------------------ anti-FOMO and answer language
+
+
+def with_idea(price=2652.4, extension="normal", trend="bullish", visible=True, **idea):
+    analysis = copy.deepcopy(ANALYSIS)
+    analysis["price_axis"].update(current_price=price, visible=visible)
+    analysis["extension"]["state"] = extension
+    analysis["trend"]["direction"] = trend
+    analysis["trade_ideas"][0].update(idea)
+    return analysis
+
+
+def codes(findings):
+    return {f["code"] for f in findings}
+
+
+def test_fomo_check_flags_chasing_wide_stops_and_poor_rr_now():
+    calm = vision.fomo_check(with_idea(), 2.0)
+    assert calm == {"level": "none", "chart": [], "ideas": [[]]}
+
+    chased = vision.fomo_check(with_idea(price=2656.0), 2.0)  # 1.2R past the 2645 limit entry
+    assert codes(chased["ideas"][0]) == {"FOMO_CHASE"} and chased["level"] == "warn"
+    assert "1.2R past the planned entry 2645" in chased["ideas"][0][0]["message"]
+
+    wide = vision.fomo_check(with_idea(stop_loss=2620.0), 2.0)  # 25 of a 60-point range
+    assert "FOMO_WIDE_STOP" in codes(wide["ideas"][0])
+
+    market = with_idea(price=2678.0, entry_type="market", entry=None, stop_loss=2640.0, take_profits=[2690.0])
+    flagged = codes(vision.fomo_check(market, 2.0)["ideas"][0])
+    assert {"FOMO_RR_NOW", "FOMO_AT_EXTREME", "FOMO_WIDE_STOP"} <= flagged
+    assert "FOMO_RR_NOW" not in codes(vision.fomo_check(market, 0.0)["ideas"][0])  # no minimum R:R, no check
+
+    assert codes(vision.fomo_check(with_idea(price=2630.0), 2.0)["ideas"][0]) == {"FOMO_INVALIDATED"}
+    assert codes(vision.fomo_check(with_idea(price=2661.0), 2.0)["ideas"][0]) == {"FOMO_TARGET_HIT"}
+    assert codes(vision.fomo_check(with_idea(stop_loss=2650.0), 2.0)["ideas"][0]) == {"FOMO_STOP_SIDE"}
+
+
+def test_fomo_check_reads_the_extension_and_tolerates_missing_data():
+    over = vision.fomo_check(with_idea(extension="overextended", entry_type="stop"), 2.0)
+    assert (
+        codes(over["chart"]) == {"EXTENSION_OVEREXTENDED"} and "0.8x the typical candle" in over["chart"][0]["message"]
+    )
+    assert "FOMO_EXTENDED_TREND" in codes(over["ideas"][0])  # a stop entry joining the bullish move
+    against = vision.fomo_check(with_idea(extension="overextended", trend="bearish", entry_type="stop"), 2.0)
+    assert "FOMO_EXTENDED_TREND" not in codes(against["ideas"][0])
+    extended = vision.fomo_check(with_idea(extension="extended"), 2.0)
+    assert extended["level"] == "caution" and extended["chart"][0]["severity"] == "info"
+
+    blind = with_idea(price=None, visible=False)
+    assert vision.fomo_check(blind, 2.0)["level"] == "none"
+    old = copy.deepcopy(ANALYSIS)
+    del old["extension"]  # analyses stored before the extension field existed
+    assert vision.fomo_check(old, 2.0)["level"] == "none"
+    assert vision.fomo_check(None, 2.0) == {"level": "none", "chart": [], "ideas": []}
+
+
+def test_analysis_api_returns_fomo_findings_and_honours_the_switch(client, fake):
+    record = analyse(client, fake, FakeFinal(json.dumps(with_idea(price=2656.0)))).json()
+    assert record["fomo"]["level"] == "warn" and codes(record["fomo"]["ideas"][0]) == {"FOMO_CHASE"}
+    assert "fomo" not in record["analysis"]  # never stored with the analysis (it is replayed in Q&A)
+    update_settings(client, fomo_guard=False)
+    assert client.get(f"/api/vision/analyses/{record['id']}").json()["fomo"] is None
+
+
+def test_a_strategy_minimum_rr_tightens_the_rr_now_check(client, fake):
+    strategy = next(s for s in client.get("/api/strategies").json() if s["name"] == "Breakout")
+    client.put(f"/api/strategies/{strategy['id']}", json={**strategy, "min_rr": 5})
+    update_settings(client, min_rr=0)
+    idea = with_idea(price=2645.5, entry_type="market", entry=None, stop_loss=2636.0, take_profits=[2690.0])
+    loose = analyse(client, fake, FakeFinal(json.dumps(idea))).json()
+    assert "FOMO_RR_NOW" not in codes(loose["fomo"]["ideas"][0])  # 1:4.7 with no minimum
+    strict = analyse(client, fake, FakeFinal(json.dumps(idea)), strategy="Breakout").json()
+    assert "FOMO_RR_NOW" in codes(strict["fomo"]["ideas"][0])  # below the strategy's 1:5
+
+
+def test_answers_follow_the_language_setting(client, fake):
+    record = analyse(client, fake, FakeFinal(json.dumps(ANALYSIS))).json()
+    assert len(fake.calls[-1]["system"]) == 1  # English: the request is unchanged
+
+    update_settings(client, language="it")
+    fake.outcomes.append(FakeFinal(json.dumps(ANALYSIS)))
+    client.post(f"/api/vision/analyses/{record['id']}/retry")
+    system = fake.calls[-1]["system"]
+    assert system[0]["text"] == vision.SYSTEM_PROMPT and system[0]["cache_control"] == {"type": "ephemeral"}
+    assert "in Italian" in system[1]["text"] and "JSON keys and enum values" in system[1]["text"]
+
+    fake.outcomes.append(FakeFinal("Sotto 2636."))
+    client.post(f"/api/vision/analyses/{record['id']}/messages", json={"question": "Dove va lo stop?"})
+    assert fake.calls[-1]["system"][1]["text"] == "Answer in Italian."

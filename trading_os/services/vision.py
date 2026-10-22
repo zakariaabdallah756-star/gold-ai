@@ -24,9 +24,17 @@ from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..constants import AI_FALLBACK_MODELS
+from ..constants import (
+    AI_FALLBACK_MODELS,
+    FOMO_CHASE_R,
+    FOMO_NEAR_PRICE_R,
+    FOMO_RANGE_EXTREME,
+    FOMO_STOP_RANGE_SHARE,
+    FOMO_STRUCTURE_RANGE_SHARE,
+)
 from ..models import AccountSettings, Strategy, VisionAnalysis, VisionMessage
-from . import ai_client
+from . import ai_client, i18n
+from .guardrails import Violation
 from .uploads import detect_image_type
 
 # 5 MB raw keeps the base64 payload (~6.7 MB) well under the Claude API's 10 MB per-image limit.
@@ -205,6 +213,7 @@ PATTERN_CATEGORIES = ("candlestick", "chart", "structure")
 BIASES = ("bullish", "bearish", "neutral")
 DIRECTIONS = ("long", "short")
 ENTRY_TYPES = ("market", "limit", "stop")
+EXTENSION_STATES = ("normal", "extended", "overextended", "unclear")
 
 
 def _obj(**properties: Any) -> dict:
@@ -276,6 +285,9 @@ ANALYSIS_SCHEMA: dict = _obj(
     caveats=_array(_STR),
     symbol_guess=_OPT_STR,
     timeframe_guess=_OPT_STR,
+    extension=_obj(
+        state=_enum(EXTENSION_STATES), reference=_STR, mean_price=_OPT_NUM, distance_atr=_OPT_NUM, note=_STR
+    ),
 )
 
 Num = Annotated[float, Field(allow_inf_nan=False)]
@@ -348,6 +360,14 @@ class StrategyFit(BaseModel):
     notes: str
 
 
+class Extension(BaseModel):
+    state: Literal[EXTENSION_STATES]
+    reference: str  # the mean the move is measured from, e.g. "20 EMA", "VWAP", "range midpoint" ("" if none)
+    mean_price: Num | None
+    distance_atr: Num | None  # distance of the last price from that mean, in typical candle ranges
+    note: str
+
+
 class ChartAnalysis(BaseModel):
     summary: str
     trend: Trend
@@ -362,6 +382,7 @@ class ChartAnalysis(BaseModel):
     caveats: list[str]
     symbol_guess: str | None
     timeframe_guess: str | None
+    extension: Extension
 
 
 # --------------------------------------------------------------------------- prompts
@@ -385,6 +406,10 @@ or point. Use null when an element cannot be located.
 - Derive potential trade ideas from structure: an entry, a stop loss beyond the structure that invalidates the \
 idea, and targets at the next levels or liquidity. Each idea needs a concrete trigger and invalidation. Offer \
 ideas in both directions when the chart supports them, and none when it shows no clear setup.
+- Judge how extended the latest move is: measure the last price against a mean visible on the chart (a moving \
+average, VWAP or the range midpoint) in multiples of the typical candle range, and set extension (state unclear \
+when it cannot be judged). When price is far from the structure that would invalidate a new entry, do not offer a \
+market entry: offer a limit at the pullback level instead and say that the move is extended.
 - State uncertainty honestly: use the confidence and strength fields, list caveats (for example low resolution, \
 cropped history, an unreadable axis, no volume) and keep the risks specific to this chart.
 - Be concise and concrete. This is educational analysis, not financial advice; never tell the trader what they \
@@ -445,10 +470,27 @@ def analysis_request(
             "effort": settings.ai_effort,
             "format": {"type": "json_schema", "schema": ANALYSIS_SCHEMA},
         },
-        "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        "system": _system(settings, ANALYSIS_LANGUAGE),
         "messages": [{"role": "user", "content": [image, {"type": "text", "text": text}]}],
     }
     return _with_fallbacks(params, settings.ai_model)
+
+
+# Language of the free text (never of JSON keys or enum values). A second system block after the cached
+# SYSTEM_PROMPT, so the prompt and the Q&A opening stay byte-identical in every language.
+ANALYSIS_LANGUAGE = (
+    "Write every free-text value (summary, descriptions, notes, trigger, rationale, invalidation, risks, caveats, "
+    "missing, reference) in {language}. Keep JSON keys and enum values exactly as defined."
+)
+QA_LANGUAGE = "Answer in {language}."
+
+
+def _system(settings: AccountSettings, language_note: str) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
+    language = i18n.normalize(getattr(settings, "language", None))
+    if language != i18n.DEFAULT_LANGUAGE:
+        blocks.append({"type": "text", "text": language_note.format(language=i18n.ai_language_name(language))})
+    return blocks
 
 
 def conversation(
@@ -479,7 +521,7 @@ def qa_request(settings: AccountSettings, messages: list[dict[str, Any]]) -> dic
         "max_tokens": QA_MAX_TOKENS,
         "thinking": {"type": "adaptive"},
         "output_config": {"effort": ai_client.capped_effort(settings.ai_effort, QA_EFFORT_CEILING)},
-        "system": [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
+        "system": _system(settings, QA_LANGUAGE),
         "cache_control": {"type": "ephemeral"},
         "messages": messages,
     }
@@ -552,6 +594,215 @@ def answer_text(final: Any) -> str:
 def served_model(final: Any, requested: str) -> str:
     """The model that produced the response (differs from the request after a refusal fallback)."""
     return getattr(final, "model", None) or requested
+
+
+# --------------------------------------------------------------------------- anti-FOMO
+
+FOMO_LEVELS = ("none", "caution", "warn")
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
+def _px(value: float) -> str:
+    return f"{value:g}"
+
+
+def _finding(code: str, severity: str, text: str, **params: Any) -> dict:
+    return Violation(code, i18n.tr(text, **params), severity).to_dict()
+
+
+def fomo_check(analysis: dict | None, min_rr: float = 0.0) -> dict:
+    """Warn-only checks for chasing an extended move far from a logical stop (computed when read, never stored).
+
+    ``min_rr`` is the effective minimum reward:risk (the stricter of the account's and the strategy's).
+    Returns ``{"level": none|caution|warn, "chart": [finding], "ideas": [[finding], ...]}``, with ``ideas``
+    aligned to ``analysis["trade_ideas"]``. Missing or unreadable prices simply skip a check.
+    """
+    analysis = analysis or {}
+    axis = analysis.get("price_axis") or {}
+    price = _number(axis.get("current_price"))
+    low, high = _number(axis.get("min_price")), _number(axis.get("max_price"))
+    span = high - low if axis.get("visible") and low is not None and high is not None and high > low else None
+    anchors = [_number(level.get("price")) for level in analysis.get("levels") or []]
+    for zone in analysis.get("zones") or []:
+        anchors += [_number(zone.get("price_top")), _number(zone.get("price_bottom"))]
+    anchors = [a for a in anchors if a is not None]
+    extension = analysis.get("extension") or {}
+    state = extension.get("state")
+    trend = (analysis.get("trend") or {}).get("direction")
+
+    chart: list[dict] = []
+    if state in ("overextended", "extended"):
+        distance = _number(extension.get("distance_atr"))
+        how_far = (
+            i18n.tr(
+                " ({distance:.1f}x the typical candle range from the {reference})",
+                distance=distance,
+                reference=extension.get("reference") or i18n.tr("mean"),
+            )
+            if distance is not None
+            else ""
+        )
+        if state == "overextended":
+            chart.append(
+                _finding(
+                    "EXTENSION_OVEREXTENDED",
+                    "warn",
+                    "The latest move looks overextended{how_far}. Chasing it means a wide stop or a poor R:R - "
+                    "a pullback towards structure is the calmer entry.",
+                    how_far=how_far,
+                )
+            )
+        else:
+            chart.append(
+                _finding("EXTENSION_EXTENDED", "info", "The latest move is extended{how_far}.", how_far=how_far)
+            )
+    aligned = {"bullish": "long", "bearish": "short"}.get(trend)
+    ideas = [
+        _idea_fomo(
+            idea, price, low, span, anchors, min_rr, state == "overextended" and idea.get("direction") == aligned
+        )
+        for idea in analysis.get("trade_ideas") or []
+    ]
+    severities = {f["severity"] for f in chart} | {f["severity"] for findings in ideas for f in findings}
+    level = "warn" if "warn" in severities else "caution" if severities else "none"
+    return {"level": level, "chart": chart, "ideas": ideas}
+
+
+def _idea_fomo(
+    idea: dict,
+    price: float | None,
+    low: float | None,
+    span: float | None,
+    anchors: list[float],
+    min_rr: float,
+    joins_overextended_move: bool,
+) -> list[dict]:
+    sign = 1 if idea.get("direction") == "long" else -1
+    entry_type = idea.get("entry_type")
+    planned = _number(idea.get("entry"))
+    entry = planned if planned is not None else (price if entry_type == "market" else None)
+    stop = _number(idea.get("stop_loss"))
+    target = next((v for v in map(_number, idea.get("take_profits") or []) if v is not None), None)
+    findings: list[dict] = []
+    if joins_overextended_move and entry_type in ("market", "stop"):
+        findings.append(
+            _finding(
+                "FOMO_EXTENDED_TREND",
+                "warn",
+                "This idea joins a move rated overextended - wait for a pullback before entering in its direction.",
+            )
+        )
+    if entry is None or stop is None:
+        return findings
+    risk = (entry - stop) * sign
+    if risk <= 0:
+        findings.append(
+            _finding(
+                "FOMO_STOP_SIDE", "info", "The stop is not on the protective side of the entry - check the levels."
+            )
+        )
+        return findings
+    enter_now = entry_type == "market" or (price is not None and abs(entry - price) <= FOMO_NEAR_PRICE_R * risk)
+
+    if price is not None and (price - stop) * sign <= 0:
+        findings.append(
+            _finding(
+                "FOMO_INVALIDATED",
+                "warn",
+                "Price {price} is already beyond the stop {stop} - this idea is invalidated.",
+                price=_px(price),
+                stop=_px(stop),
+            )
+        )
+        return findings
+    if price is not None and target is not None and (target - price) * sign <= 0:
+        findings.append(
+            _finding(
+                "FOMO_TARGET_HIT",
+                "warn",
+                "Price {price} has already reached the first target {target} - the planned move is done.",
+                price=_px(price),
+                target=_px(target),
+            )
+        )
+        return findings
+    if price is not None and planned is not None and entry_type in ("limit", "stop"):
+        run = (price - planned) * sign / risk
+        if run >= FOMO_CHASE_R:
+            findings.append(
+                _finding(
+                    "FOMO_CHASE",
+                    "warn",
+                    "Price {price} is already {run:.1f}R past the planned entry {entry} - entering now would be "
+                    "chasing. Wait for the entry or skip the trade.",
+                    price=_px(price),
+                    run=run,
+                    entry=_px(planned),
+                )
+            )
+    if price is not None and enter_now and target is not None and min_rr > 0:
+        rr_now = (target - price) * sign / ((price - stop) * sign)
+        if rr_now < min_rr - 1e-9:
+            findings.append(
+                _finding(
+                    "FOMO_RR_NOW",
+                    "warn",
+                    "From the current price the first target pays only 1:{rr:.2f}, below your 1:{minimum:g} minimum.",
+                    rr=rr_now,
+                    minimum=min_rr,
+                )
+            )
+    if price is not None and span and (enter_now or entry_type == "stop"):
+        position = (price - low) / span
+        if sign > 0 and position >= 1 - FOMO_RANGE_EXTREME:
+            findings.append(
+                _finding(
+                    "FOMO_AT_EXTREME",
+                    "warn",
+                    "Buying at the top of the visible range after a run is a classic FOMO entry.",
+                )
+            )
+        elif sign < 0 and position <= FOMO_RANGE_EXTREME:
+            findings.append(
+                _finding(
+                    "FOMO_AT_EXTREME",
+                    "warn",
+                    "Selling at the bottom of the visible range after a drop is a classic FOMO entry.",
+                )
+            )
+    wide = False
+    if span and risk / span >= FOMO_STOP_RANGE_SHARE:
+        wide = True
+        findings.append(
+            _finding(
+                "FOMO_WIDE_STOP",
+                "warn",
+                "The logical stop is far away: {share:.0f}% of the visible price range from the entry. The move has "
+                "run far from the level that invalidates it - wait for a pullback or skip.",
+                share=risk / span * 100,
+            )
+        )
+    if span and enter_now:
+        behind = [a for a in anchors if (entry - a) * sign >= 0]
+        anchor = (max(behind) if sign > 0 else min(behind)) if behind else stop
+        distance = (entry - anchor) * sign / span
+        if distance >= FOMO_STRUCTURE_RANGE_SHARE and not (anchor == stop and wide):
+            findings.append(
+                _finding(
+                    "FOMO_NO_STRUCTURE",
+                    "warn",
+                    "Entering here is {share:.0f}% of the visible range away from the nearest level behind it "
+                    "({anchor}) - there is no nearby structure to lean on.",
+                    share=distance * 100,
+                    anchor=_px(anchor),
+                )
+            )
+    return findings
 
 
 # --------------------------------------------------------------------------- overlay

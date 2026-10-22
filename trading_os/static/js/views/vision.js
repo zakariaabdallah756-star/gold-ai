@@ -5,6 +5,7 @@
 import { api } from "../api.js";
 import { clear, confirmDialog, field, h, icon, lightbox, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
+import { N_, t, tn } from "../i18n.js";
 import { handoff, state } from "../state.js";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -56,6 +57,7 @@ const LEGEND = [
   ["neutral", "Range · other"],
 ];
 const ENTRY_TYPES = { market: "Market", limit: "Limit", stop: "Stop" };
+const EXTENSION = { normal: N_("Normal"), extended: N_("Extended"), overextended: N_("Overextended"), unclear: N_("Unclear") };
 const CATEGORIES = { candlestick: "Candlestick", chart: "Chart pattern", structure: "Structure" };
 const SETUP_DETAIL = "Claude is not configured yet - no API key or login was found.";
 
@@ -131,12 +133,49 @@ function rewardRisk(idea, analysis) {
 /** Only "Claude is not configured" carries setup steps; a 503 for a network problem keeps the working key. */
 const needsSetup = (error) => error.status === 503 && Array.isArray(error.payload?.setup);
 
-function sendToSignals(idea, record) {
+function findingList(findings) {
+  if (!findings?.length) return null;
+  return h(
+    "div",
+    { class: "violations vi-fomo-list" },
+    findings.map((f) => h("div", { class: `violation ${f.severity === "warn" ? "warn" : "info"}` }, icon(f.severity === "warn" ? "alert" : "info"), h("div", {}, f.message))),
+  );
+}
+
+async function sendToSignals(idea, record, findings = []) {
+  const warnings = findings.filter((f) => f.severity === "warn");
+  if (warnings.length) {
+    const ok = await confirmDialog(
+      h("span", {}, t("The anti-FOMO check flags this idea:"), findingList(warnings), t("Send it to Signals anyway? The warnings travel with the ticket.")),
+      { title: t("Anti-FOMO check"), confirmText: t("Send anyway") },
+    );
+    if (!ok) return;
+  }
   const symbol = displaySymbol(record).toUpperCase().replace(/[^A-Z0-9.]/g, "");
   handoff.signalText = signalText(idea, symbol);
   // The chart was analysed against this strategy and timeframe: the Co-Pilot checks the idea against them too.
-  handoff.signalContext = { strategy: record.strategy || "", timeframe: record.timeframe || "", confluences: [], risk_pct: null };
+  handoff.signalContext = {
+    strategy: record.strategy || "",
+    timeframe: record.timeframe || "",
+    confluences: [],
+    risk_pct: null,
+    vision: warnings.length ? { analysis_id: record.id, warnings } : null,
+  };
   location.hash = "#/signals";
+}
+
+/** The chart-level anti-FOMO callout (extension of the move, flagged ideas). */
+function fomoCallout(record) {
+  const fomo = record.fomo;
+  if (!fomo || fomo.level === "none") return null;
+  const flagged = fomo.ideas.filter((findings) => findings.some((f) => f.severity === "warn")).length;
+  return h(
+    "div",
+    { class: `vi-fomo ${fomo.level === "warn" ? "warn" : "info"}` },
+    h("div", { class: "row" }, icon("shield"), h("strong", {}, t("Anti-FOMO check")), flagged ? h("span", { class: "badge warn" }, tn(flagged, "{n} idea flagged", "{n} ideas flagged")) : null),
+    findingList(fomo.chart),
+    h("p", { class: "muted small" }, t("Warnings only: an extended move far from its logical stop invites chasing. The decision stays yours.")),
+  );
 }
 
 function setupCard(detail) {
@@ -257,12 +296,19 @@ function summaryCard(record) {
     ["Last break of structure", analysis.structure.last_bos || "None identified"],
     ["Last change of character", analysis.structure.last_choch || "None identified"],
   ];
+  const ext = analysis.extension;
+  if (ext && EXTENSION[ext.state]) {
+    const parts = [t(EXTENSION[ext.state])];
+    if (isNum(ext.distance_atr)) parts.push(t("{distance}× the typical candle from {reference}", { distance: fmt.num(ext.distance_atr, 1), reference: ext.reference || t("the mean") }));
+    rows.push([t("Move extension"), parts.join(" · ")]);
+  }
   if (analysis.symbol_guess && analysis.symbol_guess !== record.symbol) rows.push(["Symbol on chart", analysis.symbol_guess]);
   if (analysis.timeframe_guess && analysis.timeframe_guess !== record.timeframe) rows.push(["Timeframe on chart", analysis.timeframe_guess]);
   return h(
     "div",
     { class: "card" },
     h("div", { class: "card-head" }, h("h2", {}, "Summary")),
+    fomoCallout(record),
     h("p", { class: "vi-summary" }, analysis.summary),
     h(
       "div",
@@ -280,7 +326,9 @@ function summaryCard(record) {
   );
 }
 
-function ideaCard(idea, record) {
+function ideaCard(idea, record, index) {
+  const findings = record.fomo?.ideas?.[index] || [];
+  const flagged = findings.some((f) => f.severity === "warn");
   const long = idea.direction === "long";
   const rr = rewardRisk(idea, record.analysis);
   const entry = isNum(idea.entry) ? fmt.price(idea.entry) : idea.entry_type === "market" ? "At market" : "—";
@@ -292,7 +340,7 @@ function ideaCard(idea, record) {
   ];
   return h(
     "article",
-    { class: `vi-idea tone-${long ? "bull" : "bear"}` },
+    { class: `vi-idea tone-${long ? "bull" : "bear"}${flagged ? " fomo" : ""}` },
     h("div", { class: "row" }, badge(long ? "long" : "short", long ? "up" : "down", long ? "Long" : "Short"), badge("", null, ENTRY_TYPES[idea.entry_type] || idea.entry_type), h("span", { class: "spacer" }), confidenceBadge(idea.confidence)),
     h("dl", { class: "vi-idea-levels" }, cells.map(([label, value]) => h("div", {}, h("dt", {}, label), h("dd", {}, value)))),
     h(
@@ -304,7 +352,8 @@ function ideaCard(idea, record) {
         ["Invalidation", idea.invalidation],
       ].map(([label, text]) => h("div", {}, h("strong", {}, label), text)),
     ),
-    h("button", { class: "btn sm", type: "button", onclick: () => sendToSignals(idea, record) }, icon("signal"), "Send to Signals"),
+    findingList(findings),
+    h("button", { class: "btn sm", type: "button", onclick: () => sendToSignals(idea, record, findings) }, icon("signal"), flagged ? t("Send anyway…") : "Send to Signals"),
   );
 }
 
@@ -314,7 +363,7 @@ function ideasCard(record) {
     "div",
     { class: "card" },
     h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Trade ideas"), h("p", {}, "Potential setups from structure. Send one to Signals to size it and run your guardrails - the decision stays yours."))),
-    ideas.length ? h("div", { class: "vi-ideas" }, ideas.map((idea) => ideaCard(idea, record))) : h("p", { class: "muted" }, "No clear setup on this chart - waiting is a position too."),
+    ideas.length ? h("div", { class: "vi-ideas" }, ideas.map((idea, index) => ideaCard(idea, record, index))) : h("p", { class: "muted" }, "No clear setup on this chart - waiting is a position too."),
   );
 }
 
@@ -765,6 +814,7 @@ export async function render(root, { params } = {}) {
       record.strategy ? `Is this a valid setup for ${record.strategy}?` : null,
       "What would invalidate this idea?",
       "Which liquidity is likely to be taken next?",
+      t("Is this move overextended?"),
     ].filter(Boolean);
     const chips = suggestions.map((question) => h("button", { type: "button", class: "chip-toggle", onclick: () => send(question) }, question));
 

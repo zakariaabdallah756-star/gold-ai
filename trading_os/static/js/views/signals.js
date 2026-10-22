@@ -4,6 +4,7 @@
 import { api, ApiError } from "../api.js";
 import { clear, confirmDialog, debounce, field, h, icon, numberOrNull, segmented, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
+import { t as translate } from "../i18n.js";
 import { handoff, loadStatus, state, strategyByName } from "../state.js";
 import { violationList } from "./calculator.js";
 import { copilotPanel, splitCopilot } from "./copilot.js";
@@ -17,7 +18,7 @@ const TRIGGER_LABELS = { tp1: "After TP1", immediate: "Immediately" };
 const SIDE = { long: "Buy", short: "Sell" };
 
 // Kept between visits: the pasted message and the ticket being edited.
-const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, example: -1, context: null, alert: null };
+const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, example: -1, context: null, alert: null, vision: null };
 
 const num = (value) => numberOrNull({ value: value ?? "" });
 const inputValue = (value) => (value === null || value === undefined ? "" : String(value));
@@ -46,10 +47,16 @@ function guardrailFindings(violations, strategyName, okText) {
 }
 
 function resetMemory() {
-  Object.assign(memory, { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, context: null, alert: null });
+  Object.assign(memory, { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, context: null, alert: null, vision: null });
 }
 
 /** Same markup as calculator.violationList, for non-guardrail messages. */
+/** Anti-FOMO findings carried over from the Vision AI idea this ticket came from. */
+function visionWarnings() {
+  const warnings = memory.vision?.warnings || [];
+  return issueList(warnings.map((w) => w.message), { kind: "warn", tag: translate("Anti-FOMO (Vision AI)"), iconName: "alert" });
+}
+
 function issueList(messages, { kind, tag, iconName }) {
   if (!messages.length) return null;
   return h(
@@ -92,7 +99,7 @@ export async function render(root) {
     // A trade idea handed over by another page (Vision AI, a strategy alert) is a fresh paste, judged with the
     // strategy, timeframe, confluences and risk it came with - never the previous ticket's.
     const context = handoff.signalContext || {};
-    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null, draft: null, splitAuto: true, context, alert: context.alert || null });
+    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null, draft: null, splitAuto: true, context, alert: context.alert || null, vision: context.vision || null });
     handoff.signalText = null;
     handoff.signalContext = null;
   }
@@ -750,6 +757,7 @@ export async function render(root) {
       table,
       rrBar,
       issueList(r.warnings, { kind: "warn", tag: "Note", iconName: "info" }),
+      visionWarnings(),
       s && s.notes.length ? h("div", { class: "muted small sig-notes" }, s.notes.map((note) => h("p", {}, note))) : null,
       management,
       guardBox,
@@ -778,7 +786,7 @@ export async function render(root) {
         toast("The ticket can't be executed as it stands - review the result panel.", "warn");
         return;
       }
-      const warnings = fresh.check.violations.filter((v) => v.severity === "warn");
+      const warnings = [...fresh.check.violations.filter((v) => v.severity === "warn"), ...(memory.vision?.warnings || [])];
       if (warnings.length) {
         const ok = await confirmDialog(`This trade breaks ${plural(warnings.length, "rule")} (warnings, not blocks). Log it anyway?`, {
           title: "Execute with warnings",

@@ -69,6 +69,7 @@ class AccountSettings(TimestampMixin, Base):
     require_checklist: Mapped[bool] = mapped_column(Boolean, default=True)
     warn_outside_sessions: Mapped[bool] = mapped_column(Boolean, default=True)
     session_rule_mode: Mapped[str] = mapped_column(String(8), default="warn")  # warn | block (off-session entries)
+    fomo_guard: Mapped[bool] = mapped_column(Boolean, default=True)  # anti-FOMO warnings on Vision AI ideas
 
     # Economic news guardrail
     news_mode: Mapped[str] = mapped_column(String(8), default="warn")  # off | warn | block

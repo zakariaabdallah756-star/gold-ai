@@ -256,6 +256,7 @@ function rulesSection() {
     [
       { name: "require_checklist", label: "Require the pre-market checklist before entries", type: "checkbox", full: true },
       { name: "warn_outside_sessions", label: t("Check entries against my active sessions"), type: "checkbox", full: true },
+      { name: "fomo_guard", label: t("Anti-FOMO: warn when a Vision AI idea chases an extended move far from its stop"), type: "checkbox", full: true },
       {
         name: "session_rule_mode",
         label: t("Entries outside my active sessions"),

@@ -61,6 +61,7 @@ class SettingsIn(BaseModel):
     require_checklist: bool = True
     warn_outside_sessions: bool = True
     session_rule_mode: Literal["warn", "block"] = "warn"
+    fomo_guard: bool = True
     news_mode: Literal["off", "warn", "block"] = "warn"
     news_before_min: int = Field(30, ge=0, le=240)
     news_after_min: int = Field(30, ge=0, le=240)

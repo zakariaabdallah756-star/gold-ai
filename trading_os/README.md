@@ -86,7 +86,17 @@ The sidebar groups the pages into **Trade**, **Improve** and **Setup**.
 - supply/demand and liquidity zones, order blocks, FVGs
 - candlestick and chart patterns
 
-Key elements are drawn as an overlay on your image. Trade ideas come with entry, stop, targets, trigger and invalidation, and **Send to Signals** turns one into a sized, guardrail-checked ticket, checked against the strategy and timeframe the chart was analysed with. A chat panel lets you ask follow-up questions about the same chart. **Run again** replaces an analysis only when the new one succeeds. See [AI setup](#ai-setup).
+Key elements are drawn as an overlay on your image. Trade ideas come with entry, stop, targets, trigger and invalidation, and **Send to Signals** turns one into a sized, guardrail-checked ticket, checked against the strategy and timeframe the chart was analysed with. A chat panel lets you ask follow-up questions about the same chart. **Run again** replaces an analysis only when the new one succeeds. Analyses and answers come back in the language chosen under *Trading Plan → Account*. See [AI setup](#ai-setup).
+
+**Anti-FOMO check** (on by default; *Trading Plan → Process rules*). Claude also rates how extended the latest move is against a visible mean (normal, extended, overextended). On top of that, each idea is checked against the chart's prices. These are warnings only, nothing is ever blocked:
+- price already 1R or more past a limit/stop entry (chasing);
+- price beyond the stop, or already at the first target;
+- reward:risk from the current price below your minimum (the stricter of the account's and the strategy's);
+- a long at the top or a short at the bottom tenth of the visible range;
+- a stop a third or more of the visible range away;
+- an "enter now" price far from any level or zone behind it.
+
+Flagged ideas need a confirmation before **Send to Signals**, and the warnings travel with the ticket into the final execute confirmation.
 
 **Risk Calculator.**
 - Inputs: equity, risk %, stop as a price or in pips/points, optional target, FX rate for cross-currency instruments.

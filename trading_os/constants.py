@@ -79,3 +79,10 @@ STRATEGY_STATUSES = ("live", "incubator", "retired")
 AI_MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1")
 AI_FALLBACK_MODELS = frozenset({"claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"})
 AI_EFFORTS = ("low", "medium", "high", "xhigh", "max")
+
+# Anti-FOMO checks on Vision AI trade ideas (warnings only, never blocks). Shares are of the visible price range.
+FOMO_CHASE_R = 1.0  # price already ran this many R past a limit/stop idea's entry: entering now is chasing
+FOMO_STOP_RANGE_SHARE = 1 / 3  # entry-to-stop distance at least this share of the range: far from invalidation
+FOMO_STRUCTURE_RANGE_SHARE = 0.20  # an enter-now entry this far from the nearest level/zone behind it
+FOMO_RANGE_EXTREME = 0.10  # long in the top / short in the bottom tenth of the visible range
+FOMO_NEAR_PRICE_R = 0.25  # an entry within this many R of the last price counts as entering now

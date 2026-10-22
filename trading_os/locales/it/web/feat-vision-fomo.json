@@ -1,0 +1,20 @@
+{
+  "Anti-FOMO (Vision AI)": "Anti-FOMO (Vision AI)",
+  "Anti-FOMO check": "Controllo anti-FOMO",
+  "Anti-FOMO: warn when a Vision AI idea chases an extended move far from its stop": "Anti-FOMO: avvisa quando un'idea di Vision AI insegue un movimento esteso lontano dal suo stop",
+  "Extended": "Esteso",
+  "Is this move overextended?": "Questo movimento è troppo esteso?",
+  "Move extension": "Estensione del movimento",
+  "Normal": "Normale",
+  "Overextended": "Troppo esteso",
+  "Send anyway": "Invia comunque",
+  "Send anyway…": "Invia comunque…",
+  "Send it to Signals anyway? The warnings travel with the ticket.": "Inviarla comunque ai Segnali? Gli avvisi accompagnano il ticket.",
+  "The anti-FOMO check flags this idea:": "Il controllo anti-FOMO segnala questa idea:",
+  "Unclear": "Non chiaro",
+  "Warnings only: an extended move far from its logical stop invites chasing. The decision stays yours.": "Solo avvisi: un movimento esteso lontano dal suo stop logico spinge a inseguire il prezzo. La decisione resta tua.",
+  "the mean": "la media",
+  "{distance}× the typical candle from {reference}": "{distance}× la candela tipica da {reference}",
+  "{n} idea flagged": "{n} idea segnalata",
+  "{n} ideas flagged": "{n} idee segnalate"
+}

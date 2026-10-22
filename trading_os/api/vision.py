@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import AppConfig
 from ..constants import AI_EFFORTS, AI_MODELS, TIMEFRAMES
-from ..models import AccountSettings, VisionAnalysis
+from ..models import AccountSettings, Strategy, VisionAnalysis
 from ..schemas import FiniteModel
 from ..services import ai_client, uploads, vision
 from ..services.account import local_now
@@ -51,6 +51,7 @@ class VisionAnalysisOut(VisionSummaryOut):
     image_height: int | None
     analysis: dict[str, Any] | None
     overlay: dict[str, list[dict[str, Any]]] | None
+    fomo: dict[str, Any] | None = None  # anti-FOMO findings (None when the check is off or nothing was analysed)
     messages: list[VisionMessageOut]
 
 
@@ -126,7 +127,16 @@ def _summary(record: VisionAnalysis) -> dict[str, Any]:
     }
 
 
-def _full(record: VisionAnalysis) -> dict[str, Any]:
+def _fomo(db: Session, settings: AccountSettings, record: VisionAnalysis) -> dict[str, Any] | None:
+    """Anti-FOMO findings for the stored analysis, judged now against the account's and strategy's minimum R:R."""
+    if not record.analysis or not settings.fomo_guard:
+        return None
+    strategy = db.scalar(select(Strategy).where(Strategy.name == record.strategy)) if record.strategy else None
+    min_rr = max(settings.min_rr or 0.0, (strategy.min_rr if strategy else 0.0) or 0.0)
+    return vision.fomo_check(record.analysis, min_rr)
+
+
+def _full(record: VisionAnalysis, db: Session, settings: AccountSettings) -> dict[str, Any]:
     has_overlay = bool(record.analysis and record.image_width and record.image_height)
     return {
         **_summary(record),
@@ -135,6 +145,7 @@ def _full(record: VisionAnalysis) -> dict[str, Any]:
         "image_height": record.image_height,
         "analysis": record.analysis,
         "overlay": vision.overlay(record.analysis, record.image_width, record.image_height) if has_overlay else None,
+        "fomo": _fomo(db, settings, record),
         "messages": record.messages,
     }
 
@@ -166,7 +177,7 @@ def _run(db: Session, settings: AccountSettings, config: AppConfig, record: Visi
         return _unavailable(exc, record.id)
     except ai_client.AIRequestError as exc:
         return JSONResponse(status_code=exc.status_code, content={"detail": str(exc), "analysis_id": record.id})
-    return _full(record)
+    return _full(record, db, settings)
 
 
 # ----------------------------------------------------------------- analyses
@@ -220,8 +231,8 @@ def list_analyses(db: DbDep, limit: int = Query(50, ge=1, le=200)):
 
 
 @router.get("/vision/analyses/{analysis_id}", response_model=VisionAnalysisOut)
-def read_analysis(analysis_id: int, db: DbDep):
-    return _full(get_or_404(db, VisionAnalysis, analysis_id))
+def read_analysis(analysis_id: int, db: DbDep, settings: SettingsDep):
+    return _full(get_or_404(db, VisionAnalysis, analysis_id), db, settings)
 
 
 @router.delete("/vision/analyses/{analysis_id}", status_code=204)

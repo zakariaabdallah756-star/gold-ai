@@ -196,3 +196,11 @@
   .vi-drop.has-file { flex-direction: column; align-items: flex-start; }
   .vi-preview { width: 100%; height: 140px; }
 }
+
+/* Anti-FOMO check */
+.vi-fomo { border: 1px solid var(--border); border-left: 3px solid var(--warn, #e0a33a); border-radius: var(--radius, 8px); padding: 10px 12px; margin: 4px 0 12px; display: grid; gap: 8px; }
+.vi-fomo.info { border-left-color: var(--accent, #4c8dff); }
+.vi-fomo .row { gap: 8px; align-items: center; }
+.vi-fomo p { margin: 0; }
+.vi-fomo-list { display: grid; gap: 6px; margin: 6px 0; }
+.vi-idea.fomo { box-shadow: inset 0 0 0 1px var(--warn, #e0a33a); }
