@@ -23,10 +23,19 @@ from statistics import fmean
 from typing import Protocol
 
 from .analytics import Booking, booking_stats, bookings
+from .i18n import N_, tr
 
 HOURS_PER_DAY = 24
 DAYS_PER_WEEK = 7
-WEEKDAY_LABELS = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+WEEKDAY_LABELS = (
+    N_("Monday"),
+    N_("Tuesday"),
+    N_("Wednesday"),
+    N_("Thursday"),
+    N_("Friday"),
+    N_("Saturday"),
+    N_("Sunday"),
+)
 
 
 class TimedTrade(Protocol):
@@ -79,7 +88,7 @@ def heatmap(trades: Iterable[TimedTrade]) -> dict:
         ],
         "by_hour": [{"hour": hour, **_heat_stats(by_hour[hour])} for hour in range(HOURS_PER_DAY)],
         "by_weekday": [
-            {"weekday": day, "label": WEEKDAY_LABELS[day], **_heat_stats(by_weekday[day])}
+            {"weekday": day, "label": tr(WEEKDAY_LABELS[day]), **_heat_stats(by_weekday[day])}
             for day in range(DAYS_PER_WEEK)
         ],
     }
