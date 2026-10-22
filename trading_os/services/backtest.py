@@ -196,23 +196,77 @@ COMPARE_KEYS = (
     ("profit_factor", "Profit factor"),
     ("expectancy_r", "Expectancy (R / trade)"),
     ("expectancy", "Expectancy ($ / trade)"),
+    ("expectancy_same_basis", "Expectancy at backtest risk ($ / trade)"),
     ("avg_rr", "Avg win : avg loss (R)"),
     ("avg_planned_rr", "Avg planned R:R"),
+    ("max_drawdown_r", "Max drawdown (R)"),
+    ("max_drawdown", "Max drawdown ($)"),
     ("max_drawdown_pct", "Max drawdown %"),
 )
+# How each comparison value is shown: money, R, percent (of equity / of trades) or a plain number.
+COMPARE_UNITS = {
+    "expectancy": "money",
+    "expectancy_same_basis": "money",
+    "max_drawdown": "money",
+    "expectancy_r": "r",
+    "max_drawdown_r": "r",
+    "win_rate": "pct",
+    "max_drawdown_pct": "pct",
+}
 
 
-def compare(backtest: dict, live: dict) -> dict:
+def expectancy_gap(backtest: dict, live: dict, one_r: float | None) -> dict | None:
+    """How far live expectancy is from the backtest, in R and in money at the backtest's risk per trade.
+
+    Both sides are compared in R, so position size and fees do not distort the gap; ``live_money_actual``
+    is what live trades really made per trade (real size, net of fees).
+    """
+    b, l_ = backtest.get("expectancy_r"), live.get("expectancy_r")
+    if not backtest.get("trades") or not live.get("trades") or b is None or l_ is None:
+        return None
+    gap = l_ - b
+    return {
+        "backtest_r": b,
+        "live_r": l_,
+        "gap_r": round(gap, 2),
+        "gap_pct": round(gap / abs(b) * 100, 1) if b else None,
+        "edge_retained_pct": round(l_ / b * 100, 1) if b > 0 else None,
+        "backtest_money": round(b * one_r, 2) if one_r else None,
+        "live_money_same_basis": round(l_ * one_r, 2) if one_r else None,
+        "gap_money_same_basis": round(gap * one_r, 2) if one_r else None,
+        "live_money_actual": live.get("expectancy"),
+    }
+
+
+def compare(backtest: dict, live: dict, one_r: float | None = None) -> dict:
+    """Side-by-side rows (live - backtest), the expectancy gap and a verdict.
+
+    ``one_r`` (money per 1R in backtests) adds the live expectancy at the backtest's risk basis.
+    """
+    sides = {"backtest": dict(backtest), "live": dict(live)}
+    for side in sides.values():
+        side["expectancy_same_basis"] = (
+            round(side["expectancy_r"] * one_r, 2) if one_r and side.get("expectancy_r") is not None else None
+        )
     rows = []
     for key, label in COMPARE_KEYS:
-        b, l_ = backtest.get(key), live.get(key)
+        if key == "expectancy_same_basis" and not one_r:
+            continue
+        b, l_ = sides["backtest"].get(key), sides["live"].get(key)
         # An empty side has no statistics (only its trade count of 0).
         if key != "trades":
             b = b if backtest["trades"] else None
             l_ = l_ if live["trades"] else None
         delta = round(l_ - b, 2) if isinstance(b, (int, float)) and isinstance(l_, (int, float)) else None
-        rows.append({"key": key, "label": label, "backtest": b, "live": l_, "delta": delta})
-    return {"rows": rows, "verdict": verdict(backtest, live)}
+        row = {"key": key, "label": label, "unit": COMPARE_UNITS.get(key, "number"), "backtest": b, "live": l_}
+        row["delta"] = delta
+        if key == "profit_factor":  # no losing trade: infinite, shown as such rather than as "no value"
+            row["infinite"] = {
+                "backtest": bool(backtest["trades"] and backtest.get("profit_factor_infinite")),
+                "live": bool(live["trades"] and live.get("profit_factor_infinite")),
+            }
+        rows.append(row)
+    return {"rows": rows, "gap": expectancy_gap(backtest, live, one_r), "verdict": verdict(backtest, live)}
 
 
 def verdict(backtest: dict, live: dict) -> dict:
@@ -267,7 +321,8 @@ def strategy_report(db: Session, settings: AccountSettings, strategy: Strategy) 
     base = settings.starting_balance
     backtest_metrics = metrics(rows, base)
 
-    live_trades = trade_service.closed_trades(db, trade_service.TradeFilters(strategy=strategy.name))
+    names = live_names(db, strategy)
+    live_trades = trade_service.closed_trades(db, trade_service.TradeFilters(strategy_names=names))
     live_metrics = metrics(live_trades, base) if live_trades else metrics([], base)
     return {
         "strategy": {"id": strategy.id, "name": strategy.name, "status": strategy.status},
@@ -277,8 +332,26 @@ def strategy_report(db: Session, settings: AccountSettings, strategy: Strategy) 
         "equity_curve": r_equity_curve(rows, base),
         "distribution": analytics.r_distribution(rows),
         "live_metrics": live_metrics,
-        "comparison": compare(backtest_metrics, live_metrics),
+        "live_names": list(names),
+        "comparison": compare(backtest_metrics, live_metrics, one_r),
     }
+
+
+def live_names(db: Session, strategy: Strategy) -> tuple[str, ...]:
+    """Journal strategy names that count as this strategy: its name and its former names, except names
+    another strategy uses now (those trades belong to that strategy)."""
+    taken = set(db.scalars(select(Strategy.name).where(Strategy.id != strategy.id)))
+    former = [name for name in (strategy.former_names or []) if name and name != strategy.name and name not in taken]
+    return (strategy.name, *dict.fromkeys(former))
+
+
+def strategy_renamed(db: Session, strategy: Strategy, before: dict) -> None:
+    """Remember a strategy's old name so its journal history keeps counting (trades are never rewritten)."""
+    old = before.get("name")
+    if not old or old == strategy.name:
+        return
+    names = [name for name in (strategy.former_names or []) if name not in (old, strategy.name)]
+    strategy.former_names = [*names, old]
 
 
 # ------------------------------------------------------------------ CSV import

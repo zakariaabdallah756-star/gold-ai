@@ -431,6 +431,7 @@ class TradeFilters:
     date_to: date | None = None
     q: str | None = None
     by_close_date: bool = False
+    strategy_names: tuple[str, ...] = ()  # any of these strategy names (a strategy and its former names)
 
 
 def apply_filters(stmt: Select, filters: TradeFilters) -> Select:
@@ -445,6 +446,8 @@ def apply_filters(stmt: Select, filters: TradeFilters) -> Select:
     ):
         if value:
             stmt = stmt.where(column == value)
+    if filters.strategy_names:
+        stmt = stmt.where(Trade.strategy.in_(filters.strategy_names))
 
     time_column = CLOSE_TIME if filters.by_close_date else Trade.entry_time
     if filters.date_from:

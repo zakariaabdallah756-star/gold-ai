@@ -177,6 +177,7 @@ class StrategyIn(BaseModel):
 
 class StrategyOut(StrategyIn, ORMModel):
     id: int
+    former_names: list[str] = []  # earlier names whose journal trades still count as this strategy
 
 
 class ConfluenceIn(BaseModel):

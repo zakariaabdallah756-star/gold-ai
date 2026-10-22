@@ -440,7 +440,7 @@ function sections() {
       defaults: { min_confluences: 2, active: true, status: "live", allowed_directions: "both", required_confluences: [], allowed_sessions: [], allowed_timeframes: [] },
       fields: [
         { name: "name", label: "Name" },
-        { name: "status", label: "Status", type: "select", options: [["live", "Live"], ["incubator", "Incubator (testing)"], ["retired", "Retired"]] },
+        { name: "status", label: "Status", type: "select", options: [["live", "Live"], ["incubator", t("In test (incubator)")], ["retired", "Retired"]] },
         { name: "timeframes", label: "Timeframes (notes)", placeholder: "H4 bias, M15 entry" },
         { name: "min_confluences", label: "Min confluences", type: "number", min: "0", step: "1", help: "Never below the required confluences" },
         { name: "active", label: "Active", type: "checkbox" },

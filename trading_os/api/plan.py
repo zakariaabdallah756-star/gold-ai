@@ -49,6 +49,7 @@ from ..schemas import (
     StrategyIn,
     StrategyOut,
 )
+from ..services import backtest as backtest_service
 from ..services import i18n
 from ..services.account import local_now
 from .crud import crud_router
@@ -154,6 +155,7 @@ plan_routers = [
         path="strategies",
         label="strategy",
         order_by=(Strategy.name,),
+        on_update=lambda db, strategy, before: backtest_service.strategy_renamed(db, strategy, before),
         on_delete=lambda db, strategy, force: _guard_strategy_delete(db, strategy, force),
     ),
     crud_router(

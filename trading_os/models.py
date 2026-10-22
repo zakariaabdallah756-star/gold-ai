@@ -171,6 +171,9 @@ class Strategy(TimestampMixin, Base):
 
     # Backtests: money per 1R used to express R-multiples in currency (None = account default risk).
     backtest_risk_per_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Names this strategy had before a rename: journal trades keep the name they were logged with, and the
+    # backtest-vs-live comparison still counts them (services.backtest.strategy_renamed).
+    former_names: Mapped[list[str]] = mapped_column(JSON, default=list)
 
 
 class Confluence(TimestampMixin, Base):

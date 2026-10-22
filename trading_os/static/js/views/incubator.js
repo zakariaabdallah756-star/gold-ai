@@ -4,15 +4,17 @@ import { api } from "../api.js";
 import { chartsAvailable, distributionChart, equityChart } from "../charts.js";
 import { clear, confirmDialog, field, h, icon, modal, numberOrNull, segmented, toast } from "../dom.js";
 import { fmt, pnlClass, toInputDateTime } from "../format.js";
+import { N_, t } from "../i18n.js";
 import { accountNow, loadPlan, state } from "../state.js";
 
-const STATUS_LABEL = { incubator: "Incubator", live: "Live", retired: "Retired" };
+// Shown with t(); "incubator" is the stored status of a strategy that is still being tested.
+const STATUS_LABEL = { incubator: N_("In test"), live: N_("Live"), retired: N_("Retired") };
 const STATUS_BADGE = { incubator: "warn", live: "good", retired: "" };
 const VERDICT = {
-  in_line: { cls: "ok", icon: "checkCircle" },
-  above: { cls: "ok", icon: "trending" },
-  below: { cls: "block", icon: "alert" },
-  insufficient: { cls: "warn", icon: "info" },
+  in_line: { cls: "ok", icon: "checkCircle", badge: "good", label: N_("Live in line") },
+  above: { cls: "ok", icon: "trending", badge: "good", label: N_("Live above backtest") },
+  below: { cls: "block", icon: "alert", badge: "bad", label: N_("Live below backtest") },
+  insufficient: { cls: "warn", icon: "info", badge: "", label: N_("Not enough data to compare") },
 };
 const CSV_EXAMPLE = "date,symbol,direction,entry,stop,tp,exit,notes\n2026-09-01 09:30,XAUUSD,buy,2650,2645,2665,2665,London open retest\n2026-09-02 14:45,XAUUSD,sell,2672,2677,2657,2677,\n";
 
@@ -26,7 +28,49 @@ function kpi(label, value, sub, cls = "") {
 }
 
 function statusBadge(status) {
-  return h("span", { class: `badge ${STATUS_BADGE[status] || ""}` }, STATUS_LABEL[status] || status);
+  return h("span", { class: `badge ${STATUS_BADGE[status] || ""}` }, STATUS_LABEL[status] ? t(STATUS_LABEL[status]) : status);
+}
+
+/** A comparison value in its unit (money, R, percent or number); infinite profit factors show as ∞. */
+function compareValue(row, side) {
+  if (row.infinite?.[side]) return "∞";
+  const x = row[side];
+  if (x === null || x === undefined) return "—";
+  const size = row.key.startsWith("max_drawdown"); // a drawdown is a size, never a gain
+  if (row.unit === "money") return size ? fmt.money(x) : fmt.signedMoney(x);
+  if (row.unit === "r") return size ? `${fmt.num(x)}R` : fmt.r(x);
+  if (row.unit === "pct") return fmt.pct(x);
+  if (row.key === "trades") return String(x);
+  return fmt.num(x);
+}
+
+function compareDelta(row) {
+  const d = row.delta;
+  if (d === null || d === undefined) return "—";
+  if (row.unit === "money") return fmt.signedMoney(d);
+  if (row.unit === "r") return fmt.r(d);
+  const sign = d > 0 ? "+" : d < 0 ? "−" : "";
+  const size = fmt.num(Math.abs(d), row.key === "trades" ? 0 : 2);
+  return row.unit === "pct" ? t("{value} pp", { value: `${sign}${size}` }) : `${sign}${size}`;
+}
+
+function gapPanel(gap, report) {
+  if (!gap) return null;
+  const parts = [
+    h("div", { class: "kpi" }, h("div", { class: "label" }, t("Expectancy gap")), h("div", { class: `value ${pnlClass(gap.gap_r)}` }, fmt.r(gap.gap_r)), h("div", { class: "sub" }, t("live {live} vs backtest {backtest} per trade", { live: fmt.r(gap.live_r), backtest: fmt.r(gap.backtest_r) }))),
+    gap.gap_money_same_basis !== null
+      ? h("div", { class: "kpi" }, h("div", { class: "label" }, t("Gap at backtest risk")), h("div", { class: `value ${pnlClass(gap.gap_money_same_basis)}` }, fmt.signedMoney(gap.gap_money_same_basis)), h("div", { class: "sub" }, t("per trade at {risk} per 1R", { risk: fmt.money(report.risk_per_trade) })))
+      : null,
+    h(
+      "div",
+      { class: "kpi" },
+      h("div", { class: "label" }, t("Edge kept live")),
+      h("div", { class: "value" }, gap.edge_retained_pct === null ? "—" : fmt.pct(gap.edge_retained_pct, 0)),
+      h("div", { class: "sub" }, gap.edge_retained_pct === null ? t("needs a positive backtest expectancy") : t("of the backtest expectancy")),
+    ),
+    h("div", { class: "kpi" }, h("div", { class: "label" }, t("Live, actual")), h("div", { class: `value ${pnlClass(gap.live_money_actual)}` }, fmt.signedMoney(gap.live_money_actual)), h("div", { class: "sub" }, t("per trade with your real size and fees"))),
+  ];
+  return h("div", { class: "kpis bt-gap" }, parts);
 }
 
 function tradeForm(trade, onSubmit) {
@@ -187,18 +231,21 @@ function newStrategyDialog(onCreated) {
 function comparisonCard(report) {
   const { comparison } = report;
   const v = VERDICT[comparison.verdict.status] || VERDICT.insufficient;
-  const value = (key, x) => {
-    if (x === null || x === undefined) return "—";
-    if (key === "win_rate" || key === "max_drawdown_pct") return fmt.pct(x);
-    if (key === "expectancy") return fmt.signedMoney(x);
-    if (key === "expectancy_r") return fmt.r(x);
-    if (key === "trades") return String(x);
-    return fmt.num(x);
-  };
+  const names = report.live_names?.length ? report.live_names : [report.strategy.name];
   return h(
     "div",
     { class: "card" },
-    h("div", { class: "card-head" }, h("div", {}, h("h2", {}, "Backtest vs live"), h("p", {}, `Live = closed journal trades with the strategy ${report.strategy.name}`))),
+    h(
+      "div",
+      { class: "card-head" },
+      h(
+        "div",
+        {},
+        h("h2", {}, "Backtest vs live"),
+        h("p", {}, t("Live = closed journal trades logged with the strategy {names}", { names: names.join(", ") })),
+      ),
+    ),
+    gapPanel(comparison.gap, report),
     h(
       "div",
       { class: "table-wrap" },
@@ -210,7 +257,7 @@ function comparisonCard(report) {
           "tbody",
           {},
           comparison.rows.map((row) =>
-            h("tr", {}, h("td", {}, row.label), h("td", { class: "num" }, value(row.key, row.backtest)), h("td", { class: "num" }, value(row.key, row.live)), h("td", { class: "num muted" }, row.delta === null ? "—" : `${row.delta > 0 ? "+" : row.delta < 0 ? "−" : ""}${Math.abs(row.delta).toLocaleString(undefined, { maximumFractionDigits: 2 })}`)),
+            h("tr", {}, h("td", {}, row.label), h("td", { class: "num" }, compareValue(row, "backtest")), h("td", { class: "num" }, compareValue(row, "live")), h("td", { class: "num muted" }, compareDelta(row))),
           ),
         ),
       ),
@@ -251,13 +298,21 @@ export async function render(root, { params }) {
           ? h(
               "div",
               {},
-              h("div", { class: "section-title" }, `${STATUS_LABEL[status]} (${items.length})`),
+              h("div", { class: "section-title" }, `${t(STATUS_LABEL[status])} (${items.length})`),
               items.map((s) =>
                 h(
                   "button",
                   { type: "button", class: `bt-strategy${s.id === selectedId ? " selected" : ""}`, onclick: () => ((selectedId = s.id), loadList(), loadDetail()) },
                   h("div", { class: "row", style: { justifyContent: "space-between", flexWrap: "nowrap" } }, h("strong", {}, s.name), statusBadge(s.status)),
                   h("div", { class: "bt-strategy-stats" }, h("span", {}, `${s.trades} backtest${s.trades === 1 ? "" : "s"}`), h("span", {}, `WR ${fmt.pct(s.win_rate, 0)}`), h("span", {}, `PF ${pf(s)}`), h("span", { class: pnlClass(s.expectancy_r) }, `${fmt.r(s.expectancy_r)}/trade`)),
+                  s.live_trades && s.trades
+                    ? h(
+                        "div",
+                        { class: "bt-strategy-stats" },
+                        h("span", { class: `badge ${(VERDICT[s.verdict] || VERDICT.insufficient).badge}` }, t((VERDICT[s.verdict] || VERDICT.insufficient).label)),
+                        h("span", { class: pnlClass(s.live_expectancy_r) }, t("live {r}/trade ({n})", { r: fmt.r(s.live_expectancy_r), n: s.live_trades })),
+                      )
+                    : null,
                 ),
               ),
             )
@@ -286,7 +341,7 @@ export async function render(root, { params }) {
     const setStatus = async (status) => {
       await api.put(`/api/backtest/strategies/${strategy.id}/status`, { status });
       await loadPlan();
-      toast(`${strategy.name} is now ${STATUS_LABEL[status].toLowerCase()}`, "success");
+      toast(t("{name} is now: {status}", { name: strategy.name, status: t(STATUS_LABEL[status]) }), "success");
       reload();
     };
     const riskInput = h("input", { type: "number", step: "any", min: "0", value: report.risk_per_trade, style: { width: "110px" } });

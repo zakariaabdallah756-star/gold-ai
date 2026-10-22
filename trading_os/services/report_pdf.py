@@ -420,7 +420,10 @@ def build_backtest_pdf(report: dict) -> bytes:
             ("Expectancy / trade", f"{r_value(m.get('expectancy_r'))} ({money(m['expectancy'], currency)})"),
             ("Net result", f"{r_value(m.get('net_r'))} ({money(m['net_pnl'], currency)})"),
             ("Avg win : avg loss", "-" if m.get("avg_rr") is None else f"{m['avg_rr']:.2f} : 1"),
-            ("Max drawdown", f"{num(m.get('max_drawdown_r'))}R ({pct(m.get('max_drawdown_pct'))})"),
+            (
+                "Max drawdown",
+                f"{num(m.get('max_drawdown_r'))}R ({money(m.get('max_drawdown'), currency)}, {pct(m.get('max_drawdown_pct'))})",
+            ),
             ("Avg planned R:R", "-" if m.get("avg_planned_rr") is None else f"1:{m['avg_planned_rr']:.2f}"),
         ]
     )
@@ -430,32 +433,50 @@ def build_backtest_pdf(report: dict) -> bytes:
     b.heading("Backtest vs live journal")
     rows = report["comparison"]["rows"]
 
-    def cell(key, value):
+    def cell(row, side):
+        if (row.get("infinite") or {}).get(side):
+            return "inf"
+        value = row[side]
         if value is None:
             return "-"
-        if key in ("win_rate", "max_drawdown_pct"):
+        unit = row.get("unit")
+        if unit == "pct":
             return pct(value)
-        if key == "expectancy":
+        if unit == "money":
             return money(value, currency)
-        if key == "expectancy_r":
+        if unit == "r":
             return r_value(value)
-        if key == "trades":
+        if row["key"] == "trades":
             return str(value)
         return num(value)
 
+    def delta(row):
+        if row["delta"] is None:
+            return "-"
+        if row.get("unit") == "money":
+            return f"{row['delta']:+,.2f} {currency}"
+        if row.get("unit") == "r":
+            return f"{row['delta']:+.2f}R"
+        if row.get("unit") == "pct":
+            return f"{row['delta']:+.2f} pp"
+        return f"{row['delta']:+,.2f}"
+
     b.table(
         ["Metric", "Backtest", "Live", "Delta"],
-        [
-            [
-                r["label"],
-                cell(r["key"], r["backtest"]),
-                cell(r["key"], r["live"]),
-                "-" if r["delta"] is None else f"{r['delta']:+,.2f}",
-            ]
-            for r in rows
-        ],
+        [[r["label"], cell(r, "backtest"), cell(r, "live"), delta(r)] for r in rows],
     )
     b.spacer(4)
+    gap = report["comparison"].get("gap")
+    if gap:
+        kept = (
+            "" if gap["edge_retained_pct"] is None else f", {gap['edge_retained_pct']:.0f}% of the backtest edge kept"
+        )
+        at_risk = (
+            ""
+            if gap["gap_money_same_basis"] is None
+            else f" ({money(gap['gap_money_same_basis'], currency)} per trade at the backtest risk)"
+        )
+        b.paragraph(f"Expectancy gap: {gap['gap_r']:+.2f}R per trade{at_risk}{kept}.")
     verdict = report["comparison"]["verdict"]
     b.paragraph(verdict["message"])
     for note in verdict.get("notes", []):

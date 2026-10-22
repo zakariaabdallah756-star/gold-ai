@@ -115,8 +115,8 @@ The journal has search, filters, sorting, pagination and full CRUD.
 **Incubator.** Test a strategy before trading it live:
 - Add backtest trades by hand, or paste or import a CSV batch with a preview. Delimiters, header names, date formats and comma decimals are auto-detected.
 - Metrics: win rate, profit factor, max drawdown (R), average R:R, expectancy in R and $ (at a configurable risk per trade), plus an R equity curve and distribution.
-- A side-by-side **backtest vs live** comparison gives a verdict once enough live trades exist.
-- Promote a strategy to *live* or retire it. A **PDF report** is available per strategy.
+- A side-by-side **backtest vs live** comparison gives a verdict once enough live trades exist. Its **expectancy gap** shows how far live trading is from the backtest per trade: in R, in money at the backtest's risk per trade (so position size and fees don't distort it), and as the share of the backtest edge kept live, next to what live trades really made. Drawdowns are compared in R, money and %. Renaming a strategy keeps its live history: journal trades logged under the old name still count (a new strategy that takes the old name owns them from then on).
+- Strategies being tested are shown as *In test*. Promote a strategy to *live* or retire it. A **PDF report** is available per strategy.
 
 **Prop Firm.** Track a funded-account challenge (FTMO, FundedNext presets or custom rules). It shows:
 - profit target progress
