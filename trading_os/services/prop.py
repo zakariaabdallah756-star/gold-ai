@@ -34,11 +34,19 @@ from sqlalchemy.orm import Session
 
 from ..models import AccountSettings, PropChallenge, Trade, TradeEvent
 from .account import CLOSE_TIME, compute_day_state, local_today
+from .i18n import N_, tr
 
 PHASES = ("phase1", "phase2", "funded", "custom")
 DRAWDOWN_MODES = ("static", "trailing")
 STATUSES = ("active", "passed", "failed", "archived")
-VERIFY_NOTE = "Verify the current rules on the firm's website - firms change their rules."
+VERIFY_NOTE = N_("Verify the current rules on the firm's website - firms change their rules.")
+# Status codes in running text (translate with ``status_word``).
+STATUS_WORDS = {
+    "active": N_("active"),
+    "passed": N_("passed"),
+    "failed": N_("failed"),
+    "archived": N_("archived"),
+}
 
 # Programmes whose headline rules are well known. Everything stays editable.
 PRESETS = (
@@ -68,7 +76,7 @@ PRESETS = (
     },
     {
         "key": "ftmo_funded",
-        "label": "FTMO Account (funded)",
+        "label": N_("FTMO Account (funded)"),
         "firm": "FTMO",
         "phase": "funded",
         "profit_target_pct": None,
@@ -80,7 +88,7 @@ PRESETS = (
     },
     {
         "key": "fundednext_stellar_2step_p1",
-        "label": "FundedNext Stellar 2-Step - Phase 1",
+        "label": N_("FundedNext Stellar 2-Step - Phase 1"),
         "firm": "FundedNext",
         "phase": "phase1",
         "profit_target_pct": 8.0,
@@ -92,7 +100,7 @@ PRESETS = (
     },
     {
         "key": "fundednext_stellar_2step_p2",
-        "label": "FundedNext Stellar 2-Step - Phase 2",
+        "label": N_("FundedNext Stellar 2-Step - Phase 2"),
         "firm": "FundedNext",
         "phase": "phase2",
         "profit_target_pct": 5.0,
@@ -104,7 +112,7 @@ PRESETS = (
     },
     {
         "key": "custom",
-        "label": "Custom rules",
+        "label": N_("Custom rules"),
         "firm": "",
         "phase": "custom",
         "profit_target_pct": 10.0,
@@ -119,7 +127,12 @@ PRESET_KEYS = tuple(preset["key"] for preset in PRESETS)
 
 
 def presets() -> list[dict]:
-    return [{**preset, "note": VERIFY_NOTE} for preset in PRESETS]
+    return [{**preset, "label": tr(preset["label"]), "note": tr(VERIFY_NOTE)} for preset in PRESETS]
+
+
+def status_word(status: str) -> str:
+    """A challenge status code as a word inside a sentence, in the current language."""
+    return tr(STATUS_WORDS[status]) if status in STATUS_WORDS else status
 
 
 # ------------------------------------------------------------------ ledger
@@ -284,15 +297,19 @@ def evaluate(challenge: PropChallenge, metrics: Metrics) -> Evaluation:
     """What the rules say about the challenge, from its history (first breach wins)."""
     for row in metrics.history:
         if row["daily_breach"]:
-            return Evaluation("failed", f"Daily loss limit breached on {row['date']:%Y-%m-%d}", row["date"])
+            return Evaluation(
+                "failed", tr("Daily loss limit breached on {date:%Y-%m-%d}", date=row["date"]), row["date"]
+            )
         if row["drawdown_breach"]:
-            return Evaluation("failed", f"Max drawdown floor breached on {row['date']:%Y-%m-%d}", row["date"])
+            return Evaluation(
+                "failed", tr("Max drawdown floor breached on {date:%Y-%m-%d}", date=row["date"]), row["date"]
+            )
     if metrics.target_reached and metrics.trading_days >= challenge.min_trading_days:
-        return Evaluation("passed", "Profit target reached with the minimum trading days", metrics.until)
+        return Evaluation("passed", tr("Profit target reached with the minimum trading days"), metrics.until)
     # Measured to today, not to ``until``: an ended challenge's metrics stop at its end date.
     if challenge.max_calendar_days and (metrics.today - challenge.start_date).days >= challenge.max_calendar_days:
         ended = challenge.start_date + timedelta(days=challenge.max_calendar_days - 1)
-        return Evaluation("failed", f"Time limit of {challenge.max_calendar_days} days elapsed", ended)
+        return Evaluation("failed", tr("Time limit of {days} days elapsed", days=challenge.max_calendar_days), ended)
     return Evaluation("active")
 
 
@@ -312,10 +329,14 @@ def status_reason(challenge: PropChallenge, metrics: Metrics) -> str:
     if challenge.status == "active":
         return ""
     if challenge.status == "archived":
-        return "Archived"
+        return tr("Archived")
     if metrics.evaluation.status == challenge.status:
         return metrics.evaluation.reason
-    return f"Marked as {challenge.status}"
+    if challenge.status == "passed":
+        return tr("Marked as passed")
+    if challenge.status == "failed":
+        return tr("Marked as failed")
+    return tr("Marked as {status}", status=challenge.status)
 
 
 def active_challenge(db: Session) -> PropChallenge | None:

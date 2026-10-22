@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 from ..models import AccountSettings, PropChallenge
 from . import prop
 from .guardrails import Violation
+from .i18n import tr
 
 
 def _money(value: float, settings: AccountSettings) -> str:
@@ -43,8 +44,13 @@ def _breaches(
         violations.append(
             Violation(
                 "PROP_CHALLENGE_ENDED",
-                f"Prop challenge '{challenge.name}' has ended ({status}{': ' + reason if reason else ''}). "
-                "Deactivate it or start the next phase in Prop Firm.",
+                tr(
+                    "Prop challenge '{name}' has ended ({status}{reason}). "
+                    "Deactivate it or start the next phase in Prop Firm.",
+                    name=challenge.name,
+                    status=prop.status_word(status),
+                    reason=": " + reason if reason else "",
+                ),
                 "warn",
             )
         )
@@ -56,8 +62,11 @@ def _breaches(
         violations.append(
             Violation(
                 "PROP_DAILY_LOSS",
-                f"Prop rule: today's loss {_money(metrics.daily_loss_used, settings)} has reached the challenge's "
-                f"daily limit of {_money(metrics.daily_limit, settings)}.",
+                tr(
+                    "Prop rule: today's loss {loss} has reached the challenge's daily limit of {limit}.",
+                    loss=_money(metrics.daily_loss_used, settings),
+                    limit=_money(metrics.daily_limit, settings),
+                ),
                 severity,
             )
         )
@@ -65,8 +74,11 @@ def _breaches(
         violations.append(
             Violation(
                 "PROP_MAX_DRAWDOWN",
-                f"Prop rule: balance {_money(metrics.balance, settings)} is at or below the max drawdown floor "
-                f"of {_money(metrics.drawdown_floor, settings)}.",
+                tr(
+                    "Prop rule: balance {balance} is at or below the max drawdown floor of {floor}.",
+                    balance=_money(metrics.balance, settings),
+                    floor=_money(metrics.drawdown_floor, settings),
+                ),
                 severity,
             )
         )
@@ -75,27 +87,31 @@ def _breaches(
 
     room = min(metrics.daily_remaining, metrics.total_remaining)
     if not violations and risk_amount and risk_amount > room:
-        limit = "daily loss" if metrics.daily_remaining <= metrics.total_remaining else "max drawdown"
-        violations.append(
-            Violation(
-                "PROP_RISK_BUDGET",
-                f"Prop rule: this trade risks {_money(risk_amount, settings)} but only "
-                f"{_money(max(room, 0.0), settings)} of {limit} room is left (after open risk). "
+        params = {"risk": _money(risk_amount, settings), "room": _money(max(room, 0.0), settings)}
+        if metrics.daily_remaining <= metrics.total_remaining:
+            message = tr(
+                "Prop rule: this trade risks {risk} but only {room} of daily loss room is left (after open risk). "
                 "Reduce the size or skip the trade.",
-                severity,
+                **params,
             )
-        )
+        else:
+            message = tr(
+                "Prop rule: this trade risks {risk} but only {room} of max drawdown room is left (after open risk). "
+                "Reduce the size or skip the trade.",
+                **params,
+            )
+        violations.append(Violation("PROP_RISK_BUDGET", message, severity))
     if metrics.target_reached:
         missing = max(0, challenge.min_trading_days - metrics.trading_days)
-        violations.append(
-            Violation(
-                "PROP_TARGET_REACHED",
-                "Prop challenge profit target reached"
-                + (f" - {missing} more trading day(s) needed; keep risk minimal" if missing else "")
-                + ". Consider stopping to lock in the pass.",
-                "warn",
+        if missing:
+            message = tr(
+                "Prop challenge profit target reached - {missing} more trading day(s) needed; keep risk minimal. "
+                "Consider stopping to lock in the pass.",
+                missing=missing,
             )
-        )
+        else:
+            message = tr("Prop challenge profit target reached. Consider stopping to lock in the pass.")
+        violations.append(Violation("PROP_TARGET_REACHED", message, "warn"))
     return violations
 
 
