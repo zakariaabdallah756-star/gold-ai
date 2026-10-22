@@ -1,4 +1,16 @@
 {
+  "Co-Pilot: select the setup timeframe - {strategy} is traded on {timeframes}.": "Co-Pilot: seleziona il timeframe del setup: {strategy} si opera su {timeframes}.",
+  "Co-Pilot: {strategy} is only traded in {sessions}; this entry is in {session}. Wait for {sessions}.": "Co-Pilot: {strategy} si opera solo durante {sessions}; questa entrata cade in {session}. Attendi {sessions}.",
+  "Co-Pilot: {strategy} is only traded in {sessions}; this entry is outside every session. Wait for {sessions}.": "Co-Pilot: {strategy} si opera solo durante {sessions}; questa entrata è fuori da ogni sessione. Attendi {sessions}.",
+  "Co-Pilot: {strategy} is retired - it is no longer part of your plan.": "Co-Pilot: {strategy} è tra le strategie ritirate e non fa più parte del tuo piano.",
+  "Co-Pilot: {strategy} is still in the incubator. Prove its edge in backtests before trading it live, or trade it at reduced size.": "Co-Pilot: {strategy} è ancora nell'incubatore. Dimostrane l'edge nei backtest prima di usarla live, oppure usala con una size ridotta.",
+  "Co-Pilot: {strategy} is traded on {timeframes}, not {timeframe}.": "Co-Pilot: {strategy} si opera su {timeframes}, non su {timeframe}.",
+  "Co-Pilot: {strategy} needs at least 1:{minimum:g}; this plan is 1:{rr:.2f}. Wait for a better entry or a further target.": "Co-Pilot: {strategy} richiede almeno 1:{minimum:g}; questo piano è 1:{rr:.2f}. Attendi un'entrata migliore o un target più lontano.",
+  "Co-Pilot: {strategy} only takes {allowed} setups; this is a {direction} trade.": "Co-Pilot: {strategy} prende solo setup {allowed}; questo è un trade {direction}.",
+  "Co-Pilot: {strategy} only trades with the daily bias, and today's bias is neutral. Set a directional bias in the pre-market routine first.": "Co-Pilot: {strategy} opera solo a favore del bias giornaliero, e oggi il bias è neutrale. Imposta prima un bias direzionale nella routine pre-market.",
+  "Co-Pilot: {strategy} only trades with the daily bias, and today's bias is not set. Set a directional bias in the pre-market routine first.": "Co-Pilot: {strategy} opera solo a favore del bias giornaliero, e oggi il bias non è impostato. Imposta prima un bias direzionale nella routine pre-market.",
+  "Co-Pilot: {strategy} requires {required}. Missing: {missing}. Wait until every required confluence is present.": "Co-Pilot: {strategy} richiede {required}. Mancanti: {missing}. Attendi che tutte le confluenze richieste siano presenti.",
+  "Co-Pilot: {strategy} trades with the daily bias, which is {bias} today; this is a {direction} trade. Wait for a setup in the direction of the bias.": "Co-Pilot: {strategy} segue il bias giornaliero, che oggi è {bias}; questo è un trade {direction}. Attendi un setup nella direzione del bias.",
   "Complete today's pre-market checklist before entering trades.": "Completa la checklist pre-market di oggi prima di aprire trade.",
   "Daily loss limit reached: -{used} of {limit} ({cap:g}% max). Stop trading for today.": "Limite di perdita giornaliera raggiunto: -{used} su {limit} (massimo {cap:g}%). Per oggi smetti di fare trading.",
   "Entry is outside your active trading sessions.": "L'entrata è fuori dalle tue sessioni di trading attive.",
@@ -8,5 +20,8 @@
   "Risk of {risk:.2f}% of equity exceeds your {cap:g}% max per trade.": "Un rischio del {risk:.2f}% dell'equity supera il tuo massimo del {cap:g}% per trade.",
   "This strategy requires {required} confluences; {checked} checked.": "Questa strategia richiede {required} confluenze; ne hai spuntate {checked}.",
   "This trade risks {risk} but only {budget} of today's loss budget remains (after open risk). A stop-out would breach the daily limit.": "Questo trade rischia {risk}, ma del budget di perdita di oggi restano solo {budget} (dopo il rischio aperto). Uno stop-out sforerebbe il limite giornaliero.",
+  "bearish": "ribassista",
+  "bullish": "rialzista",
+  "{items} and {last}": "{items} e {last}",
   "{strategy} requires {required} confluences; {checked} checked.": "{strategy} richiede {required} confluenze; ne hai spuntate {checked}."
 }
