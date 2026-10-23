@@ -6,7 +6,7 @@ import { clear, field, h, icon, modal, segmented, toast, withNodes } from "./dom
 import { fmt, pnlClass, toInputDateTime } from "./format.js";
 import { mountDisclaimer } from "./disclaimer.js";
 import { N_, t, tn, useLanguage } from "./i18n.js";
-import { autoOpenOnboarding } from "./onboarding.js";
+import { autoOpenOnboarding, openOnboarding } from "./onboarding.js";
 import { accountNow, accounts, activeAccount, loadPlan, loadStatus, onStatus, state } from "./state.js";
 import { renderTopbar } from "./topbar.js";
 import * as tradingAccounts from "./views/accounts.js";
@@ -442,6 +442,12 @@ function errorBox(error) {
 
 async function route() {
   const [path, search] = location.hash.replace(/^#\/?/, "").split("?");
+  if (path === "onboarding") {
+    // A link to the getting-started guide (e.g. from a promo card): open it over the dashboard.
+    history.replaceState(null, "", "#/dashboard");
+    openOnboarding();
+    return route();
+  }
   currentRoute = ROUTES.find((r) => r.path === path) || ROUTES[0];
   for (const link of document.querySelectorAll("#nav a")) {
     link.classList.toggle("active", link.dataset.path === currentRoute.path);

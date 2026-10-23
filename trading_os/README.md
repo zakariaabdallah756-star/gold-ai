@@ -101,6 +101,34 @@ out or widen access. The tab also shows how the current device is connected and 
 
 The sidebar groups the pages into **Trade**, **Improve** and **Setup**.
 
+### Dashboard, accounts and getting started
+
+**Dashboard hero.** The dashboard opens with the Trading OS logo, the account shown ("All accounts", or the account with its Live / Demo / Prop / Funded badge) and four live figures:
+- **Account Balance**: the closed-trade balance, with the starting balance.
+- **Live Equity**: balance plus floating P&L, with the change since the start in money and %.
+- **Floating P&L**: open positions at their last price, with the number of open positions and how many have no live price yet.
+- **Active Margin**: margin in use, with free margin and margin level when known. It is marked *estimated* when some positions have no margin figure: then it is notional ÷ the account's leverage.
+
+A chip shows where the figures come from: *Live from bridge · updated 12s ago* when the account's bridge reported in the last 5 minutes, otherwise *From journal*. The figures refresh every 12 seconds while the dashboard is open. The promo carousel sits above the hero when it has cards.
+
+**Account switcher.** The dropdown in the top bar lists:
+- *All accounts*: the combined equity of every active account in the main currency. The menu says how many accounts are left out for another currency or for being archived.
+- every active account, with its colour, type and equity.
+
+Choosing one switches the whole app to that account (see *Trading accounts* below). It works with the keyboard (arrow keys, Home/End, Enter, Escape) and has a *Manage accounts* link.
+
+**Trading Accounts** (*Setup → Trading Accounts*). Register every account you trade: prop-firm challenges, live and demo broker accounts. Quick templates (*Prop firm challenge*, *Live broker account*, *Demo account*) fill in the type and platform.
+- Each card shows broker, platform, login, server, currency, leverage and status; balance, equity, floating P&L and margin; the connection status; and *Default* / *Shown* badges.
+- From a card you can show the account on the dashboard, edit, archive, reactivate or delete it, and set up its connection and order sending.
+
+**Profile menu.** The avatar shows the initials of the account shown. It opens Trading accounts, Trading plan, Network & access, the English / Italiano switch and the Getting started guide.
+
+**Getting started guide.** The play button next to the avatar opens a guide with two tabs:
+- **Video**: set a YouTube, Vimeo or direct .mp4 / .webm link, or a file under `/static/`, in *Trading Plan → Account & risk rules → Onboarding video link*. YouTube plays from youtube-nocookie.com.
+- **Step-by-step**: nine steps, each with a *Take me there* link. They cover the trading plan and risk rules, accounts and the switcher, the pre-market checklist, signals and the risk calculator with execution, positions and journal, strategy alerts and Vision AI, review/calendar/incubator, prop-firm tracking, and backup and remote access.
+
+On first launch the guide opens by itself once the risk disclaimer has been accepted, once per browser session, until you tick *Don't show this again* or finish the tour.
+
 ### Trade
 
 **Dashboard.** Shows net P&L, win rate, profit factor, expectancy ($ and R), max drawdown, payoff ratio, streaks, holding time and fees.
@@ -409,8 +437,9 @@ trading_os/
   models.py       SQLAlchemy models               schemas.py  Pydantic validation
   database.py     engine, in-place schema migrations
   seed.py         default plan (markets, sessions, strategies, checklist, mistakes, partners)
-  api/            REST routers (plan, checklist, risk, trades, positions, signals, alerts, news,
-                  notifications, reviews, analytics, vision, backtest, prop, partners, reports, backup)
+  api/            REST routers (plan, accounts, execution, checklist, risk, trades, positions, signals,
+                  alerts, news, notifications, reviews, analytics, vision, backtest, prop, partners,
+                  promos, reports, backup, network, i18n)
   services/       domain logic
     sizing.py         position sizing & R:R math           (pure)
     guardrails.py     risk rules & day state               (pure)
@@ -421,6 +450,10 @@ trading_os/
     sessions.py       time-zone-aware session detection    (pure)
     trades.py         trade lifecycle, derived fields      positions.py  fill ledger
     account.py        equity, realised P&L, daily status   checklist.py  daily routine
+    accounts.py       trading accounts, the account shown (scope), live account metrics
+    secrets_store.py  encrypted, machine-local account credentials (Fernet + secret.key)
+    execution.py / bridges/  order sending: paper, webhook, MetaTrader EA, MT5 terminal, OANDA
+    promos.py         dashboard carousel cards
     news.py / context_rules.py  economic calendar, kill switch
     prop.py / prop_rules.py     prop challenge metrics and rules
     backtest.py       incubator metrics, CSV import, backtest vs live
@@ -435,6 +468,8 @@ trading_os/
     webpush.py        Web Push: VAPID signing and payload encryption
     scheduler.py      background job thread
     demo.py           demo data generator
+  bridges/        MetaTrader Expert Advisors (TradingOS_Bridge.mq5 / .mq4) for the EA bridge
+  locales/it/     Italian catalogs (server and web)
   static/         dark-themed SPA (vanilla ES modules, no build step; Chart.js vendored),
                   service worker (sw.js) and web app manifest
   tests/          unit + API tests
