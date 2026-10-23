@@ -621,6 +621,33 @@ function mountHero(box) {
   );
   const swap = (old, next) => (old.replaceWith(next), next);
 
+  // Long amounts ("164.712,77 USD") shrink until every card's figure fits, all four at the same size.
+  // (Measured with a hidden copy: scrollWidth is rounded and misses a text a fraction of a pixel too wide.)
+  function fitValues() {
+    const values = [...metrics.querySelectorAll(".metric-value")];
+    if (!values.length || !metrics.isConnected) return;
+    values.forEach((el) => (el.style.fontSize = ""));
+    const base = parseFloat(getComputedStyle(values[0]).fontSize);
+    let scale = 1;
+    for (const el of values) {
+      const probe = h("span", { style: { position: "absolute", visibility: "hidden", whiteSpace: "nowrap" } }, el.textContent);
+      el.append(probe);
+      const natural = probe.getBoundingClientRect().width;
+      probe.remove();
+      if (natural > 0) scale = Math.min(scale, (el.clientWidth - 2) / natural);
+    }
+    if (scale < 1) {
+      const size = `${Math.max(14, Math.floor(base * scale))}px`;
+      values.forEach((el) => (el.style.fontSize = size));
+    }
+  }
+  let resizeFrame = 0;
+  const onResize = () => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(fitValues);
+  };
+  window.addEventListener("resize", onResize);
+
   function showSource() {
     if (!data) return;
     const source = heroSource(data);
@@ -638,6 +665,7 @@ function mountHero(box) {
         data = next;
         scope = swap(scope, heroScope(data));
         metrics = swap(metrics, heroMetrics(data));
+        fitValues();
         showSource();
       } catch (error) {
         if (stopped) return;
@@ -654,6 +682,8 @@ function mountHero(box) {
     stopped = true;
     clearTimeout(timer);
     clearInterval(ticker);
+    cancelAnimationFrame(resizeFrame);
+    window.removeEventListener("resize", onResize);
   };
 }
 

@@ -272,6 +272,9 @@
   .acct-switch-btn .kind-badge, .acct-switch-equity { display: none; } /* the menu and the hero show them */
   .acct-menu { left: 0; right: 0; width: auto; max-width: none; }
   .acct-option { gap: 8px; }
+  /* Long amounts (e.g. "0,00 USD / 4.939,12 USD") must not push the status strip past the screen. */
+  .topbar .status-strip > .chip { max-width: 100%; flex-wrap: wrap; white-space: normal; }
+  .topbar .status-strip .meter { width: 56px; }
 
   .hero-head { padding: 16px; border-radius: 14px; }
   .hero-head::after { width: 260px; opacity: 0.08; }
@@ -279,6 +282,8 @@
   .hero-logo { border-radius: 12px; }
   .hero-logo .logo-mark { width: 46px; height: 46px; }
   .hero-name { font-size: 22px; }
+  .hero-scope { column-gap: 6px; }
+  .hero-scope-meta::before { content: none; } /* a wrapped line would start with the separator */
   .hero-metrics { gap: 8px; margin-top: 16px; }
   .metric { padding: 12px 12px 11px; }
   .metric-label { font-size: 10px; gap: 6px; letter-spacing: 0.04em; }

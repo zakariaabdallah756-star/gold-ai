@@ -148,7 +148,7 @@ function createSwitcher() {
       h(
         "span",
         { class: "acct-option-main" },
-        h("span", { class: "acct-option-name" }, h("span", { class: "acct-name-text" }, account.name), kindBadge(account.kind)),
+        h("span", { class: "acct-option-name" }, h("span", { class: "acct-name-text", title: account.name }, account.name), kindBadge(account.kind)),
         details ? h("span", { class: "acct-option-sub" }, details) : null,
       ),
       h("span", { class: "acct-option-equity num" }, metrics ? accountMoney(metrics.equity, account.currency) : ""),
