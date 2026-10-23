@@ -198,9 +198,9 @@ export async function renderPromoSettings(container) {
     };
     const titleInput = h("input", { value: v.title, maxlength: String(LIMITS.title) });
     const bodyInput = h("textarea", { rows: 3, value: v.body, maxlength: String(LIMITS.body) });
-    const codeInput = h("input", { value: v.code, maxlength: String(LIMITS.code), autocomplete: "off", spellcheck: false, style: { fontFamily: "var(--mono)" } });
+    const codeInput = h("input", { value: v.code, maxlength: String(LIMITS.code), autocomplete: "off", spellcheck: "false", style: { fontFamily: "var(--mono)" } });
     const labelInput = h("input", { value: v.cta_label, maxlength: String(LIMITS.cta_label) });
-    const urlInput = h("input", { value: v.cta_url, maxlength: String(LIMITS.cta_url), placeholder: t("#/journal or https://…"), spellcheck: false, autocomplete: "off" });
+    const urlInput = h("input", { value: v.cta_url, maxlength: String(LIMITS.cta_url), placeholder: t("#/journal or https://…"), spellcheck: "false", autocomplete: "off" });
     const urlError = h("div", { class: "help", style: { color: "var(--critical-text)" }, role: "alert" });
     const startsInput = h("input", { type: "date", value: v.starts_on || "" });
     const endsInput = h("input", { type: "date", value: v.ends_on || "" });

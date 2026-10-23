@@ -316,6 +316,7 @@ function buildCarousel(container, data) {
 
   function onKey(event) {
     if (event.target.closest("input, textarea, select")) return;
+    if (section.contains(document.activeElement)) pauses.add("focus"); // keyboard use inside: stop rotating
     const moves = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: promos.length - 1 };
     if (!(event.key in moves) || promos.length < 2) return;
     event.preventDefault();
@@ -349,6 +350,7 @@ function buildCarousel(container, data) {
   function go(target, { auto = false } = {}) {
     if (!promos.length) return;
     index = (target + promos.length) % promos.length;
+    const focusInSlide = track.contains(document.activeElement);
     track.style.transform = `translateX(${-100 * index}%)`;
     for (const [i, slide] of [...track.children].entries()) {
       const current = i === index;
@@ -356,6 +358,7 @@ function buildCarousel(container, data) {
       if (current) slide.removeAttribute("aria-hidden");
       else slide.setAttribute("aria-hidden", "true");
     }
+    if (focusInSlide) track.children[index]?.focus({ preventScroll: true }); // keep focus out of inert cards
     clearTimeout(timer);
     running = false;
     remaining = intervalMs;
