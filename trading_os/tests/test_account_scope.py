@@ -134,3 +134,12 @@ def test_risk_notifications_name_each_account(client, http):  # noqa: F811
 
 def factory_session(client):
     return client.app.state.session_factory()
+
+
+def test_the_trade_csv_names_each_trades_account(client):
+    setup_two_accounts(client)
+    text = client.get("/api/export/trades.csv").text.lstrip("﻿")
+    header, *rows = text.strip().splitlines()
+    assert header.split(",")[-1] == "account"
+    assert sum(row.endswith(",FTMO Challenge 1") for row in rows) == 3
+    assert sum(row.endswith(",Main Account") for row in rows) == 1

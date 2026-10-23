@@ -146,6 +146,7 @@ CSV_COLUMNS = (
     "source",
     "targets",
     "screenshots",
+    "account",
 )
 
 
@@ -187,7 +188,9 @@ def _csv_text(value: str) -> str:
     return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value
 
 
-def export_trades_csv(trades: list[Trade]) -> str:
+def export_trades_csv(trades: list[Trade], account_names: dict[int, str] | None = None) -> str:
+    """Trades as CSV (Excel-friendly, formula-injection safe); ``account`` is the trading account's name."""
+    names = account_names or {}
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     writer.writerow(CSV_COLUMNS)
@@ -200,6 +203,8 @@ def export_trades_csv(trades: list[Trade]) -> str:
                 value = "; ".join(shot.src for shot in trade.screenshots)
             elif column == "targets":
                 value = "; ".join(f"{t.price:g}@{t.close_pct:g}%" for t in trade.targets)
+            elif column == "account":
+                value = _csv_text(names.get(trade.account_id, ""))
             elif column in ("confluences", "tags", "mistakes"):
                 value = _csv_text("; ".join(getattr(trade, column) or []))
             elif column in ("strategy", "session", "emotion", "notes", "timeframe", "symbol", "source"):

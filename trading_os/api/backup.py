@@ -5,11 +5,13 @@ from typing import Annotated
 
 from fastapi import APIRouter, File, UploadFile
 from fastapi.responses import Response
+from sqlalchemy import select
 
+from ..models import TradingAccount
 from ..services import backup
 from ..services import trades as trade_service
 from ..services.i18n import tr
-from .deps import ConfigDep, DbDep
+from .deps import ConfigDep, DbDep, SettingsDep
 
 router = APIRouter(prefix="/api", tags=["backup"])
 
@@ -29,10 +31,16 @@ def _stamp() -> str:
 
 
 @router.get("/export/trades.csv")
-def export_csv(db: DbDep):
+def export_csv(db: DbDep, settings: SettingsDep):
+    """Every trade of every account (the ``account`` column names it)."""
     trades, _ = trade_service.list_trades(db, trade_service.TradeFilters(), sort="entry_time", descending=False)
+    names = {a.id: a.name for a in db.scalars(select(TradingAccount))}
+    if settings.default_account_id in names:
+        names[settings.default_account_id] = settings.account_name
     # UTF-8 BOM so Excel detects the encoding.
-    return _download("﻿" + backup.export_trades_csv(trades), f"trades-{_stamp()}.csv", "text/csv; charset=utf-8")
+    return _download(
+        "\ufeff" + backup.export_trades_csv(trades, names), f"trades-{_stamp()}.csv", "text/csv; charset=utf-8"
+    )
 
 
 @router.get("/export/backup.json")
