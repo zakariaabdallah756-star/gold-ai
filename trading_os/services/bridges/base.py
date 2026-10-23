@@ -306,7 +306,9 @@ def snapshot_from(
         "free_margin": money(free_margin),
         "margin_level": money(margin_level),
     }
-    if out["margin_level"] is None and out["equity"] is not None and out["margin"]:
+    if not out["margin"]:
+        out["margin_level"] = None  # no margin in use: the level is undefined (MetaTrader reports 0)
+    elif out["margin_level"] is None and out["equity"] is not None:
         out["margin_level"] = round(out["equity"] / out["margin"] * 100, 2)
     if out["free_margin"] is None and out["equity"] is not None and out["margin"] is not None:
         out["free_margin"] = round(out["equity"] - out["margin"], 2)
