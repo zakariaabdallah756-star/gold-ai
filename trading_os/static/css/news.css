@@ -1,0 +1,78 @@
+/* Economic calendar, kill switch and cool-off UI, plus the plan editor's checkbox groups. Tokens from app.css. */
+
+/* ------------------------------------------------------------- top bar */
+
+button.chip { font-family: var(--font); line-height: inherit; cursor: pointer; }
+button.chip:hover { border-color: var(--border-strong); color: var(--text); }
+.news-chip .chip-label { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+.chip.warn.news-chip { background: var(--warning-wash); }
+
+@media (min-width: 861px) {
+  /* Chips wrap inside the strip so the kill switch stays at the end of the first row. */
+  .topbar .status-strip { flex: 1 1 0; min-width: 0; justify-content: flex-end; }
+}
+.btn.killswitch { color: var(--critical-text); border-color: rgba(239, 83, 80, 0.45); }
+.btn.killswitch:hover { background: var(--critical-wash); }
+.btn.killswitch.on { background: var(--critical-wash); }
+.btn.danger-solid { background: var(--critical); border-color: var(--critical); color: #fff; }
+.btn.danger-solid:hover { background: #b93232; }
+
+/* ------------------------------------------------------- kill switch modal */
+
+.ks-body { gap: 14px; }
+.ks-intro p { color: var(--text-2); margin-bottom: 8px; }
+.ks-intro ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; }
+.ks-intro li + li { margin-top: 2px; }
+.ks-until { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; }
+.ks-until svg { color: var(--muted); }
+.ks-body .segmented { align-self: flex-start; max-width: 100%; }
+.cooloff-summary {
+  display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: var(--radius);
+  border: 1px solid rgba(239, 83, 80, 0.4); background: var(--critical-wash);
+}
+.cooloff-summary > svg { width: 22px; height: 22px; color: var(--critical-text); margin-top: 1px; }
+.cooloff-summary strong { display: block; font-size: 16px; }
+.ks-section h3 { font-size: 13px; margin-bottom: 2px; }
+.ks-section p { margin-bottom: 8px; }
+.ks-release input { flex: 1 1 160px; width: auto; min-width: 0; font-family: var(--mono); letter-spacing: 0.04em; }
+
+/* ------------------------------------------------------ economic calendar */
+
+.news-card .card-head { flex-wrap: wrap; }
+.news-note {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; margin-bottom: 12px;
+  border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-2);
+  font-size: 12.5px; color: var(--text-2);
+}
+.news-note svg { margin-top: 1px; color: var(--muted); }
+.form-grid + .news-note { margin: 14px 0 0; }
+.news-note.block { border-color: rgba(239, 83, 80, 0.35); }
+.news-note.block svg { color: var(--critical-text); }
+.news-note.warn { border-color: rgba(250, 178, 25, 0.3); }
+.news-note.warn svg { color: var(--warning); }
+.news-list { display: flex; flex-direction: column; gap: 4px; }
+.news-empty { padding: 20px 12px; font-size: 13px; }
+.news-day h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 10px 0 6px; }
+.news-day:first-child h3 { margin-top: 0; }
+.news-item {
+  display: grid; grid-template-columns: 4.6em minmax(0, 1fr) auto; gap: 10px; align-items: start;
+  padding: 9px 10px; margin-bottom: 6px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface-2);
+}
+.news-item.active { border-color: rgba(250, 178, 25, 0.5); background: var(--warning-wash); }
+.news-item.minor, .news-item.past { opacity: 0.7; }
+.news-time { font-weight: 600; font-size: 13px; padding-top: 1px; white-space: nowrap; }
+.news-title { font-weight: 500; overflow-wrap: anywhere; }
+.news-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 3px; font-size: 12px; color: var(--muted); }
+.badge.impact svg { width: 12px; height: 12px; }
+.news-form { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 12px; }
+
+/* ------------------------------------------------- plan editor (multi) */
+
+.form-grid .form-section { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
+.form-grid .form-section h3 { font-size: 13.5px; margin-bottom: 2px; }
+.check-multi {
+  display: flex; flex-wrap: wrap; gap: 8px 16px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2);
+}
+.check-multi .check { font-size: 13px; }

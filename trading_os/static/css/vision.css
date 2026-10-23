@@ -1,0 +1,206 @@
+/* Vision AI page and AI settings (track V). Uses the tokens defined in app.css. */
+
+.tone-bull { --tone: var(--profit); }
+.tone-bear { --tone: var(--loss); }
+.tone-liq { --tone: var(--warning); }
+.tone-info { --tone: var(--accent); }
+.tone-neutral { --tone: var(--text-2); }
+
+.vi-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.vi-main { min-width: 0; }
+.vi-main > div:empty { display: none; }
+.vi-side { position: sticky; top: 16px; padding: 16px; }
+.vi-side .card-head { margin-bottom: 10px; }
+
+.vi-layout code, .ai-settings code {
+  font: 12.5px var(--mono); color: var(--text);
+  background: var(--surface-3); padding: 1px 5px; border-radius: 4px;
+}
+.vi-layout kbd {
+  font: 11px var(--mono); color: var(--text-2);
+  border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px;
+}
+
+/* ------------------------------------------------------------------ upload */
+
+.vi-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  min-height: 150px; padding: 18px; text-align: center; cursor: pointer;
+  background: var(--surface-2); border: 1.5px dashed var(--border-strong); border-radius: var(--radius);
+  color: var(--text-2); transition: border-color 0.15s, background 0.15s;
+}
+.vi-drop:hover, .vi-drop.over { border-color: var(--accent); background: var(--accent-wash); }
+.vi-drop > svg.icon { width: 28px; height: 28px; color: var(--muted); }
+.vi-drop .vi-browse { color: var(--accent); }
+.vi-drop.has-file {
+  flex-direction: row; justify-content: flex-start; gap: 14px; min-height: 0;
+  text-align: left; cursor: default; border-style: solid;
+}
+.vi-drop.has-file:hover { border-color: var(--border-strong); background: var(--surface-2); }
+.vi-preview { width: 132px; height: 84px; object-fit: cover; flex: none; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg); }
+.vi-file-meta { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.vi-file-meta strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.vi-form { margin-top: 14px; }
+.vi-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-top: 14px; }
+.vi-model { margin-left: auto; }
+
+.vi-progress { display: flex; align-items: center; gap: 8px; color: var(--text-2); font-size: 13px; }
+.vi-progress:empty { display: none; }
+.vi-head .vi-progress { margin-top: 12px; }
+.vi-spinner {
+  width: 14px; height: 14px; flex: none; border-radius: 50%;
+  border: 2px solid var(--surface-3); border-top-color: var(--accent);
+  animation: vi-spin 0.8s linear infinite;
+}
+@keyframes vi-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .vi-spinner { animation-duration: 2.4s; } }
+
+/* ------------------------------------------------------------------ callouts */
+
+.vi-callout {
+  display: flex; gap: 10px; align-items: flex-start; padding: 10px 14px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); color: var(--text-2); font-size: 13px;
+}
+.vi-callout svg { margin-top: 2px; }
+.vi-callout strong { display: block; color: var(--text); margin-bottom: 2px; }
+.vi-callout.bad { background: var(--critical-wash); border-color: rgba(239, 83, 80, 0.45); }
+.vi-callout.bad svg { color: var(--critical-text); }
+.vi-callout.warn { background: var(--warning-wash); border-color: rgba(250, 178, 25, 0.35); }
+.vi-callout.warn svg { color: var(--warning); }
+.vi-callout.info svg { color: var(--accent); }
+.vi-head .vi-callout { margin-top: 14px; }
+
+.vi-setup { border-color: rgba(250, 178, 25, 0.35); }
+.vi-steps { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
+
+/* ------------------------------------------------------------------ result head */
+
+.vi-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vi-head-title { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.vi-head-title h2 { font-size: 18px; }
+.vi-notes { color: var(--text-2); overflow-wrap: anywhere; }
+.vi-head-actions { gap: 6px; }
+.vi-failed-image { display: block; width: 100%; max-height: 420px; object-fit: contain; cursor: zoom-in; border-radius: var(--radius-sm); }
+
+/* ------------------------------------------------------------------ chart overlay */
+
+.vi-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 12px; }
+.vi-toolbar .chip-toggle:disabled { opacity: 0.45; cursor: not-allowed; }
+.vi-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text-2); }
+.vi-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.vi-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--tone); }
+
+.vi-figure { position: relative; overflow: hidden; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--bg); }
+.vi-figure img { display: block; width: 100%; height: auto; cursor: zoom-in; }
+.vi-svg, .vi-labels { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.vi-svg line { stroke: var(--tone); stroke-width: 1.5; stroke-dasharray: 6 4; vector-effect: non-scaling-stroke; }
+.vi-svg rect { fill: var(--tone); fill-opacity: 0.16; stroke: var(--tone); stroke-opacity: 0.75; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.vi-tag {
+  position: absolute; padding: 0 6px; border-radius: 4px; white-space: nowrap;
+  background: var(--tone); color: var(--bg); font: 600 11px/18px var(--font);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+}
+.vi-level-tag { right: 4px; transform: translateY(calc(-100% - 2px)); }
+.vi-level-tag.below { transform: translateY(2px); }
+.vi-zone-tag { transform: translate(3px, 3px); opacity: 0.92; }
+.vi-marker {
+  position: absolute; transform: translate(-50%, -50%); pointer-events: auto; cursor: help;
+  display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 5px;
+  border-radius: 12px; border: 2px solid var(--bg); background: var(--tone); color: var(--bg);
+  font: 700 10.5px var(--font); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+}
+.vi-figure.hide-levels .vi-level, .vi-figure.hide-levels .vi-level-tag,
+.vi-figure.hide-zones .vi-zone, .vi-figure.hide-zones .vi-zone-tag,
+.vi-figure.hide-patterns .vi-marker { display: none; }
+.vi-figure + .muted { margin-top: 10px; }
+
+/* ------------------------------------------------------------------ analysis */
+
+.vi-summary { font-size: 14.5px; color: var(--text); }
+.vi-trend { display: flex; flex-direction: column; gap: 6px; margin: 14px 0 16px; padding: 12px 14px; background: var(--surface-2); border-radius: var(--radius-sm); color: var(--text-2); font-size: 13px; }
+.vi-section-title { font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+.vi-body { color: var(--text-2); font-size: 13px; }
+.vi-stats { margin: 10px 0 0; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.vi-stats dd { text-align: right; overflow-wrap: anywhere; }
+.vi-list { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 13px; }
+.vi-tight { gap: 12px; }
+
+.vi-table td.vi-note-cell { white-space: normal; min-width: 220px; color: var(--text-2); }
+.vi-ref { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vi-ref::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--tone); }
+
+.vi-ideas { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.vi-idea {
+  display: flex; flex-direction: column; gap: 12px; padding: 14px;
+  background: var(--surface-2); border: 1px solid var(--border); border-left: 3px solid var(--tone); border-radius: var(--radius-sm);
+}
+.vi-idea-levels { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 8px 12px; margin: 0; }
+.vi-idea-levels dt { font-size: 11.5px; color: var(--muted); }
+.vi-idea-levels dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vi-idea-text { display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--text-2); }
+.vi-idea-text strong { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
+.vi-idea .btn { align-self: flex-start; margin-top: auto; }
+
+.vi-disclaimer { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--muted); }
+.vi-disclaimer svg { margin-top: 2px; }
+
+/* ------------------------------------------------------------------ Q&A */
+
+.vi-chat-list { display: flex; flex-direction: column; gap: 10px; max-height: 520px; overflow-y: auto; margin-bottom: 12px; padding: 2px; }
+.vi-msg { max-width: 88%; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--border); font-size: 13.5px; }
+.vi-msg.user { align-self: flex-end; background: var(--accent-wash); border-color: rgba(57, 135, 229, 0.35); }
+.vi-msg-role { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+.vi-msg p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.vi-msg p + p { margin-top: 8px; }
+.vi-thinking { display: inline-flex; align-items: center; gap: 8px; align-self: flex-start; color: var(--text-2); }
+.vi-suggest { margin-bottom: 10px; }
+.vi-suggest .chip-toggle { text-align: left; }
+.vi-suggest .chip-toggle:disabled { opacity: 0.5; cursor: not-allowed; }
+.vi-chat-input { display: flex; gap: 8px; align-items: flex-end; }
+.vi-chat-input textarea { flex: 1; min-height: 44px; }
+
+/* ------------------------------------------------------------------ history */
+
+.vi-hist-list { display: flex; flex-direction: column; gap: 4px; max-height: calc(100vh - 140px); overflow-y: auto; }
+.vi-hist { display: flex; align-items: center; gap: 2px; border: 1px solid transparent; border-radius: var(--radius-sm); }
+.vi-hist:hover { background: var(--surface-2); }
+.vi-hist.active { background: var(--surface-2); border-color: var(--border-strong); }
+.vi-hist-open {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px;
+  background: none; border: 0; border-radius: var(--radius-sm); color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.vi-hist-open img { width: 64px; height: 44px; object-fit: cover; flex: none; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); }
+.vi-hist-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.vi-hist-meta strong { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vi-hist-meta .row { gap: 4px; }
+.vi-hist-empty { padding: 12px 4px; }
+
+/* ------------------------------------------------------------------ AI settings */
+
+.ai-settings { display: flex; flex-direction: column; gap: 16px; }
+.ai-settings .card-head { margin-bottom: 0; flex-wrap: wrap; }
+.ai-status .chip { white-space: normal; }
+.ai-form { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+.ai-form .help:empty { display: none; }
+
+@media (max-width: 1100px) {
+  .vi-layout { grid-template-columns: minmax(0, 1fr); }
+  .vi-side { position: static; }
+  .vi-hist-list { max-height: 420px; }
+}
+@media (max-width: 600px) {
+  .vi-tag .vi-kind { display: none; }
+  .vi-model { margin-left: 0; }
+  .vi-msg { max-width: 100%; }
+  .vi-drop.has-file { flex-direction: column; align-items: flex-start; }
+  .vi-preview { width: 100%; height: 140px; }
+}
+
+/* Anti-FOMO check */
+.vi-fomo { border: 1px solid var(--border); border-left: 3px solid var(--warn, #e0a33a); border-radius: var(--radius, 8px); padding: 10px 12px; margin: 4px 0 12px; display: grid; gap: 8px; }
+.vi-fomo.info { border-left-color: var(--accent, #4c8dff); }
+.vi-fomo .row { gap: 8px; align-items: center; }
+.vi-fomo p { margin: 0; }
+.vi-fomo-list { display: grid; gap: 6px; margin: 6px 0; }
+.vi-idea.fomo { box-shadow: inset 0 0 0 1px var(--warn, #e0a33a); }

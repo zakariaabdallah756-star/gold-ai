@@ -1,0 +1,16 @@
+{
+  " ({distance:.1f}x the typical candle range from the {reference})": " ({distance:.1f}x il range tipico di una candela dalla {reference})",
+  "Buying at the top of the visible range after a run is a classic FOMO entry.": "Comprare sul massimo del range visibile dopo una corsa è una tipica entrata da FOMO.",
+  "Entering here is {share:.0f}% of the visible range away from the nearest level behind it ({anchor}) - there is no nearby structure to lean on.": "Entrare qui significa essere al {share:.0f}% del range visibile dal livello più vicino alle spalle ({anchor}): non c'è una struttura vicina su cui appoggiarsi.",
+  "From the current price the first target pays only 1:{rr:.2f}, below your 1:{minimum:g} minimum.": "Dal prezzo attuale il primo target rende solo 1:{rr:.2f}, sotto il tuo minimo di 1:{minimum:g}.",
+  "Price {price} has already reached the first target {target} - the planned move is done.": "Il prezzo {price} ha già raggiunto il primo target {target}: il movimento previsto si è già compiuto.",
+  "Price {price} is already beyond the stop {stop} - this idea is invalidated.": "Il prezzo {price} è già oltre lo stop {stop}: questa idea è invalidata.",
+  "Price {price} is already {run:.1f}R past the planned entry {entry} - entering now would be chasing. Wait for the entry or skip the trade.": "Il prezzo {price} è già {run:.1f}R oltre l'entrata prevista {entry}: entrare ora significherebbe inseguire. Attendi l'entrata o rinuncia al trade.",
+  "Selling at the bottom of the visible range after a drop is a classic FOMO entry.": "Vendere sul minimo del range visibile dopo un ribasso è una tipica entrata da FOMO.",
+  "The latest move is extended{how_far}.": "L'ultimo movimento è esteso{how_far}.",
+  "The latest move looks overextended{how_far}. Chasing it means a wide stop or a poor R:R - a pullback towards structure is the calmer entry.": "L'ultimo movimento sembra troppo esteso{how_far}. Inseguirlo significa uno stop largo o un R:R scarso: un ritracciamento verso la struttura è l'entrata più tranquilla.",
+  "The logical stop is far away: {share:.0f}% of the visible price range from the entry. The move has run far from the level that invalidates it - wait for a pullback or skip.": "Lo stop logico è lontano: {share:.0f}% del range di prezzo visibile dall'entrata. Il movimento si è allontanato molto dal livello che lo invalida: attendi un ritracciamento o rinuncia.",
+  "The stop is not on the protective side of the entry - check the levels.": "Lo stop non è dal lato di protezione rispetto all'entrata: controlla i livelli.",
+  "This idea joins a move rated overextended - wait for a pullback before entering in its direction.": "Questa idea si unisce a un movimento giudicato troppo esteso: attendi un ritracciamento prima di entrare nella sua direzione.",
+  "mean": "media"
+}

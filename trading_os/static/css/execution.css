@@ -1,0 +1,83 @@
+/* execution (v1.5): the connection & order-sending panel of a trading account, and Execute on <account>
+   on the Signals page. */
+
+.exec-panel {
+  display: flex; flex-direction: column; gap: 14px; min-width: 0;
+  padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+}
+.exec-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
+.exec-head h3, .exec-section h4 {
+  display: flex; align-items: center; gap: 7px; margin: 0;
+  font-size: 14.5px; font-weight: 600; color: var(--text);
+}
+.exec-section h4 { font-size: 13px; }
+.exec-head h3 svg, .exec-section h4 svg { width: 15px; height: 15px; color: var(--accent); }
+.exec-head p { margin: 3px 0 0; }
+.exec-section { min-width: 0; padding-top: 14px; border-top: 1px solid var(--border); }
+.exec-row-head { flex-wrap: wrap; gap: 8px; }
+.exec-section .row { flex-wrap: wrap; }
+.exec-section p { margin: 0; }
+.exec-section p .icon { vertical-align: -3px; }
+
+.exec-note {
+  display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2);
+  font-size: 13px; color: var(--text-2); overflow-wrap: anywhere;
+}
+.exec-note svg { margin-top: 1px; }
+.exec-note.ok { border-color: rgba(38, 166, 154, 0.4); background: var(--profit-wash); }
+.exec-note.ok svg { color: var(--profit); }
+.exec-note.warn { border-color: rgba(250, 178, 25, 0.35); background: var(--warning-wash); }
+.exec-note.warn svg { color: var(--warning); }
+.exec-note.bad { border-color: rgba(239, 83, 80, 0.45); background: var(--critical-wash); }
+.exec-note.bad svg { color: var(--critical-text); }
+
+.exec-code { display: flex; align-items: center; gap: 6px; min-width: 0; margin: 6px 0; }
+.exec-code code {
+  flex: 1; min-width: 0; display: block; padding: 7px 10px; font: 12.5px var(--mono);
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text);
+}
+
+.exec-secret { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.exec-secret > label, .exec-secret > .label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+.exec-secret .help { font-size: 11.5px; color: var(--muted); }
+.exec-secret-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.exec-secret-row input { flex: 1 1 200px; min-width: 0; }
+.field > .label { font-size: 12px; font-weight: 500; color: var(--text-2); }
+
+.exec-steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; color: var(--text-2); }
+.exec-steps li { overflow-wrap: anywhere; }
+.exec-switch-note { margin: 0; }
+.exec-switch.on h4 svg { color: var(--profit); }
+.exec-test-result:empty { display: none; }
+
+.exec-log td { vertical-align: top; }
+.exec-status { white-space: normal; min-width: 160px; }
+.exec-message { margin-top: 3px; max-width: 320px; white-space: normal; overflow-wrap: anywhere; }
+
+/* Signals: Execute on <account> */
+.sig-send-row { border-top: 0; padding-top: 4px; }
+.sig-execute-on { height: 40px; width: 100%; font-size: 14px; }
+.sig-order-list { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 8px 16px; margin: 0; font-size: 13.5px; }
+.sig-order-list dt { color: var(--muted); }
+.sig-order-list dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.sig-order-confirm p .icon { vertical-align: -3px; color: var(--warning); }
+.sig-order-result {
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); overflow-wrap: anywhere;
+}
+.sig-order-result.ok { background: var(--profit-wash); border-color: rgba(38, 166, 154, 0.4); }
+.sig-order-result.ok svg { color: var(--profit); }
+.sig-order-result.bad { background: var(--critical-wash); border-color: rgba(239, 83, 80, 0.45); }
+.sig-order-result.bad svg { color: var(--critical-text); }
+
+@media (max-width: 560px) {
+  .exec-panel { padding: 12px; }
+  .sig-order-list { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .sig-order-list dd { margin-bottom: 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .exec-panel * { transition: none !important; animation: none !important; }
+}

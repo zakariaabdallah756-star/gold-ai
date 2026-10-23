@@ -1,0 +1,69 @@
+"""Performance report PDF export (journal and strategy backtests)."""
+
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
+
+from ..models import Strategy
+from ..services import accounts, backtest, report_pdf
+from ..services import trades as trade_service
+from ..services.account import local_today
+from ..services.i18n import tr
+from .deps import DbDep, ScopeDep, SettingsDep, get_or_404, scope_currency
+from .trades import FiltersDep
+
+router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+def _pdf(content: bytes, filename: str) -> Response:
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _render(build, *args, **kwargs) -> bytes:
+    try:
+        return build(*args, **kwargs)
+    except report_pdf.ReportUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+@router.get("/performance.pdf")
+def performance_pdf(settings: SettingsDep, db: DbDep, filters: FiltersDep, scope: ScopeDep):
+    """Journal performance summary; accepts the same filters as /api/analytics."""
+    _, report = trade_service.performance_report(db, settings, filters)
+
+    today = local_today(settings)
+    if filters.date_from:
+        period = tr("{start} to {end}", start=filters.date_from, end=filters.date_to or today)
+    elif filters.date_to:
+        period = tr("start to {end}", end=filters.date_to)
+    else:
+        period = tr("All time to {end}", end=today)
+    applied = ", ".join(
+        part
+        for part in (
+            tr("Asset: {value}", value=filters.symbol) if filters.symbol else "",
+            tr("Strategy: {value}", value=filters.strategy) if filters.strategy else "",
+            tr("Session: {value}", value=filters.session) if filters.session else "",
+            tr("Direction: {value}", value=filters.direction) if filters.direction else "",
+        )
+        if part
+    )
+    content = _render(
+        report_pdf.build_performance_pdf,
+        report,
+        account=accounts.scope_label(settings, scope),
+        currency=scope_currency(settings, scope),
+        period=period,
+        filters=applied,
+    )
+    return _pdf(content, f"trading-os-performance-{local_today(settings):%Y%m%d}.pdf")
+
+
+@router.get("/backtest/{strategy_id}.pdf")
+def backtest_pdf(strategy_id: int, settings: SettingsDep, db: DbDep):
+    strategy = get_or_404(db, Strategy, strategy_id)
+    content = _render(report_pdf.build_backtest_pdf, backtest.strategy_report(db, settings, strategy))
+    return _pdf(content, f"trading-os-backtest-{strategy.id}-{local_today(settings):%Y%m%d}.pdf")

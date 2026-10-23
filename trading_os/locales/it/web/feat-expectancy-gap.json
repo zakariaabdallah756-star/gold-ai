@@ -1,0 +1,23 @@
+{
+  "Edge kept live": "Edge mantenuto dal vivo",
+  "Expectancy gap": "Gap di aspettativa",
+  "Gap at backtest risk": "Gap al rischio del backtest",
+  "In test": "In test",
+  "In test (incubator)": "In test (incubatore)",
+  "Live": "Live",
+  "Live = closed journal trades logged with the strategy {names}": "Live = trade chiusi del diario registrati con la strategia {names}",
+  "Live above backtest": "Live sopra il backtest",
+  "Live below backtest": "Live sotto il backtest",
+  "Live in line": "Live in linea",
+  "Live, actual": "Live, reale",
+  "Not enough data to compare": "Dati insufficienti per il confronto",
+  "Retired": "Ritirata",
+  "live {live} vs backtest {backtest} per trade": "live {live} contro backtest {backtest} per trade",
+  "live {r}/trade ({n})": "live {r}/trade ({n})",
+  "needs a positive backtest expectancy": "richiede un'aspettativa di backtest positiva",
+  "of the backtest expectancy": "dell'aspettativa del backtest",
+  "per trade at {risk} per 1R": "per trade a {risk} per 1R",
+  "per trade with your real size and fees": "per trade con la tua size reale e le commissioni",
+  "{name} is now: {status}": "{name} ora è: {status}",
+  "{value} pp": "{value} p.p."
+}

@@ -1,0 +1,7 @@
+# Local journal data - never commit it
+/data/
+/demo_data/
+/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/

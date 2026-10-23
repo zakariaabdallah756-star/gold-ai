@@ -1,0 +1,73 @@
+/* Signal parser page (track A). Uses the tokens defined in app.css. */
+
+.sig-text { min-height: 172px; font: 13px/1.55 var(--mono); }
+.sig-parse:empty { display: none; }
+
+.sig-summary { display: flex; flex-wrap: wrap; gap: 6px; }
+.sig-summary .chip { white-space: normal; text-align: left; }
+.sig-summary .chip.warn { border-color: rgba(250, 178, 25, 0.35); }
+.sig-summary .chip.warn svg { color: var(--warning); }
+
+/* ---------------------------------------------------------------- ticket */
+
+.sig-ticket { display: flex; flex-direction: column; gap: 16px; }
+.sig-label { font-size: 12px; font-weight: 500; color: var(--text-2); margin-bottom: 8px; }
+.sig-targets { display: flex; flex-direction: column; gap: 8px; }
+.sig-tp-row { display: grid; grid-template-columns: 38px minmax(0, 1fr) 96px 30px; gap: 8px; align-items: center; }
+.sig-tp-head { font-size: 11.5px; color: var(--muted); margin-bottom: -2px; }
+.sig-tp-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.sig-pct { position: relative; }
+.sig-pct input { padding-right: 26px; }
+.sig-pct span { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 12px; pointer-events: none; }
+.sig-split { margin-top: 2px; }
+.sig-link { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; cursor: pointer; }
+.sig-link:hover { text-decoration: underline; }
+.sig-fx:empty { display: none; }
+
+.sig-manage { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+.sig-toggle {
+  display: flex; flex-direction: column; gap: 12px; padding: 12px 14px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.sig-toggle .check { align-items: flex-start; color: var(--text); }
+.sig-toggle .check input { margin-top: 2px; }
+.sig-toggle .check > span { display: flex; flex-direction: column; gap: 1px; }
+.sig-toggle-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; }
+.sig-toggle.off .sig-toggle-fields { opacity: 0.5; }
+
+/* ---------------------------------------------------------------- result */
+
+.sig-result .result-hero { padding: 4px 0 6px; }
+.sig-result .result-hero .label { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.sig-badge { text-transform: uppercase; letter-spacing: 0.04em; font-size: 10.5px; }
+.sig-table td:first-child { font-weight: 600; color: var(--text-2); }
+.sig-pips { margin-left: 6px; font-size: 11.5px; }
+.sig-notes p + p { margin-top: 4px; }
+.sig-section h3 {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+  font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+}
+.sig-section h3 svg { width: 14px; height: 14px; }
+.sig-execute-row { display: flex; flex-direction: column; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
+.sig-execute { height: 42px; font-size: 14.5px; width: 100%; }
+.sig-reason { display: flex; align-items: flex-start; gap: 6px; }
+.sig-reason svg { width: 14px; height: 14px; margin-top: 2px; }
+.sig-empty-icon { width: 30px; height: 30px; margin-bottom: 10px; color: var(--muted); }
+
+@media (max-width: 860px) {
+  .sig-text { min-height: 140px; }
+  .sig-tp-row { grid-template-columns: 34px minmax(0, 1fr) 84px 30px; gap: 6px; }
+}
+
+@media (max-width: 520px) {
+  .sig-card .card-head { flex-wrap: wrap; gap: 10px; }
+  .sig-card .card-head .row { flex-wrap: nowrap; }
+}
+
+/* ---------------------------------------------------------------- strategy context */
+
+.sig-req {
+  margin-left: 6px; padding: 0 5px; border-radius: 4px; font-size: 10.5px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--warning); background: rgba(250, 178, 25, 0.12);
+}
+.chip-toggle.on .sig-req { color: var(--profit); background: rgba(38, 166, 154, 0.14); }

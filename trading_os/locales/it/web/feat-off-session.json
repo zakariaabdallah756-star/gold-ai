@@ -1,0 +1,19 @@
+{
+  "Active sessions: {sessions} - right now you are {state}.": "Sessioni attive: {sessions} - in questo momento sei {state}.",
+  "Block live entries": "Blocca le entrate live",
+  "Check entries against my active sessions": "Controlla le entrate rispetto alle mie sessioni attive",
+  "Choose your active sessions under": "Scegli le tue sessioni attive in",
+  "Entries outside my active sessions": "Entrate fuori dalle mie sessioni attive",
+  "Found outside your active sessions: shown here but not pushed (quiet hours).": "Trovato fuori dalle tue sessioni attive: visibile qui ma non inviato (modalità silenziosa).",
+  "Held (off-session)": "Trattenuta (fuori sessione)",
+  "Held: none of your active sessions was open, so it was not pushed.": "Trattenuta: nessuna delle tue sessioni attive era aperta, quindi non è stata inviata.",
+  "No session is marked active, so nothing is held.": "Nessuna sessione è contrassegnata come attiva, quindi nulla viene trattenuto.",
+  "Not pushed": "Non inviato",
+  "Quiet outside my active sessions": "Silenzioso fuori dalle mie sessioni attive",
+  "Strategy alerts and news reminders found while none of your active sessions is open are held: kept on the Alerts page and in the history below, but not pushed. Risk events always come through.": "Gli alert delle strategie e i promemoria delle news che arrivano quando nessuna delle tue sessioni attive è aperta vengono trattenuti: restano nella pagina Alert e nello storico qui sotto, ma non vengono inviati. Gli eventi di rischio arrivano sempre.",
+  "Trading Plan → Sessions": "Piano di trading → Sessioni",
+  "Warn only": "Solo avviso",
+  "Your active sessions are set under Sessions. Trades logged after the fact are always saved, with the warning attached.": "Le tue sessioni attive si impostano in Sessioni. I trade registrati a posteriori vengono sempre salvati, con l'avviso allegato.",
+  "inside your trading window": "dentro la tua finestra operativa",
+  "outside your trading window": "fuori dalla tua finestra operativa"
+}
