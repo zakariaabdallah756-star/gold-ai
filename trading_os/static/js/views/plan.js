@@ -9,6 +9,7 @@ import { renderNotificationSettings } from "./notifications.js";
 import { renderPartnerSettings } from "./partners.js";
 import { renderAiSettings } from "./settings-ai.js";
 import { renderNetworkSettings } from "./settings-network.js";
+import { renderPromoSettings } from "./settings-promos.js";
 
 const TABS = [
   ["rules", N_("Account & risk rules")],
@@ -21,10 +22,11 @@ const TABS = [
   ["notifications", N_("Notifications")],
   ["ai", N_("AI assistant")],
   ["partners", N_("Partners")],
+  ["promos", N_("Promotions")],
   ["network", N_("Network & access")],
 ];
 // Tabs rendered by other modules into their own container.
-const MOUNTED_TABS = { notifications: renderNotificationSettings, ai: renderAiSettings, partners: renderPartnerSettings, network: renderNetworkSettings };
+const MOUNTED_TABS = { notifications: renderNotificationSettings, ai: renderAiSettings, partners: renderPartnerSettings, promos: renderPromoSettings, network: renderNetworkSettings };
 const STRATEGY_STATUS = {
   live: { cls: "good", icon: "play", label: N_("Live") },
   incubator: { cls: "warn", icon: "flame", label: N_("Incubator") },
