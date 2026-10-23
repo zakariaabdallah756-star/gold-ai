@@ -218,6 +218,37 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 
 **Backup & Export.** Trades as CSV (Excel-friendly, formula-injection safe), a full JSON backup, and a ZIP with JSON plus screenshots. You can restore from JSON or ZIP; a safety snapshot of the current data is written to `backups/` first. Backups never contain secrets: no AI API key, notification channels, Web Push keys or market data keys. These stay on the machine and are kept as they are on restore.
 
+## Trading accounts
+
+Trading OS keeps one journal for several trading accounts: for example *Prop Firm Challenge 1*, *Prop Firm
+Challenge 2* and a *Live broker account*. Every trade belongs to one account.
+
+- **The default account.** It is created on first start from *Trading Plan → Account & risk rules*: account name,
+  currency and starting balance. Those settings stay its source of truth. Journals from before v1.5 put all their
+  trades on it, so nothing changes until you add a second account. Backups from older versions restore the same way.
+- **The account shown.** The account switcher in the top bar picks one account, or *All accounts* together. The
+  dashboard, journal, positions, calendar, reviews, analytics and PDF reports then show that account. New trades are
+  logged on the account shown, and the trade form can pick another. The choice is remembered on this computer.
+- **All accounts** adds up the accounts in the main currency. Accounts in another currency, and archived accounts,
+  are listed separately.
+- **Each account has its own guardrails.** A new trade is judged against its own account's equity, daily loss limit
+  and trade count. A losing day on a challenge never locks your live account.
+  - With *All accounts* shown, the status bar takes the worst account's state and names the account behind each
+    warning ("Challenge 1: Daily loss limit reached"). Risk notifications name the account too.
+  - The checklist, kill switch, cool-off and news rules apply to every account.
+- **Prop challenges** can be linked to their trading account (*Prop Firm → Edit → Trading account*): only that
+  account's trades count towards the target and the drawdown rules. Its rules lock only entries on that account.
+  An unlinked challenge counts every trade, as before.
+- **Strategy alerts** size their tickets on the rule's account (*Sized on account*; default: the default account).
+- **CSV export** has an `account` column.
+- **Deleting an account** is refused while trades are logged on it: archive it instead. Journal history is never
+  deleted. The default account can be neither archived nor deleted.
+- **Credentials** are write-only:
+  - Broker passwords, API tokens, webhook secrets and bridge tokens are stored encrypted (Fernet) with a key kept
+    in `secret.key` in the data folder.
+  - No page or API returns them; only the last characters are shown as a hint.
+  - They are never included in backups, and a restore never switches order routing on.
+
 ## How the guardrails work
 
 | Rule | Triggers when | Severity |
