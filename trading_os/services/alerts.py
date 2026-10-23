@@ -155,6 +155,7 @@ class Evaluation:
     risk_amount: float | None = None
     risk_pct: float | None = None
     sizing_note: str = ""
+    account_id: int | None = None  # trading account the ticket is sized and checked on
     precheck: list[dict] | None = None
     reason: str = ""  # why this is not a setup ('' when found)
 
@@ -369,9 +370,10 @@ def copilot_violations(
 def _size(db: Session, settings: AccountSettings, rule: AlertRule, ev: Evaluation, market: Market | None) -> None:
     levels = ev.levels
     risk_pct = rule.risk_pct or settings.default_risk_pct
-    # Sized on the rule's trading account (else the default account), like a trade logged there.
-    account_id = rule.account_id if rule.account_id and db.get(TradingAccount, rule.account_id) else None
-    account_id = account_id or settings.default_account_id
+    # Sized and checked on the rule's trading account (else the default account), like a trade logged there.
+    chosen = db.get(TradingAccount, rule.account_id) if rule.account_id else None
+    account_id = chosen.id if chosen is not None and chosen.status == "active" else settings.default_account_id
+    ev.account_id = account_id
     equity = current_equity(db, settings, (account_id,) if account_id else None)
     ev.risk_pct = risk_pct
     ev.risk_amount = round(equity * risk_pct / 100, 2) if equity > 0 else None
@@ -412,6 +414,7 @@ def guardrail_precheck(db: Session, settings: AccountSettings, ev: Evaluation, n
         confluences=ev.confluences,
         source="signal",
         targets=[TargetIn(price=p, close_pct=c) for p, c in zip(levels.take_profits, levels.close_pcts, strict=True)],
+        account_id=ev.account_id,
     )
     return [v.to_dict() for v in trades.evaluate(db, settings, data).violations]
 

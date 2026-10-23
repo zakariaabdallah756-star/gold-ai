@@ -17,7 +17,7 @@ from __future__ import annotations
 import random
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..constants import DEFAULT_TP_SPLITS
@@ -34,6 +34,7 @@ from ..models import (
     PropChallenge,
     Strategy,
     Trade,
+    TradingAccount,
 )
 from ..schemas import TargetIn, TradeIn
 from . import alerts, market_data, positions, prop
@@ -343,7 +344,8 @@ def seed_demo(db: Session, today: date, trading_days: int = 80, seed: int = 11, 
     _seed_news(db, today)
     _seed_backtests(db, rng, days[0])
     db.commit()
-    _seed_prop_challenge(db, settings, today)
+    challenge = _seed_prop_challenge(db, settings, today)
+    _seed_accounts(db, settings, challenge)
     _seed_alerts(db, settings, now)
     return created
 
@@ -438,7 +440,7 @@ def _seed_backtests(db: Session, rng: random.Random, journal_start: date) -> Non
             )
 
 
-def _seed_prop_challenge(db: Session, settings: AccountSettings, today: date) -> None:
+def _seed_prop_challenge(db: Session, settings: AccountSettings, today: date) -> PropChallenge:
     """An active FTMO-style challenge whose start date shows a running challenge with some progress."""
     preset = next(p for p in prop.PRESETS if p["key"] == "ftmo_challenge")
     rules = {
@@ -474,6 +476,40 @@ def _seed_prop_challenge(db: Session, settings: AccountSettings, today: date) ->
     db.add(challenge)
     db.commit()
     prop.activate(db, challenge)
+    prop.refresh(db, settings, challenge)
+    return challenge
+
+
+def _seed_accounts(db: Session, settings: AccountSettings, challenge: PropChallenge) -> None:
+    """Several trading accounts: the challenge's own account (the trades since it started) and a paper account."""
+    funded = TradingAccount(
+        name=challenge.name,
+        kind="prop",
+        broker=challenge.firm,
+        platform="mt5",
+        currency=settings.currency,
+        starting_balance=challenge.account_size,
+        color="#f0b90b",
+        notes="Demo account - the challenge's trades are logged here.",
+    )
+    paper = TradingAccount(
+        name="Paper trading",
+        kind="demo",
+        broker="Trading OS",
+        platform="other",
+        currency=settings.currency,
+        starting_balance=50_000.0,
+        color="#7e57c2",
+        connection="paper",
+        execution_enabled=True,
+        notes="Simulated fills: try Execute on account from Signals without risking money.",
+    )
+    db.add_all([funded, paper])
+    db.flush()
+    since = datetime.combine(challenge.start_date, time.min)
+    db.execute(update(Trade).where(Trade.entry_time >= since).values(account_id=funded.id))
+    challenge.account_id = funded.id
+    db.commit()
     prop.refresh(db, settings, challenge)
 
 

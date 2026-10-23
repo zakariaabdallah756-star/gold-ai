@@ -5,7 +5,7 @@ import { clear, debounce, field, h, icon, lightbox, modal, numberOrNull, segment
 import { fmt, toInputDateTime } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
 import { valueLabel } from "../labels.js";
-import { accountNow, loadStatus, marketBySymbol, state, strategyByName } from "../state.js";
+import { accountNow, accounts, activeAccount, loadStatus, marketBySymbol, state, strategyByName } from "../state.js";
 import { violationList } from "./calculator.js";
 import { copilotPanel, splitCopilot } from "./copilot.js";
 
@@ -88,6 +88,10 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
   if (rec.strategy && !strategyNames.includes(rec.strategy)) strategyNames.push(rec.strategy);
   const strategy = select([["", "—"], ...strategyNames], rec.strategy || "", { onchange: () => (renderConfluences(), check()) });
   const timeframe = select([["", "—"], ...plan.enums.timeframes], rec.timeframe || "");
+  // The trading account: the trade's own, else the account shown, else the default (only offered with several).
+  const accountId = rec.account_id ?? prefill.account_id ?? activeAccount()?.id ?? plan.settings.default_account_id ?? null;
+  const accountChoices = accounts().filter((a) => a.status === "active" || a.id === accountId);
+  const account = select(accountChoices.map((a) => [String(a.id), a.name]), accountId == null ? "" : String(accountId), { onchange: () => check() });
   const sessionNames = plan.sessions.map((s) => s.name);
   if (rec.session && !sessionNames.includes(rec.session)) sessionNames.push(rec.session);
   const session = select([["", t("Auto-detect")], ...sessionNames], rec.session || "", { onchange: () => check() });
@@ -468,6 +472,7 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       fees: num(fees) ?? 0,
       pnl: closed && !managed ? num(pnl) : null,
       strategy: strategy.value,
+      account_id: account.value ? Number(account.value) : null,
       timeframe: timeframe.value,
       session: session.value,
       confluences: [...confluences],
@@ -661,6 +666,7 @@ export function openTradeForm({ trade = null, prefill = {}, closing = false, onS
       "div",
       { class: "form-grid" },
       field(t("Entry time"), entryTime),
+      accountChoices.length > 1 ? field(t("Account"), account) : null,
       field(t("Asset"), symbol),
       field(t("Strategy"), strategy),
       field(t("Timeframe"), timeframe),

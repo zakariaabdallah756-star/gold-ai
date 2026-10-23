@@ -5,7 +5,7 @@ import { clear, confirmDialog, debounce, field, h, icon, modal, select, toast } 
 import { fmt, pnlClass } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
 import { valueLabel } from "../labels.js";
-import { loadStatus, state } from "../state.js";
+import { accounts, activeAccount, loadStatus, state } from "../state.js";
 import { violationList } from "./calculator.js";
 import { eventTimeline, managementSummary, stopKindBadge, stopKindOf, targetsLadder } from "./positions.js";
 import { openTradeForm, screenshotGallery } from "./trade-form.js";
@@ -111,6 +111,7 @@ export function openTradeDetail(trade, { onChange } = {}) {
       detailItem(t("Exit time"), fmt.datetime(trade.exit_time)),
       detailItem(t("Holding time"), holdTime(trade)),
       detailItem(t("Session"), trade.session || t("Off-session")),
+      accounts().length > 1 ? detailItem(t("Account"), accountTag(trade.account_id)) : null,
       detailItem(t("Strategy"), trade.strategy || "—"),
       detailItem(t("Timeframe"), trade.timeframe || "—"),
       detailItem(t("Emotion"), trade.emotion ? valueLabel(trade.emotion) : "—"),
@@ -221,6 +222,8 @@ export async function render(root, { params }) {
       clear(pager);
       return;
     }
+    // Every account shown and several exist: say which account each trade is on.
+    const showAccount = !activeAccount() && accounts().length > 1;
     clear(
       tableBox,
       h(
@@ -236,6 +239,7 @@ export async function render(root, { params }) {
               "tr",
               {},
               sortHeader(t("Date"), "entry_time"),
+              showAccount ? h("th", {}, t("Account")) : null,
               sortHeader(t("Asset"), "symbol"),
               h("th", {}, t("Side")),
               h("th", {}, t("Strategy")),
@@ -259,6 +263,7 @@ export async function render(root, { params }) {
                 "tr",
                 { class: "clickable", tabindex: "0", onclick: () => openTradeDetail(trade, { onChange: load }), onkeydown: (e) => e.key === "Enter" && openTradeDetail(trade, { onChange: load }) },
                 h("td", {}, fmt.date(trade.entry_time), h("span", { class: "muted" }, ` ${fmt.time(trade.entry_time)}`)),
+                showAccount ? h("td", {}, accountTag(trade.account_id)) : null,
                 h("td", {}, h("strong", {}, trade.symbol), trade.source === "signal" ? h("span", { class: "muted pm-src", title: t("From a signal") }, " ", icon("signal")) : null),
                 h("td", {}, h("span", { class: `badge ${trade.direction}` }, trade.direction === "long" ? t("Long") : t("Short"))),
                 h("td", {}, trade.strategy || h("span", { class: "muted" }, "—")),
@@ -333,4 +338,11 @@ export async function render(root, { params }) {
     history.replaceState(null, "", "#/journal");
     newTrade({ symbol: params.get("symbol"), direction: params.get("direction"), entry: params.get("entry"), sl: params.get("sl"), tp: params.get("tp"), size: params.get("size") });
   }
+}
+
+/** A trading account's name with its colour dot (journal rows, trade detail). */
+export function accountTag(accountId) {
+  const account = accounts().find((a) => a.id === accountId);
+  if (!account) return h("span", { class: "muted" }, "—");
+  return h("span", { class: "acct-tag" }, h("span", { class: "acct-dot", style: { background: account.color }, "aria-hidden": "true" }), account.name);
 }
