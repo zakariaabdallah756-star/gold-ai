@@ -7,7 +7,10 @@
 Content problems (nothing recognised, missing stop, unknown symbol ...) are
 reported in ``errors`` with HTTP 200; 422 only means a malformed request.
 Execution is a normal ``POST /api/trades`` with the ticket, where the server
-enforces every guardrail again (423 when blocked).
+enforces every guardrail again (423 when blocked). The ticket is sized for one
+trading account (``account_id``; default: the account shown, else the default
+account); ``account`` in the preview tells whether orders can also be sent to it
+(``POST /api/execution/orders``, see ``api/execution.py``).
 
 This module intentionally does not use ``from __future__ import annotations``
 (FastAPI resolves the request/response models at import time).
@@ -21,9 +24,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..constants import MAX_TARGETS
-from ..models import AccountSettings, Market
+from ..models import AccountSettings, Market, TradingAccount
 from ..schemas import FiniteModel, MarketOut, TradeCheckOut, TradeIn
-from ..services import account
+from ..services import account, accounts
 from ..services import trades as trade_service
 from ..services.i18n import N_, tr
 from ..services.signal_parser import ParsedSignal, parse_signal, resolve_close_pcts, split_lots
@@ -52,6 +55,7 @@ class ParseIn(FiniteModel):
     strategy: StrategyName = ""
     timeframe: Timeframe = ""
     confluences: Confluences = []
+    account_id: int | None = None  # trading account to size for; None = the account shown, else the default
 
 
 class TargetDraft(FiniteModel):
@@ -82,6 +86,8 @@ class TicketDraft(FiniteModel):
     timeframe: Timeframe = ""
     confluences: Confluences = []
     signal_text: SignalText = ""
+    account_id: int | None = None  # trading account; None = the account shown, else the default
+    order_type: Literal["market", "limit", "stop"] = "market"  # how an order sent to the broker is placed
 
 
 class ParsedOut(FiniteModel):
@@ -137,6 +143,8 @@ class SignalPreviewOut(FiniteModel):
     potential_profit: float | None
     check: TradeCheckOut | None
     ticket: dict | None  # exact body for POST /api/trades; None until the ticket is complete
+    # The trading account the ticket is sized for, and whether orders can be sent to it from here.
+    account: dict | None = None
 
 
 # --------------------------------------------------------------------------- endpoints
@@ -183,6 +191,8 @@ def draft_from_parsed(parsed: ParsedSignal, payload: ParseIn, settings: AccountS
         timeframe=payload.timeframe,
         confluences=payload.confluences,
         signal_text=payload.text,
+        account_id=payload.account_id,
+        order_type=parsed.order_type if parsed.order_type in ("market", "limit", "stop") else "market",
     )
 
 
@@ -190,8 +200,17 @@ def build_preview(db: Session, settings: AccountSettings, draft: TicketDraft) ->
     """Sizing, scale-out plan, guardrail check and executable ticket for ``draft``."""
     out = _empty_preview([])
     errors, warnings = out["errors"], out["warnings"]
-    currency = settings.currency
     draft = _checked_numbers(draft, errors)
+    try:
+        trading_account = accounts.account_for_new_trade(db, settings, draft.account_id)
+    except accounts.AccountError as exc:
+        errors.append(str(exc))
+        trading_account = None
+    # Sizing, money and the guardrail check are that account's: its currency and equity.
+    currency = settings.currency
+    if trading_account is not None and not accounts.is_default(settings, trading_account):
+        currency = trading_account.currency
+    out["account"] = _account_info(settings, trading_account, draft) if trading_account is not None else None
 
     market = db.scalar(select(Market).where(Market.symbol == draft.symbol)) if draft.symbol else None
     if not draft.symbol:
@@ -241,7 +260,7 @@ def build_preview(db: Session, settings: AccountSettings, draft: TicketDraft) ->
     sizing = None
     sizeable = market is not None and (draft.fx_rate or not out["needs_fx"])
     if sizeable and ((entry and stop and stop != entry) or (stop is None and stop_pips)):
-        sizing = _sizing(db, settings, market, draft, entry, stop, stop_pips, errors)
+        sizing = _sizing(db, settings, market, draft, entry, stop, stop_pips, errors, trading_account, currency)
         out["sizing"] = sizing
     lots = sizing["lots"] if sizing and sizing["lots"] > 0 else None
 
@@ -317,6 +336,8 @@ def build_preview(db: Session, settings: AccountSettings, draft: TicketDraft) ->
         "confluences": list(draft.confluences),
         "emotion": "",
     }
+    if trading_account is not None:
+        ticket["account_id"] = trading_account.id
     if out["needs_fx"]:  # the server cannot convert this quote currency on its own
         ticket["risk_amount"] = round(sizing["max_loss"], 2)
     try:
@@ -346,13 +367,17 @@ def _sizing(
     stop: float | None,
     stop_pips: float | None,
     errors: list[str],
+    trading_account: TradingAccount | None = None,
+    currency: str | None = None,
 ) -> dict | None:
-    equity = draft.account_equity or account.current_equity(db, settings)
+    currency = currency or settings.currency
+    ids = (trading_account.id,) if trading_account is not None else None
+    equity = draft.account_equity or account.current_equity(db, settings, ids)
     risk_pct = draft.risk_pct or settings.default_risk_pct
     try:
         result = calculate_position_size(
             market,
-            settings.currency,
+            currency,
             equity,
             risk_pct,
             entry=entry,
@@ -384,7 +409,7 @@ def _sizing(
                     max_lot=market.max_lot,
                 )
             )
-        manual_loss = risk_for_lots(market, settings.currency, entry, stop, lots) if entry and stop else None
+        manual_loss = risk_for_lots(market, currency, entry, stop, lots) if entry and stop else None
         max_loss = manual_loss if manual_loss is not None else lots * result.stop_pips * result.pip_value_per_lot
     elif lots == 0:
         errors.append(tr("Position size rounds to 0 lots at this risk - raise the risk % or enter the lots manually."))
@@ -485,6 +510,29 @@ def _checked_numbers(draft: TicketDraft, errors: list[str]) -> TicketDraft:
     return draft.model_copy(update={**update, "targets": targets})
 
 
+def _account_info(settings: AccountSettings, trading_account: TradingAccount, draft: TicketDraft) -> dict:
+    """The account a ticket is sized for, and whether "Execute on <account>" may send an order to it."""
+    default = accounts.is_default(settings, trading_account)
+    connected = trading_account.connection != "none"
+    reason = None
+    if not connected:
+        reason = tr("Connect this account under Trading Accounts to send orders to it.")
+    elif not trading_account.execution_enabled:
+        reason = tr("Order sending is off for this account - turn it on under Trading Accounts.")
+    return {
+        "id": trading_account.id,
+        "name": settings.account_name if default else trading_account.name,
+        "currency": settings.currency if default else trading_account.currency,
+        "kind": trading_account.kind,
+        "connection": trading_account.connection,
+        "execution_enabled": trading_account.execution_enabled,
+        "max_lots_per_order": trading_account.max_lots_per_order,
+        "order_type": draft.order_type,
+        "can_execute": connected and trading_account.execution_enabled,
+        "reason": reason,
+    }
+
+
 def _empty_preview(errors: list[str]) -> dict:
     return {
         "market": None,
@@ -497,6 +545,7 @@ def _empty_preview(errors: list[str]) -> dict:
         "potential_profit": None,
         "check": None,
         "ticket": None,
+        "account": None,
     }
 
 
