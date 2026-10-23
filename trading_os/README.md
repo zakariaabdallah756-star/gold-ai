@@ -112,7 +112,7 @@ The sidebar groups the pages into **Trade**, **Improve** and **Setup**.
 A chip shows where the figures come from: *Live from bridge · updated 12s ago* when the account's bridge reported in the last 5 minutes, otherwise *From journal*. The figures refresh every 12 seconds while the dashboard is open. The promo carousel sits above the hero when it has cards.
 
 **Account switcher.** The dropdown in the top bar lists:
-- *All accounts*: the combined equity of every active account in the main currency. The menu says how many accounts are left out for another currency or for being archived.
+- *All accounts*: the combined equity of every active real-money account in the main currency. The menu says how many accounts are left out (demo, another currency, archived).
 - every active account, with its colour, type and equity.
 
 Choosing one switches the whole app to that account (see *Trading accounts* below). It works with the keyboard (arrow keys, Home/End, Enter, Escape) and has a *Manage accounts* link.
@@ -274,8 +274,8 @@ Challenge 2* and a *Live broker account*. Every trade belongs to one account.
 - **The account shown.** The account switcher in the top bar picks one account, or *All accounts* together. The
   dashboard, journal, positions, calendar, reviews, analytics and PDF reports then show that account. New trades are
   logged on the account shown, and the trade form can pick another. The choice is remembered on this computer.
-- **All accounts** adds up the accounts in the main currency. Accounts in another currency, and archived accounts,
-  are listed separately.
+- **All accounts** adds up your real-money accounts in the main currency. Demo accounts, accounts in another currency
+  and archived accounts are shown on their own.
 - **Each account has its own guardrails.** A new trade is judged against its own account's equity, daily loss limit
   and trade count. A losing day on a challenge never locks your live account.
   - With *All accounts* shown, the status bar takes the worst account's state and names the account behind each

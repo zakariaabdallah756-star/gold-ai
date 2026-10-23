@@ -53,9 +53,11 @@ function accountById(accountId) {
 function excludedNote() {
   const excluded = (summary?.scope.excluded || []).map(accountById).filter(Boolean);
   const archived = excluded.filter((account) => account.status !== "active").length;
-  const otherCurrency = excluded.length - archived;
+  const demo = excluded.filter((account) => account.status === "active" && account.kind === "demo").length;
+  const otherCurrency = excluded.length - archived - demo;
   const parts = [];
   if (otherCurrency) parts.push(tn(otherCurrency, "{n} account in another currency left out", "{n} accounts in another currency left out"));
+  if (demo) parts.push(tn(demo, "{n} demo account left out", "{n} demo accounts left out"));
   if (archived) parts.push(tn(archived, "{n} archived account left out", "{n} archived accounts left out"));
   return parts.join(" · ");
 }

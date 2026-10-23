@@ -4,8 +4,8 @@ Every trade belongs to one account (``Trade.account_id``). The *default* account
 account name, currency and starting balance (one source of truth: the settings), so a journal from before
 v1.5 behaves exactly as it did. The *active* account (``AccountSettings.active_account_id``) is the one the
 dashboard, journal, calendar and reports show; ``None`` shows every account together. Accounts in another
-currency than the settings' are left out of "all accounts" (their money cannot be added up) and shown on
-their own.
+currency than the settings' (their money cannot be added up), demo accounts (not real money) and archived
+accounts are left out of "all accounts" and shown on their own.
 """
 
 from __future__ import annotations
@@ -135,7 +135,8 @@ def resolve_scope(db: Session, settings: AccountSettings, account_id=ACTIVE) -> 
             return Scope((chosen.id,), chosen, (chosen,), ())
     if not accounts:
         return Scope(None)
-    included = [a for a in accounts if a.status == "active" and a.currency == settings.currency]
+    # Real money only: demo/paper accounts, archived accounts and other currencies are shown on their own.
+    included = [a for a in accounts if a.status == "active" and a.currency == settings.currency and a.kind != "demo"]
     if not included:  # nothing comparable: fall back to the default account alone
         included = [a for a in accounts if a.id == settings.default_account_id] or accounts[:1]
     excluded = tuple(a for a in accounts if a not in included)

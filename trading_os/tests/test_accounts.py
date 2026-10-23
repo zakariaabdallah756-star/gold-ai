@@ -220,3 +220,12 @@ def test_editing_where_orders_go_or_archiving_switches_sending_off(client):
         db.commit()
     client.put(f"/api/accounts/{prop['id']}", json={**body, "server": "Broker-Live", "status": "archived"})
     assert accounts_by_name(client)["FTMO Challenge 1"]["execution_enabled"] is False
+
+
+def test_demo_accounts_are_not_added_to_the_real_money_totals(client):
+    paper = new_account(client, name="Paper", kind="demo", starting_balance=50_000.0)
+    totals = client.get("/api/accounts/summary", params={"account": "all"}).json()
+    assert totals["totals"]["balance"] == 10_000.0 and totals["scope"]["excluded"] == [paper["id"]]
+    assert client.get("/api/risk/status").json()["current_equity"] == 10_000.0
+    alone = client.get("/api/accounts/summary", params={"account": paper["id"]}).json()
+    assert alone["totals"]["balance"] == 50_000.0

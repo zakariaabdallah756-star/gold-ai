@@ -506,7 +506,7 @@ function heroScope(data) {
       h("span", { class: "hero-scope-all" }, icon("layers")),
       h("span", { class: "hero-scope-name" }, t("All accounts")),
       h("span", { class: "hero-scope-meta" }, tn(scope.accounts.length, "{n} account combined", "{n} accounts combined")),
-      excluded ? h("span", { class: "hero-scope-meta", title: t("Accounts in another currency or archived are not added up") }, tn(excluded, "{n} left out", "{n} left out")) : null,
+      excluded ? h("span", { class: "hero-scope-meta", title: t("Demo accounts, archived accounts and accounts in another currency are not added up") }, tn(excluded, "{n} left out", "{n} left out")) : null,
     );
   }
   const account = data.accounts.find((a) => a.id === scope.account_id);
