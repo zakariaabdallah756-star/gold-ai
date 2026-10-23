@@ -72,7 +72,7 @@ class SettingsIn(BaseModel):
     default_auto_be: bool = True
     default_trail_pips: float = Field(0.0, ge=0)
     promos_enabled: bool = True
-    promo_interval_sec: int = Field(7, ge=3, le=60)
+    promo_interval_sec: int = Field(4, ge=3, le=60)
     onboarding_video_url: Annotated[str, StringConstraints(max_length=300, strip_whitespace=True)] = ""
     onboarding_done: bool = False
 

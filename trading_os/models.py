@@ -128,7 +128,7 @@ class AccountSettings(TimestampMixin, Base):
     active_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Dashboard promo carousel and the onboarding guide.
     promos_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    promo_interval_sec: Mapped[int] = mapped_column(Integer, default=7)
+    promo_interval_sec: Mapped[int] = mapped_column(Integer, default=4)
     onboarding_video_url: Mapped[str] = mapped_column(String(300), default="")
     onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False)
 

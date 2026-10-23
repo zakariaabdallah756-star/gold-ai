@@ -108,7 +108,7 @@
 .promo-dot.on::before { width: 32px; background: rgba(255, 255, 255, 0.16); }
 .promo-dot-fill {
   position: absolute; left: 4px; top: 9px; width: 32px; height: 8px; border-radius: 999px; background: var(--accent);
-  transform-origin: left center; animation: promo-progress var(--promo-interval, 7s) linear forwards;
+  transform-origin: left center; animation: promo-progress var(--promo-interval, 4s) linear forwards;
 }
 .promo-carousel.is-paused .promo-dot-fill { animation-play-state: paused; }
 .promo-carousel.is-static .promo-dot-fill { animation: none; }

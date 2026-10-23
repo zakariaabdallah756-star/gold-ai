@@ -17,7 +17,7 @@ from trading_os.services import promos as promo_service
 
 from .conftest import update_settings
 
-BUILTIN_KEYS = ["whats_new_v15", "connect_account", "onboarding_guide", "strategy_alerts"]
+BUILTIN_KEYS = ["whats_new_v16", "whats_new_v15", "connect_account", "onboarding_guide", "strategy_alerts"]
 AFFILIATE_WORDS = re.compile(r"affiliate|referral|commission|sponsored", re.IGNORECASE)
 
 
@@ -79,9 +79,10 @@ def test_seeds_builtin_announcements_and_one_card_per_featured_partner(client):
     assert ftmo["body"] == "Proprietary trading firm offering evaluation programmes for funded trading accounts."
     assert ftmo["cta_label"] == "Visit FTMO" and ftmo["code"] == ""
     assert ftmo["disclaimer"] is True and "substantial risk of loss" in ftmo["disclaimer_text"]
-    whats_new = shown(client)[0]
-    assert whats_new["builtin_key"] == "whats_new_v15" and whats_new["disclaimer"] is False
-    assert whats_new["cta_url"].startswith("#/") and whats_new["external"] is False
+    assert [p["builtin_key"] for p in shown(client)[:2]] == ["whats_new_v16", "whats_new_v15"]
+    for whats_new in shown(client)[:2]:
+        assert whats_new["disclaimer"] is False
+        assert whats_new["cta_url"].startswith("#/") and whats_new["external"] is False
     payload = json.dumps([shown(client), data])
     assert not AFFILIATE_WORDS.search(payload)
 
@@ -187,6 +188,8 @@ def test_ordering_and_reorder(client):
 
 
 def test_italian_translation_of_builtins_partner_cards_and_disclaimer(client):
+    v16 = next(p for p in editor(client)["promos"] if p["builtin_key"] == "whats_new_v16")
+    assert client.delete(f"/api/promos/{v16['id']}").status_code == 204  # the v1.5 card leads from here on
     update_settings(client, language="it")
     cards = shown(client)
     first = cards[0]
@@ -292,7 +295,7 @@ def test_crud_and_validation(client):
 
 
 def test_carousel_settings(client):
-    assert client.get("/api/promos").json()["interval_sec"] == 7
+    assert client.get("/api/promos").json()["interval_sec"] == 4
     response = client.put("/api/promos/settings", json={"enabled": False, "interval_sec": 12})
     assert response.status_code == 200 and response.json() == {"enabled": False, "interval_sec": 12}
     feed = client.get("/api/promos").json()

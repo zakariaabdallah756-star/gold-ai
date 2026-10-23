@@ -30,6 +30,9 @@ KINDS = ("announcement", "partner", "discount")
 THEMES = ("teal", "blue", "gold", "purple", "red")
 MIN_INTERVAL_SEC = 3
 MAX_INTERVAL_SEC = 60
+DEFAULT_INTERVAL_SEC = 4
+V15_DEFAULT_INTERVAL_SEC = 7  # journals that never changed it move to the new default once
+INTERVAL_GROUP = "promos:interval-4s"
 TITLE_MAX, BODY_MAX, CTA_LABEL_MAX, CTA_URL_MAX, CODE_MAX = 80, 300, 40, 500, 40
 
 DISCLAIMER = N_(
@@ -41,6 +44,16 @@ PARTNER_CTA = N_("Visit {name}")
 
 # Built-in platform announcements, keyed by ``Promo.builtin_key``. The texts are English sources shown translated.
 BUILTINS: dict[str, dict[str, str]] = {
+    "whats_new_v16": {
+        "title": N_("New in v1.6: Trading Academy and AI Strategy Learner"),
+        "body": N_(
+            "Collect YouTube lessons by topic with private notes and progress, then turn a strategy description "
+            "or a video transcript into an incubator draft ready for backtesting."
+        ),
+        "cta_label": N_("Open the Academy"),
+        "cta_url": "#/academy",
+        "theme": "blue",
+    },
     "whats_new_v15": {
         "title": N_("New in v1.5: multiple trading accounts"),
         "body": N_(
@@ -82,6 +95,8 @@ BUILTINS: dict[str, dict[str, str]] = {
     },
 }
 BUILTIN_TEXT_FIELDS = ("title", "body", "cta_label")
+# Announcements of a new version go first in journals that already have cards (fresh ones follow BUILTINS).
+LEADING_BUILTINS = frozenset({"whats_new_v16"})
 PARTNER_GROUP = "promos:partners"
 PARTNER_THEMES = {"prop_firm": "gold", "broker": "blue"}
 
@@ -182,6 +197,11 @@ def seed_promos(session: Session, done: set[str]) -> None:
         done.add(group)
         if session.scalar(select(Promo.id).where(Promo.builtin_key == key).limit(1)) is not None:
             continue
+        lowest = session.scalar(select(func.min(Promo.sort_order))) if key in LEADING_BUILTINS else None
+        if lowest is not None:
+            session.add(Promo(kind="announcement", builtin_key=key, sort_order=lowest - 1, **values))
+            session.flush()  # the next leading card (if any) sees this one
+            continue
         session.add(Promo(kind="announcement", builtin_key=key, sort_order=order, **values))
         order += 1
     if PARTNER_GROUP not in done:
@@ -204,6 +224,11 @@ def seed_promos(session: Session, done: set[str]) -> None:
                     )
                 )
                 order += 1
+    if INTERVAL_GROUP not in done:
+        done.add(INTERVAL_GROUP)
+        settings = session.get(AccountSettings, 1)
+        if settings is not None and settings.promo_interval_sec in (None, V15_DEFAULT_INTERVAL_SEC):
+            settings.promo_interval_sec = DEFAULT_INTERVAL_SEC
     session.flush()
 
 
@@ -355,7 +380,7 @@ def item(db: Session, settings: AccountSettings, promo: Promo) -> dict:
 
 
 def interval(settings: AccountSettings) -> int:
-    value = settings.promo_interval_sec or 7
+    value = settings.promo_interval_sec or DEFAULT_INTERVAL_SEC
     return max(MIN_INTERVAL_SEC, min(MAX_INTERVAL_SEC, int(value)))
 
 
