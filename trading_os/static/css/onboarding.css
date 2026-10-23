@@ -31,7 +31,7 @@
 .onb-empty strong { font-size: 15px; }
 .onb-empty p { max-width: 480px; }
 .onb-empty .row { justify-content: center; margin-top: 6px; }
-.onb-empty-icon { width: 40px; height: 40px; color: var(--muted); stroke-width: 1.5; }
+.onb-empty svg.onb-empty-icon { width: 40px; height: 40px; color: var(--muted); stroke-width: 1.5; }
 
 /* steps */
 .onb-steps { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 22px; }

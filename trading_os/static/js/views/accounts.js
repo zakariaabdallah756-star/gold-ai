@@ -212,7 +212,7 @@ function metric(text, value, { cls = "", sub = null } = {}) {
 function facts(account) {
   const items = [
     [t("Broker"), account.broker],
-    [t("Platform"), label(PLATFORM_LABEL, account.platform)],
+    [t("Platform"), account.platform === "other" ? "" : label(PLATFORM_LABEL, account.platform)],
     [t("Login"), account.login],
     [t("Server"), account.server],
     [t("Currency"), account.currency],
@@ -231,7 +231,7 @@ function accountCard(account, actions) {
 
   const show = account.is_active
     ? h("a", { class: "btn sm", href: "#/dashboard" }, icon("dashboard"), t("Open dashboard"))
-    : h("button", { class: "btn sm primary", type: "button", onclick: () => actions.show(account) }, icon("eye"), t("Show on dashboard"));
+    : h("button", { class: "btn sm acct-show", type: "button", onclick: () => actions.show(account) }, icon("eye"), t("Show on dashboard"));
   const edit = h("button", { class: "btn sm", type: "button", onclick: () => actions.edit(account) }, icon("edit"), t("Edit"));
   const archive = h(
     "button",

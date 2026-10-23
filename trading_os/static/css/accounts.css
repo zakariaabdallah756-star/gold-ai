@@ -31,7 +31,7 @@
 .acct-switch-all { display: inline-flex; color: var(--accent); }
 .acct-switch-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
 .acct-switch-equity { padding-left: 8px; border-left: 1px solid var(--border-strong); color: var(--text-2); font-size: 12.5px; white-space: nowrap; }
-.acct-switch-chevron { width: 14px; height: 14px; color: var(--muted); }
+.acct-switch-btn svg.acct-switch-chevron { width: 14px; height: 14px; color: var(--muted); }
 
 .acct-menu, .profile-menu {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 60;
@@ -207,6 +207,8 @@
 .acct-badges .badge svg { width: 12px; height: 12px; }
 .acct-prop-link:hover { text-decoration: none; color: var(--text); }
 .acct-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn.acct-show { border-color: rgba(57, 135, 229, 0.45); background: var(--accent-wash); color: #9cc4f5; }
+.btn.acct-show:hover { background: rgba(57, 135, 229, 0.2); color: var(--text); }
 .acct-facts { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 12px 0 14px; font-size: 12.5px; }
 .acct-facts > div { display: flex; gap: 6px; min-width: 0; }
 .acct-facts dt { color: var(--muted); }
