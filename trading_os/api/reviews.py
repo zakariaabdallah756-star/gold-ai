@@ -11,7 +11,7 @@ from ..schemas import FiniteModel
 from ..services import reviews
 from ..services.account import local_today
 from ..services.i18n import tr
-from .deps import DbDep, SettingsDep
+from .deps import DbDep, ScopeDep, SettingsDep
 
 router = APIRouter(prefix="/api", tags=["reviews"])
 
@@ -79,19 +79,19 @@ class ReviewHistoryRow(FiniteModel):
 
 
 @router.get("/reviews", response_model=list[ReviewHistoryRow])
-def read_history(settings: SettingsDep, db: DbDep, days: int = Query(30, ge=1, le=366)):
+def read_history(settings: SettingsDep, db: DbDep, scope: ScopeDep, days: int = Query(30, ge=1, le=366)):
     """Every day of the last ``days`` days (today first), reviewed or not, with the P&L booked that day."""
-    return reviews.history(db, local_today(settings), days)
+    return reviews.history(db, local_today(settings), days, scope.account_ids)
 
 
 @router.get("/reviews/{day}", response_model=ReviewOut)
-def read_review(day: date, db: DbDep):
-    return reviews.get_review(db, day)
+def read_review(day: date, db: DbDep, scope: ScopeDep):
+    return reviews.get_review(db, day, scope.account_ids)
 
 
 @router.put("/reviews/{day}", response_model=ReviewOut)
-def save_review(day: date, payload: ReviewIn, settings: SettingsDep, db: DbDep):
+def save_review(day: date, payload: ReviewIn, settings: SettingsDep, db: DbDep, scope: ScopeDep):
     """Create or replace the review of a day (today or earlier)."""
     if day > local_today(settings):
         raise HTTPException(status_code=422, detail=tr("You can only review today or a past day."))
-    return reviews.save_review(db, day, payload.model_dump())
+    return reviews.save_review(db, day, payload.model_dump(), scope.account_ids)

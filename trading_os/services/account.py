@@ -173,7 +173,7 @@ def daily_status(db: Session, settings: AccountSettings, account_id=accounts.ACT
     scope = accounts.resolve_scope(db, settings, account_id)
     now = local_now(settings)
     extras = context_rules.status_extras(db, settings, now)
-    prop_extras = prop_rules.status_extras(db, settings, now)
+    prop_extras = prop_rules.status_extras(db, settings, now, scope.account_ids)
     shared = list(extras.pop("reasons", [])) + list(prop_extras.pop("reasons", []))
     extras.update(prop_extras)
 

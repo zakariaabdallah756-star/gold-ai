@@ -143,6 +143,13 @@ def resolve_scope(db: Session, settings: AccountSettings, account_id=ACTIVE) -> 
     return Scope(ids, None, tuple(included), excluded)
 
 
+def scope_label(settings: AccountSettings, scope: Scope) -> str:
+    """What a report says it covers: the account's name, or "All accounts"."""
+    if scope.account is None:
+        return tr("All accounts") if len(scope.accounts) > 1 else settings.account_name
+    return settings.account_name if is_default(settings, scope.account) else scope.account.name
+
+
 def scope_for_account(db: Session, account_id: int | None) -> Scope:
     """The scope of one account (a trade's own account), or every trade when ``account_id`` is None."""
     if account_id is None:

@@ -30,7 +30,16 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from ..constants import DEFAULT_TP_SPLITS
-from ..models import AccountSettings, AlertRule, ChecklistDay, Market, Strategy, StrategyAlert, TradingSession
+from ..models import (
+    AccountSettings,
+    AlertRule,
+    ChecklistDay,
+    Market,
+    Strategy,
+    StrategyAlert,
+    TradingAccount,
+    TradingSession,
+)
 from ..schemas import TargetIn, TradeIn
 from . import detectors, market_data, notify, trades
 from .account import current_equity, get_settings, local_now
@@ -360,7 +369,10 @@ def copilot_violations(
 def _size(db: Session, settings: AccountSettings, rule: AlertRule, ev: Evaluation, market: Market | None) -> None:
     levels = ev.levels
     risk_pct = rule.risk_pct or settings.default_risk_pct
-    equity = current_equity(db, settings)
+    # Sized on the rule's trading account (else the default account), like a trade logged there.
+    account_id = rule.account_id if rule.account_id and db.get(TradingAccount, rule.account_id) else None
+    account_id = account_id or settings.default_account_id
+    equity = current_equity(db, settings, (account_id,) if account_id else None)
     ev.risk_pct = risk_pct
     ev.risk_amount = round(equity * risk_pct / 100, 2) if equity > 0 else None
     if market is None:

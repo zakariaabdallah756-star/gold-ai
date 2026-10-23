@@ -10,12 +10,13 @@ from ..schemas import ScreenshotOut, ScreenshotUrlIn, TradeCheckOut, TradeIn, Tr
 from ..services import trades as trade_service
 from ..services import uploads
 from ..services.i18n import tr
-from .deps import ConfigDep, DbDep, SettingsDep, get_or_404
+from .deps import ConfigDep, DbDep, ScopeDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api", tags=["trades"])
 
 
 def trade_filters(
+    scope: ScopeDep,
     status: Literal["open", "closed"] | None = None,
     symbol: str | None = None,
     strategy: str | None = None,
@@ -28,6 +29,7 @@ def trade_filters(
     q: Annotated[str | None, Query(max_length=100)] = None,
 ) -> trade_service.TradeFilters:
     return trade_service.TradeFilters(
+        account_ids=scope.account_ids,
         status=status,
         symbol=symbol,
         strategy=strategy,

@@ -6,7 +6,7 @@ import { api, query } from "../api.js";
 import { clear, confirmDialog, field, h, icon, modal, numberOrNull, segmented, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
-import { handoff, state } from "../state.js";
+import { accounts, handoff, state } from "../state.js";
 
 const NOTICE = N_("Alerts are informational: nothing is executed automatically - the final decision is always yours.");
 const INTERVAL_LABELS = { 60: N_("Every minute"), 300: N_("Every 5 minutes"), 900: N_("Every 15 minutes"), 1800: N_("Every 30 minutes"), 3600: N_("Every hour") };
@@ -78,7 +78,7 @@ function switchControl(checked, label, onChange) {
 }
 
 function rulePayload(rule) {
-  const keys = ["name", "enabled", "strategy_id", "symbols", "timeframe", "provider", "provider_symbols", "direction", "conditions", "min_conditions", "stop_method", "stop_buffer_pips", "atr_multiple", "targets_rr", "risk_pct", "cooldown_minutes", "notify"];
+  const keys = ["name", "enabled", "strategy_id", "symbols", "timeframe", "provider", "provider_symbols", "direction", "conditions", "min_conditions", "stop_method", "stop_buffer_pips", "atr_multiple", "targets_rr", "risk_pct", "account_id", "cooldown_minutes", "notify"];
   return Object.fromEntries(keys.map((key) => [key, rule[key]]));
 }
 
@@ -394,6 +394,7 @@ function ruleEditor(rule, meta, onSaved) {
         atr_multiple: 1.5,
         targets_rr: [],
         risk_pct: null,
+        account_id: null,
         cooldown_minutes: 60,
         notify: true,
       };
@@ -657,6 +658,10 @@ function ruleEditor(rule, meta, onSaved) {
     },
   });
   const risk = h("input", { type: "number", step: "0.05", min: "0.01", max: "10", value: draft.risk_pct ?? "", placeholder: t("{risk} (account default)", { risk: settings.default_risk_pct }), oninput: (e) => (draft.risk_pct = numberOrNull(e.target)) });
+  const accountChoices = accounts().filter((a) => a.status === "active" || a.id === draft.account_id);
+  const accountSelect = select([["", t("Default account")], ...accountChoices.map((a) => [String(a.id), a.name])], draft.account_id == null ? "" : String(draft.account_id), {
+    onchange: (e) => (draft.account_id = e.target.value ? Number(e.target.value) : null),
+  });
   const cooldown = h("input", { type: "number", step: "5", min: "0", max: "1440", value: draft.cooldown_minutes, oninput: (e) => (draft.cooldown_minutes = Math.round(numberOrNull(e.target) ?? 0)) });
   const notifyBox = h("input", { type: "checkbox", checked: draft.notify, onchange: (e) => (draft.notify = e.target.checked) });
   const enabledBox = h("input", { type: "checkbox", checked: draft.enabled, onchange: (e) => (draft.enabled = e.target.checked) });
@@ -707,6 +712,7 @@ function ruleEditor(rule, meta, onSaved) {
       atrField,
       h("div", { class: "field" }, h("label", {}, t("Targets (R multiples)")), targets, targetsHint),
       field(t("Risk per trade (%)"), risk),
+      field(t("Sized on account"), accountSelect, { help: t("The ticket's risk is a share of this account's equity") }),
       field(t("Cooldown (minutes)"), cooldown, { help: t("Quiet time per symbol after an alert") }),
     ),
     h("div", { class: "row al-checks-row" }, h("label", { class: "check" }, notifyBox, t("Send a push notification")), h("label", { class: "check" }, enabledBox, t("Rule enabled"))),

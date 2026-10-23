@@ -198,7 +198,9 @@ def evaluate(
         new_risk = max((risk_amount or 0.0) - own_risk, 0.0) if risk_amount is not None else None
         violations += daily_violations(settings, day, new_risk)
         # Prop-firm challenge rules ("prop mode", services.prop_rules).
-        violations += prop_rules.entry_violations(db, settings, risk_amount=new_risk, entry_time=entry_time, now=now)
+        violations += prop_rules.entry_violations(
+            db, settings, risk_amount=new_risk, entry_time=entry_time, now=now, account_id=ids[0] if ids else None
+        )
     elif entry_like and entry_time.date() == today:
         # Logged after the fact: judge the day as it stood when the trade was entered.
         violations += daily_violations(settings, _day_state_at(db, settings, entry_time, existing, ids))
@@ -472,6 +474,7 @@ class TradeFilters:
     q: str | None = None
     by_close_date: bool = False
     strategy_names: tuple[str, ...] = ()  # any of these strategy names (a strategy and its former names)
+    account_ids: tuple[int, ...] | None = None  # trading accounts (services.accounts.Scope); None = all trades
 
 
 def apply_filters(stmt: Select, filters: TradeFilters) -> Select:
@@ -488,6 +491,7 @@ def apply_filters(stmt: Select, filters: TradeFilters) -> Select:
             stmt = stmt.where(column == value)
     if filters.strategy_names:
         stmt = stmt.where(Trade.strategy.in_(filters.strategy_names))
+    stmt = accounts.filter_trades(stmt, filters.account_ids)
 
     time_column = CLOSE_TIME if filters.by_close_date else Trade.entry_time
     if filters.date_from:
@@ -566,5 +570,5 @@ def performance_report(db: Session, settings: AccountSettings, filters: TradeFil
     from the account equity at the start of the range.
     """
     trades = closed_trades(db, filters)
-    base_equity = report_base_equity(db, settings, filters.date_from)
+    base_equity = report_base_equity(db, settings, filters.date_from, filters.account_ids)
     return trades, analytics.full_report(trades, base_equity, report_bookings(db, filters))

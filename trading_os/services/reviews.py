@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models import ChecklistDay, DailyReview, Trade
+from . import accounts
 from .account import CLOSE_TIME, booked_clause, day_bounds
 from .analytics import Booking, bookings
 
@@ -53,11 +54,11 @@ def review_fields(record: DailyReview | None) -> dict:
 FILLS_LOADED = (selectinload(Trade.events),)
 
 
-def booked_between(db: Session, first: date, last: date, load=FILLS_LOADED) -> list[Trade]:
+def booked_between(db: Session, first: date, last: date, load=FILLS_LOADED, account_ids=None) -> list[Trade]:
     """Trades (open or closed) with P&L booked in ``[first, last]``, in close order, ``load`` options applied."""
     start, _ = day_bounds(first)
     _, end = day_bounds(last)
-    stmt = select(Trade).where(booked_clause(start, end)).options(*load)
+    stmt = accounts.filter_trades(select(Trade).where(booked_clause(start, end)).options(*load), account_ids)
     return list(db.scalars(stmt.order_by(CLOSE_TIME.asc(), Trade.id.asc())))
 
 
@@ -97,37 +98,40 @@ def day_stats(booked: Sequence[Booking], opened: int) -> dict:
     }
 
 
-def _opened_on(db: Session, day: date) -> int:
+def _opened_on(db: Session, day: date, account_ids=None) -> int:
     start, end = day_bounds(day)
-    return db.scalar(select(func.count(Trade.id)).where(Trade.entry_time >= start, Trade.entry_time < end)) or 0
+    stmt = select(func.count(Trade.id)).where(Trade.entry_time >= start, Trade.entry_time < end)
+    return db.scalar(accounts.filter_trades(stmt, account_ids)) or 0
 
 
-def get_review(db: Session, day: date) -> dict:
+def get_review(db: Session, day: date, account_ids=None) -> dict:
+    """The review of ``day`` (one per day) with the day's figures of the accounts shown."""
     record = db.get(DailyReview, day)
+    booked = bookings_between(booked_between(db, day, day, account_ids=account_ids), day, day)
     return {
         "day": day,
         "exists": record is not None,
         **review_fields(record),
-        "stats": day_stats(bookings_between(booked_between(db, day, day), day, day), _opened_on(db, day)),
+        "stats": day_stats(booked, _opened_on(db, day, account_ids)),
     }
 
 
-def save_review(db: Session, day: date, data: Mapping) -> dict:
+def save_review(db: Session, day: date, data: Mapping, account_ids=None) -> dict:
     """Create or replace the review of ``day`` with the validated ``data``."""
     record = db.get(DailyReview, day) or DailyReview(day=day)
     for name in REVIEW_FIELDS:
         setattr(record, name, list(data[name]) if name == "mistakes" else data[name])
     db.add(record)
     db.commit()
-    return get_review(db, day)
+    return get_review(db, day, account_ids)
 
 
-def history(db: Session, today: date, days: int) -> list[dict]:
+def history(db: Session, today: date, days: int, account_ids=None) -> list[dict]:
     """One row per day for the ``days`` days up to and including ``today``, newest first."""
     first = today - timedelta(days=days - 1)
     records = {r.day: r for r in db.scalars(select(DailyReview).where(DailyReview.day.between(first, today)))}
     by_day: dict[date, list[Booking]] = defaultdict(list)
-    for booking in bookings_between(booked_between(db, first, today), first, today):
+    for booking in bookings_between(booked_between(db, first, today, account_ids=account_ids), first, today):
         by_day[booking.time.date()].append(booking)
 
     rows = []

@@ -8,10 +8,10 @@ from sqlalchemy import func, select
 
 from ..models import DailyReview, Trade
 from ..schemas import FiniteModel, TradeOut
-from ..services import analytics, reviews, time_analytics
+from ..services import accounts, analytics, reviews, time_analytics
 from ..services import trades as trade_service
 from ..services.account import local_today
-from .deps import DbDep, SettingsDep
+from .deps import DbDep, ScopeDep, SettingsDep, scope_currency
 from .trades import FiltersDep
 
 router = APIRouter(prefix="/api", tags=["analytics"])
@@ -57,7 +57,7 @@ class DayDetailOut(FiniteModel):
 
 
 @router.get("/analytics")
-def read_analytics(settings: SettingsDep, db: DbDep, filters: FiltersDep):
+def read_analytics(settings: SettingsDep, db: DbDep, filters: FiltersDep, scope: ScopeDep):
     """Metrics, equity curve, daily P&L, R distribution, breakdowns and the time-of-day heatmap.
 
     Trade statistics cover the trades *closed* in the date range. Daily P&L,
@@ -67,23 +67,24 @@ def read_analytics(settings: SettingsDep, db: DbDep, filters: FiltersDep):
     """
     trades, report = trade_service.performance_report(db, settings, filters)
     report["time_heatmap"] = time_analytics.heatmap(trades)
-    report["currency"] = settings.currency
-    report["open_trades"] = db.scalar(select(func.count(Trade.id)).where(Trade.status == "open")) or 0
+    report["currency"] = scope_currency(settings, scope)
+    open_trades = accounts.filter_trades(select(func.count(Trade.id)).where(Trade.status == "open"), scope.account_ids)
+    report["open_trades"] = db.scalar(open_trades) or 0
     return report
 
 
 @router.get("/analytics/calendar")
-def read_calendar(settings: SettingsDep, db: DbDep, month: MonthParam = None):
+def read_calendar(settings: SettingsDep, db: DbDep, scope: ScopeDep, month: MonthParam = None):
     """P&L calendar of a month (default: the current account-local month), by the day P&L was booked."""
     first = time_analytics.parse_month(month) if month else local_today(settings).replace(day=1)
     _, _, start, end = time_analytics.month_grid(first)
     report = time_analytics.calendar_month(
-        reviews.booked_between(db, start, end),
+        reviews.booked_between(db, start, end, account_ids=scope.account_ids),
         first,
         reviewed=reviews.reviewed_days(db, start, end),
         checklist_complete=reviews.checklist_completed_days(db, start, end),
     )
-    report["currency"] = settings.currency
+    report["currency"] = scope_currency(settings, scope)
     return report
 
 
@@ -108,9 +109,9 @@ def _fill(booking: analytics.Booking) -> dict:
 
 
 @router.get("/analytics/day/{day}", response_model=DayDetailOut)
-def read_day(day: date, db: DbDep):
+def read_day(day: date, db: DbDep, scope: ScopeDep):
     """The P&L booked on a day (each fill, partial exits included), the trades behind it, review and checklist."""
-    trades = reviews.booked_between(db, day, day, load=trade_service.TRADE_LOAD_OPTIONS)
+    trades = reviews.booked_between(db, day, day, load=trade_service.TRADE_LOAD_OPTIONS, account_ids=scope.account_ids)
     booked = reviews.bookings_between(trades, day, day)
     first_booking: dict[int, datetime] = {}
     for booking in booked:

@@ -4,11 +4,11 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
 from ..models import Strategy
-from ..services import backtest, report_pdf
+from ..services import accounts, backtest, report_pdf
 from ..services import trades as trade_service
 from ..services.account import local_today
 from ..services.i18n import tr
-from .deps import DbDep, SettingsDep, get_or_404
+from .deps import DbDep, ScopeDep, SettingsDep, get_or_404, scope_currency
 from .trades import FiltersDep
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -30,7 +30,7 @@ def _render(build, *args, **kwargs) -> bytes:
 
 
 @router.get("/performance.pdf")
-def performance_pdf(settings: SettingsDep, db: DbDep, filters: FiltersDep):
+def performance_pdf(settings: SettingsDep, db: DbDep, filters: FiltersDep, scope: ScopeDep):
     """Journal performance summary; accepts the same filters as /api/analytics."""
     _, report = trade_service.performance_report(db, settings, filters)
 
@@ -54,8 +54,8 @@ def performance_pdf(settings: SettingsDep, db: DbDep, filters: FiltersDep):
     content = _render(
         report_pdf.build_performance_pdf,
         report,
-        account=settings.account_name,
-        currency=settings.currency,
+        account=accounts.scope_label(settings, scope),
+        currency=scope_currency(settings, scope),
         period=period,
         filters=applied,
     )

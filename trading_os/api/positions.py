@@ -22,7 +22,7 @@ from ..services import positions as position_service
 from ..services import trades as trade_service
 from ..services.i18n import tr
 from ..services.position_engine import PositionConflict, PositionError
-from .deps import DbDep, SettingsDep
+from .deps import DbDep, ScopeDep, SettingsDep
 
 router = APIRouter(prefix="/api", tags=["positions"])
 
@@ -143,9 +143,11 @@ def _with_events(db, trade_id: int, rows: list[TradeEvent]) -> dict:
 
 
 @router.get("/positions", response_model=PositionListOut)
-def list_positions(settings: SettingsDep, db: DbDep, symbol: str | None = None):
-    """Open positions with live metrics, newest first, plus portfolio totals."""
-    filters = trade_service.TradeFilters(status="open", symbol=symbol.strip().upper() if symbol else None)
+def list_positions(settings: SettingsDep, db: DbDep, scope: ScopeDep, symbol: str | None = None):
+    """Open positions of the accounts shown, with live metrics, newest first, plus portfolio totals."""
+    filters = trade_service.TradeFilters(
+        status="open", symbol=symbol.strip().upper() if symbol else None, account_ids=scope.account_ids
+    )
     trades, _ = trade_service.list_trades(db, filters)
     markets = {market.symbol: market for market in db.scalars(select(Market))}
 

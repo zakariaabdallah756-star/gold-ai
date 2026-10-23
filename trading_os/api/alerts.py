@@ -16,7 +16,7 @@ from pydantic import Field, StringConstraints, field_validator, model_validator
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
-from ..models import AlertRule, Candle, Market, NotificationLog, Strategy, StrategyAlert, Trade
+from ..models import AlertRule, Candle, Market, NotificationLog, Strategy, StrategyAlert, Trade, TradingAccount
 from ..schemas import FiniteModel
 from ..services import alerts, detectors, market_data
 from ..services.account import local_now
@@ -87,6 +87,7 @@ class RuleIn(FiniteModel):
     atr_multiple: float = Field(1.5, gt=0, le=20)
     targets_rr: list[float] = Field(default_factory=list, max_length=4)
     risk_pct: float | None = Field(None, gt=0, le=10)
+    account_id: int | None = None  # trading account whose equity sizes the ticket; None = the default account
     cooldown_minutes: int = Field(60, ge=0, le=1440)
     notify: bool = True
 
@@ -198,6 +199,7 @@ def _rule_out(rule: AlertRule, strategy: Strategy | None) -> dict:
         "atr_multiple": rule.atr_multiple,
         "targets_rr": list(rule.targets_rr or []),
         "risk_pct": rule.risk_pct,
+        "account_id": rule.account_id,
         "cooldown_minutes": rule.cooldown_minutes,
         "notify": rule.notify,
         "last_checked_at": rule.last_checked_at,
@@ -256,6 +258,11 @@ def _strategy_or_422(db, strategy_id: int | None) -> Strategy | None:
 def _apply(rule: AlertRule, data: RuleIn) -> None:
     for key, value in data.model_dump().items():
         setattr(rule, key, value)
+
+
+def _check_account(db, account_id: int | None) -> None:
+    if account_id is not None and db.get(TradingAccount, account_id) is None:
+        raise HTTPException(status_code=422, detail=tr("Unknown trading account {id}", id=account_id))
 
 
 # --------------------------------------------------------------------------- meta & providers
@@ -329,6 +336,7 @@ def list_rules(db: DbDep):
 def create_rule(data: RuleIn, db: DbDep):
     strategy = _strategy_or_422(db, data.strategy_id)
     rule = AlertRule()
+    _check_account(db, data.account_id)
     _apply(rule, data)
     db.add(rule)
     db.commit()
@@ -345,6 +353,7 @@ def get_rule(rule_id: int, db: DbDep):
 def update_rule(rule_id: int, data: RuleIn, db: DbDep):
     rule = get_or_404(db, AlertRule, rule_id)
     strategy = _strategy_or_422(db, data.strategy_id)
+    _check_account(db, data.account_id)
     _apply(rule, data)
     rule.last_error = ""
     # Start afresh on the newest candle (no catch-up on candles judged under the old settings); alerted

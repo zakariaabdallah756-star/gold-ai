@@ -37,7 +37,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from ..models import AccountSettings, Market, NewsEvent, NotificationChannel, NotificationLog, TradingSession
-from . import account, news, notify_channels, webpush
+from . import account, accounts, news, notify_channels, webpush
 from .i18n import N_, tr
 from .notify_channels import DeliveryError, Message, SubscriptionExpired, VapidKeys, truncate
 from .sessions import in_trading_window
@@ -81,6 +81,8 @@ IMPACT_LABELS = {  # a news release's impact, in the words of the reminder text
 }
 PROP_CODES = frozenset({"PROP_DAILY_LOSS", "PROP_MAX_DRAWDOWN", "PROP_CHALLENGE_ENDED"})
 LOSS_WARNING_CODE = "DAILY_LOSS_WARNING"
+# Risk events judged per trading account (notified once a day for each account).
+PER_ACCOUNT_CODES = frozenset({"DAILY_LOSS_LIMIT", "MAX_TRADES_REACHED", LOSS_WARNING_CODE})
 
 BROWSERS = (
     ("Edg/", "Edge"),
@@ -439,14 +441,30 @@ def risk_watch(session_factory: sessionmaker[Session]) -> dict:
         settings = account.get_settings(db)
         if not event_enabled(settings, "risk"):
             return {"sent": 0}
-        notes = risk_notes(account.daily_status(db, settings))
         now = account.local_now(settings)
         today_start, _end = account.day_bounds(now.date())
-        already = _logged_values(db, "risk", "code", today_start, now)
+        # Codes and per-account keys ("DAILY_LOSS_LIMIT:3") already handled today.
+        already = _logged_values(db, "risk", "key", today_start, now) | _logged_values(
+            db, "risk", "code", today_start, now
+        )
+        # Never what the app happens to show: every account counts, each judged on its own when there are several.
+        scope = accounts.resolve_scope(db, settings, None)
+        several = len(scope.accounts) > 1
         sent = 0
-        for note in notes:
-            if note.data["code"] not in already:
+        for target in scope.accounts if several else (None,):
+            status = account.daily_status(db, settings, target.id if target is not None else None)
+            for note in risk_notes(status):
+                code = note.data["code"]
+                key = f"{code}:{target.id}" if several and code in PER_ACCOUNT_CODES else code
+                if key in already:
+                    continue
+                if several and code in PER_ACCOUNT_CODES:
+                    name = settings.account_name if accounts.is_default(settings, target) else target.name
+                    note.title = tr("{account}: {title}", account=name, title=note.title)
+                    note.data["account_id"] = target.id
+                note.data["key"] = key
                 send(db, settings, note)
+                already.add(key)
                 sent += 1
         return {"sent": sent}
 

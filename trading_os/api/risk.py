@@ -4,7 +4,7 @@ from fastapi import APIRouter
 
 from ..models import Market
 from ..schemas import DailyStatusOut, PositionSizeIn, PositionSizeOut
-from ..services import account
+from ..services import account, accounts
 from ..services.guardrails import daily_violations, trade_rule_violations
 from ..services.sizing import calculate_position_size
 from .deps import DbDep, SettingsDep, get_or_404
@@ -20,7 +20,10 @@ def read_status(settings: SettingsDep, db: DbDep):
 @router.post("/position-size", response_model=PositionSizeOut)
 def position_size(payload: PositionSizeIn, settings: SettingsDep, db: DbDep):
     market = get_or_404(db, Market, payload.market_id)
-    equity = payload.account_equity or account.current_equity(db, settings)
+    # Sized for the account a new trade would be logged on (the one shown, else the default).
+    target = accounts.account_for_new_trade(db, settings, None)
+    ids = (target.id,) if target is not None else None
+    equity = payload.account_equity or account.current_equity(db, settings, ids)
     risk_pct = payload.risk_pct or settings.default_risk_pct
 
     result = calculate_position_size(
@@ -44,7 +47,7 @@ def position_size(payload: PositionSizeIn, settings: SettingsDep, db: DbDep):
         equity=equity,
         confluence_count=0,
     )
-    day = account.compute_day_state(db, settings)
+    day = account.compute_day_state(db, settings, account_ids=ids)
     violations += daily_violations(settings, day, result.max_loss)
 
     return PositionSizeOut(

@@ -5,7 +5,7 @@ import { balanceChart, chartsAvailable } from "../charts.js";
 import { clear, confirmDialog, field, h, icon, modal, numberOrNull, select, toast } from "../dom.js";
 import { fmt, pnlClass, toInputDate } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
-import { accountNow, loadStatus } from "../state.js";
+import { accountNow, accounts, activeAccount, loadStatus } from "../state.js";
 
 // Label tables hold N_() texts; they are translated with t() where shown.
 const PHASES = [
@@ -65,6 +65,7 @@ function challengeForm({ challenge = null, preset = null, presets, onSaved }) {
     start_date: toInputDate(accountNow()),
     enforce: true,
     notes: "",
+    account_id: activeAccount()?.id ?? null,
   };
   const num = (value, attrs = {}) => h("input", { type: "number", step: "any", inputmode: "decimal", value: value ?? "", ...attrs });
   const name = h("input", { value: base.name, maxlength: "80", placeholder: t("e.g. FTMO 100k - Phase 1") });
@@ -82,6 +83,9 @@ function challengeForm({ challenge = null, preset = null, presets, onSaved }) {
   const enforce = h("input", { type: "checkbox", checked: base.enforce });
   const activate = h("input", { type: "checkbox", checked: true });
   const notes = h("textarea", { rows: 2, value: base.notes, maxlength: "5000" });
+  // The trading account whose trades the challenge follows (blank = every trade, as before accounts existed).
+  const accountChoices = accounts().filter((a) => a.status === "active" || a.id === base.account_id);
+  const account = select([["", t("Every trade (no account)")], ...accountChoices.map((a) => [String(a.id), a.name])], base.account_id == null ? "" : String(base.account_id));
 
   // Picking another preset (new challenges only) refills the rules.
   presetSelect.addEventListener("change", () => {
@@ -119,6 +123,7 @@ function challengeForm({ challenge = null, preset = null, presets, onSaved }) {
           start_date: start.value,
           enforce: enforce.checked,
           notes: notes.value,
+          account_id: account.value ? Number(account.value) : null,
         };
         save.disabled = true;
         try {
@@ -152,6 +157,7 @@ function challengeForm({ challenge = null, preset = null, presets, onSaved }) {
         field(t("Firm"), firm),
         field(t("Phase"), phase),
         field(t("Account size"), size),
+        field(t("Trading account"), account, { help: t("Only trades logged on this account count towards the challenge") }),
         field(t("Start date"), start, { help: t("Only P&L realised from this day counts") }),
         field(t("Profit target %"), target, { help: t("Leave blank for a funded account") }),
         field(t("Max daily loss %"), daily, { help: t("Of the initial account size") }),

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Response
 from pydantic import Field, StringConstraints
 from sqlalchemy import select
 
-from ..models import PropChallenge
+from ..models import PropChallenge, TradingAccount
 from ..schemas import FiniteModel
 from ..services import prop
 from ..services.account import local_today
@@ -34,6 +34,7 @@ class ChallengeIn(FiniteModel):
     start_date: date
     enforce: bool = True
     notes: Annotated[str, StringConstraints(max_length=5000)] = ""
+    account_id: int | None = None  # the trading account it follows; None = every trade
 
 
 class ChallengeCreate(ChallengeIn):
@@ -65,12 +66,18 @@ def _summary(challenge: PropChallenge, metrics: prop.Metrics) -> dict:
         "active": challenge.active,
         "enforce": challenge.enforce,
         "notes": challenge.notes,
+        "account_id": challenge.account_id,
         "metrics": prop.metrics_dict(metrics),
     }
 
 
 def _load(db, challenge_id: int) -> PropChallenge:
     return get_or_404(db, PropChallenge, challenge_id)
+
+
+def _check_account(db, account_id: int | None) -> None:
+    if account_id is not None and db.get(TradingAccount, account_id) is None:
+        raise HTTPException(status_code=422, detail=tr("Unknown trading account {id}", id=account_id))
 
 
 @router.get("/presets")
@@ -87,6 +94,7 @@ def list_challenges(settings: SettingsDep, db: DbDep):
 @router.post("/challenges", status_code=201)
 def create_challenge(payload: ChallengeCreate, settings: SettingsDep, db: DbDep):
     data = payload.model_dump()
+    _check_account(db, data["account_id"])
     activate = data.pop("activate")
     challenge = PropChallenge(**data, status="active", active=False)
     db.add(challenge)
@@ -107,6 +115,7 @@ def update_challenge(challenge_id: int, payload: ChallengeUpdate, settings: Sett
     """Edit the rules. Setting status back to "active" reopens an ended challenge (and re-evaluates it)."""
     challenge = _load(db, challenge_id)
     data = payload.model_dump()
+    _check_account(db, data["account_id"])
     status = data.pop("status")
     for key, value in data.items():
         setattr(challenge, key, value)

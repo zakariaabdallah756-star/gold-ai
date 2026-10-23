@@ -7,5 +7,6 @@
   "The video link must start with https:// (or /static/ for a file in the app)": "Il link del video deve iniziare con https:// (o /static/ per un file dell'app)",
   "Unknown trading account {id}": "Conto di trading {id} sconosciuto",
   "{account}: {message}": "{account}: {message}",
+  "{account}: {title}": "{account}: {title}",
   "{count} trades are logged on this account: archive it instead (journal history is never deleted)": "Su questo conto sono registrati {count} trade: archivialo invece (lo storico del diario non viene mai eliminato)"
 }

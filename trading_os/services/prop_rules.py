@@ -122,19 +122,29 @@ def entry_violations(
     risk_amount: float | None,
     entry_time: datetime,
     now: datetime,
+    account_id: int | None = None,
 ) -> list[Violation]:
     """Prop-rule violations for a new trade on the active challenge's account."""
     challenge = prop.active_challenge(db)
     if challenge is None or entry_time.date() < challenge.start_date:
         return []
+    if challenge.account_id is not None and account_id is not None and challenge.account_id != account_id:
+        return []  # a trade on another trading account is not the challenge's business
     metrics = prop.compute(db, settings, challenge, today=now.date())
     return _breaches(settings, challenge, metrics, risk_amount)
 
 
-def status_extras(db: Session, settings: AccountSettings, now: datetime) -> dict:
-    """``reasons`` for the status bar and the ``prop`` snapshot of the active challenge (or None)."""
+def status_extras(
+    db: Session, settings: AccountSettings, now: datetime, account_ids: tuple[int, ...] | None = None
+) -> dict:
+    """``reasons`` for the status bar and the ``prop`` snapshot of the active challenge (or None).
+
+    When the account shown is not the challenge's own trading account, its rules lock nothing there.
+    """
     challenge = prop.active_challenge(db)
     if challenge is None:
         return {"reasons": [], "prop": None}
     metrics = prop.refresh(db, settings, challenge)
-    return {"reasons": _breaches(settings, challenge, metrics, None), "prop": prop.snapshot(challenge, metrics)}
+    elsewhere = challenge.account_id is not None and account_ids is not None and challenge.account_id not in account_ids
+    reasons = [] if elsewhere else _breaches(settings, challenge, metrics, None)
+    return {"reasons": reasons, "prop": prop.snapshot(challenge, metrics)}

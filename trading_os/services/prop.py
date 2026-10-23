@@ -33,6 +33,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import AccountSettings, PropChallenge, Trade, TradeEvent
+from . import accounts
 from .account import CLOSE_TIME, compute_day_state, local_today
 from .i18n import N_, tr
 
@@ -138,7 +139,9 @@ def status_word(status: str) -> str:
 # ------------------------------------------------------------------ ledger
 
 
-def daily_realized(db: Session, since: datetime, before: datetime) -> dict[date, float]:
+def daily_realized(
+    db: Session, since: datetime, before: datetime, account_ids: tuple[int, ...] | None = None
+) -> dict[date, float]:
     """Net realised P&L per account-local day in ``[since, before)`` (same rules as ``realized_pnl``)."""
 
     def per_day(value, column, *conditions, join: bool = False):
@@ -146,8 +149,8 @@ def daily_realized(db: Session, since: datetime, before: datetime) -> dict[date,
         stmt = select(day, func.coalesce(func.sum(value), 0.0))
         if join:
             stmt = stmt.join(Trade, TradeEvent.trade_id == Trade.id)
-        stmt = stmt.where(*conditions, column >= since, column < before).group_by(day)
-        return db.execute(stmt).all()
+        stmt = accounts.filter_trades(stmt.where(*conditions, column >= since, column < before), account_ids)
+        return db.execute(stmt.group_by(day)).all()
 
     totals: dict[date, float] = {}
 
@@ -162,16 +165,17 @@ def daily_realized(db: Session, since: datetime, before: datetime) -> dict[date,
     return {day: round(amount, 2) for day, amount in totals.items()}
 
 
-def trading_days(db: Session, start: date, until: date) -> int:
+def trading_days(db: Session, start: date, until: date, account_ids: tuple[int, ...] | None = None) -> int:
     since, before = datetime.combine(start, time.min), datetime.combine(until + timedelta(days=1), time.min)
-    return int(
-        db.scalar(
-            select(func.count(func.distinct(func.date(Trade.entry_time)))).where(
-                Trade.entry_time >= since, Trade.entry_time < before
-            )
-        )
-        or 0
+    stmt = select(func.count(func.distinct(func.date(Trade.entry_time)))).where(
+        Trade.entry_time >= since, Trade.entry_time < before
     )
+    return int(db.scalar(accounts.filter_trades(stmt, account_ids)) or 0)
+
+
+def challenge_accounts(challenge: PropChallenge) -> tuple[int, ...] | None:
+    """The trades a challenge follows: its linked trading account's, or every trade when it has none."""
+    return (challenge.account_id,) if challenge.account_id else None
 
 
 # ------------------------------------------------------------------ metrics
@@ -229,7 +233,8 @@ def compute(db: Session, settings: AccountSettings, challenge: PropChallenge, to
         until = min(until, challenge.start_date + timedelta(days=challenge.max_calendar_days - 1))
     until = max(until, challenge.start_date)
     since = datetime.combine(challenge.start_date, time.min)
-    pnl_by_day = daily_realized(db, since, datetime.combine(until + timedelta(days=1), time.min))
+    ids = challenge_accounts(challenge)
+    pnl_by_day = daily_realized(db, since, datetime.combine(until + timedelta(days=1), time.min), ids)
     size = challenge.account_size
     daily_limit = size * challenge.max_daily_loss_pct / 100.0
 
@@ -259,13 +264,13 @@ def compute(db: Session, settings: AccountSettings, challenge: PropChallenge, to
             peak = max(peak, balance)
         day += timedelta(days=1)
 
-    open_risk = compute_day_state(db, settings, today).open_risk if until == today else 0.0
+    open_risk = compute_day_state(db, settings, today, ids).open_risk if until == today else 0.0
     floor = drawdown_floor(challenge, peak)
     today_loss = history[-1]["daily_loss_used"] if history and history[-1]["date"] == today else 0.0
     profit = balance - size
     target_amount = size * challenge.profit_target_pct / 100.0 if challenge.profit_target_pct else None
     elapsed = (until - challenge.start_date).days + 1
-    days = trading_days(db, challenge.start_date, until)
+    days = trading_days(db, challenge.start_date, until, ids)
     metrics = Metrics(
         challenge_id=challenge.id,
         today=today,
