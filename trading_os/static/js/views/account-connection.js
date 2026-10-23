@@ -342,7 +342,9 @@ export function renderConnection(account, { onSaved } = {}) {
     const tokenInfo = panel.credentials?.bridge_token;
     const seen = panel.last_seen_seconds;
     const online = seen !== null && seen !== undefined && seen <= SEEN_OK_SECONDS;
-    const servers = [panel.server_urls?.this, ...(panel.server_urls?.lan || [])].filter((url, i, all) => url && all.indexOf(url) === i);
+    // MetaTrader's WebRequest list wants 127.0.0.1 rather than localhost.
+    const here = (panel.server_urls?.this || "").replace(/^(https?:\/\/)localhost(?=[:/]|$)/, (_match, scheme) => `${scheme}127.0.0.1`);
+    const servers = [here, ...(panel.server_urls?.lan || [])].filter((url, i, all) => url && all.indexOf(url) === i);
     const server = servers[0] || location.origin;
     const tokenBox = h("div", { class: "exec-token stack" });
 

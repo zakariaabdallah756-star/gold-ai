@@ -24,6 +24,7 @@ const ORDER_TYPES = [
   ["stop", N_("Stop")],
 ];
 const ORDER_TYPE_LABEL = Object.fromEntries(ORDER_TYPES);
+const ORDER_NOUN = { market: N_("market order"), limit: N_("limit order"), stop: N_("stop order") };
 const ACCEPTED = ["filled", "sent", "pending"];
 
 // Kept between visits: the pasted message and the ticket being edited.
@@ -859,8 +860,8 @@ export async function render(root) {
             { class: "small muted sig-reason" },
             icon(target.can_execute ? "link" : "lock"),
             target.can_execute
-              ? t("Sends a {type} order through {connection} after you confirm it, then logs the trade.", {
-                  type: t(ORDER_TYPE_LABEL[target.order_type] || ORDER_TYPE_LABEL.market),
+              ? t("Sends a {order} through {connection} after you confirm it, then logs the trade.", {
+                  order: t(ORDER_NOUN[target.order_type] || ORDER_NOUN.market),
                   connection: connectionLabel(target.connection),
                 })
               : target.reason,
