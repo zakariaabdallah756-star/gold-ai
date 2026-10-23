@@ -59,6 +59,7 @@ MIN_PASSWORD = 8
 MAX_PASSWORD = 200
 LAN_CACHE_SECONDS = 60.0
 CANDLES_PATH = "/api/alerts/candles"
+BRIDGE_PREFIX = "/api/bridge/"  # the MetaTrader EA's endpoints (api/execution.py): bridge token, no sign-in
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 DEFAULT_PORTS = {"http": 80, "https": 443}
 # Headers set by reverse proxies and tunnels (cloudflared, ngrok, Tailscale serve, nginx, ...): a request
@@ -714,6 +715,8 @@ def check_request(request: Request, state: NetworkState, port: int, session_fact
             "Set one on Strategy Alerts > Data providers."
         )
         return JSONResponse(status_code=401, content={"detail": detail, "code": "push_token_required"})
+    if request.url.path.startswith(BRIDGE_PREFIX):
+        return None  # the endpoints check the account's bridge token themselves (401 for an unknown one)
     detail = tr("Sign in with the remote-access password to use Trading OS from this device.")
     return JSONResponse(status_code=401, content={"detail": detail, "code": "login_required"})
 

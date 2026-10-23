@@ -7,6 +7,7 @@ from . import (
     backtest,
     backup,
     checklist,
+    execution,
     i18n,
     network,
     news,
@@ -27,6 +28,7 @@ from .plan import plan_routers
 routers = [
     *plan_routers,
     accounts.router,
+    execution.router,
     checklist.router,
     risk.router,
     trades.router,
