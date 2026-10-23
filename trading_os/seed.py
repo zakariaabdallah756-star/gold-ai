@@ -17,6 +17,7 @@ from .models import (
     TradingSession,
 )
 from .services.partners import seed_partners
+from .services.promos import seed_promos
 
 DEFAULT_MARKETS = [
     # symbol, name, class, base, quote, contract, pip size, min lot, step, max lot
@@ -154,5 +155,6 @@ def seed_defaults(session: Session) -> None:
 
     if group("partners", Partner):
         seed_partners(session)
+    seed_promos(session, done)  # dashboard carousel: built-in announcements, featured partners (own groups)
     settings.seeded_defaults = sorted(done)
     session.commit()
