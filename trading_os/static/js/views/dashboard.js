@@ -1,11 +1,16 @@
-// Statistical dashboard: KPIs, equity curve, daily P&L, R distribution, breakdowns, cost of mistakes.
+// Statistical dashboard: promo carousel, the account hero (balance, live equity, floating P&L, margin), then KPIs,
+// equity curve, daily P&L, R distribution, breakdowns and the cost of mistakes.
 
+import { accountMoney, ago, colorDot, kindBadge, logoMark } from "../accounts-ui.js";
 import { api, query } from "../api.js";
 import { chartsAvailable, dailyPnlChart, distributionChart, equityChart } from "../charts.js";
-import { clear, field, h, icon, select } from "../dom.js";
+import { clear, field, h, icon, select, withNodes } from "../dom.js";
 import { fmt, pnlClass, toInputDate } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
+import { mountPromoCarousel } from "../promos.js";
 import { accountNow, state } from "../state.js";
+
+const HERO_POLL_MS = 12_000; // the account figures refresh while the dashboard is shown
 
 const PRESETS = [
   ["all", N_("All time")],
@@ -479,10 +484,229 @@ function buildFilters(onChange) {
   );
 }
 
+// ------------------------------------------------------------------ account hero
+
+function metricCard({ key, iconName, label, value, valueClass = "", sub, badge }) {
+  return h(
+    "div",
+    { class: `metric metric-${key}` },
+    h("div", { class: "metric-label" }, h("span", { class: "metric-icon" }, icon(iconName)), h("span", {}, label), badge || null),
+    h("div", { class: `metric-value num ${valueClass}` }, value),
+    h("div", { class: "metric-sub" }, sub),
+  );
+}
+
+function heroScope(data) {
+  const scope = data.scope;
+  if (scope.account_id === null) {
+    const excluded = scope.excluded.length;
+    return h(
+      "div",
+      { class: "hero-scope" },
+      h("span", { class: "hero-scope-all" }, icon("layers")),
+      h("span", { class: "hero-scope-name" }, t("All accounts")),
+      h("span", { class: "hero-scope-meta" }, tn(scope.accounts.length, "{n} account combined", "{n} accounts combined")),
+      excluded ? h("span", { class: "hero-scope-meta", title: t("Accounts in another currency or archived are not added up") }, tn(excluded, "{n} left out", "{n} left out")) : null,
+    );
+  }
+  const account = data.accounts.find((a) => a.id === scope.account_id);
+  return h(
+    "div",
+    { class: "hero-scope" },
+    colorDot(account?.color),
+    h("span", { class: "hero-scope-name" }, scope.name),
+    account ? kindBadge(account.kind) : null,
+    account?.broker ? h("span", { class: "hero-scope-meta" }, account.broker) : null,
+  );
+}
+
+/** Where the figures come from: the bridge (with the time of its last report) or the journal. */
+function heroSource(data) {
+  const counted = new Set(data.scope.accounts);
+  const included = data.accounts.filter((a) => counted.has(a.id));
+  const live = included.filter((a) => a.metrics?.source === "bridge");
+  if (!live.length) return { live: false };
+  const at = live.map((a) => a.metrics.updated_at).sort().at(-1);
+  return { live: true, at, partial: live.length < included.length, count: live.length, total: included.length };
+}
+
+function sourceText(source) {
+  if (!source.live) return t("From journal");
+  const when = ago(source.at);
+  return source.partial
+    ? t("Live from bridge for {live} of {total} accounts · updated {when}", { live: source.count, total: source.total, when })
+    : t("Live from bridge · updated {when}", { when });
+}
+
+function heroMetrics(data) {
+  const totals = data.totals;
+  const currency = data.scope.currency;
+  const money = (value, signed = false) => accountMoney(value, currency, { signed });
+  const start = totals.equity - totals.change;
+  const changePct = start > 0 ? (totals.change / start) * 100 : null;
+  const counted = new Set(data.scope.accounts);
+  const unpriced = data.accounts
+    .filter((a) => counted.has(a.id) && a.metrics?.source === "journal")
+    .reduce((sum, a) => sum + Math.max(0, (a.metrics.open_positions || 0) - (a.metrics.priced_positions || 0)), 0);
+  const marginSub =
+    totals.margin > 0
+      ? totals.margin_level !== null && totals.margin_level !== undefined
+        ? t("Free {free} · level {level}", { free: money(totals.free_margin), level: fmt.pct(totals.margin_level, 0) })
+        : t("Free {free}", { free: money(totals.free_margin) })
+      : t("No margin in use");
+  return h(
+    "div",
+    { class: "hero-metrics" },
+    metricCard({
+      key: "balance",
+      iconName: "wallet",
+      label: t("Account Balance"),
+      value: money(totals.balance),
+      sub: t("Started at {amount}", { amount: money(start) }),
+    }),
+    metricCard({
+      key: "equity",
+      iconName: "trending",
+      label: t("Live Equity"),
+      value: money(totals.equity),
+      sub: withNodes(t("{change} since start"), {
+        change: h("span", { class: pnlClass(totals.change) }, changePct === null ? money(totals.change, true) : `${money(totals.change, true)} (${changePct > 0.005 ? "+" : ""}${fmt.pct(changePct, 2)})`),
+      }),
+    }),
+    metricCard({
+      key: "floating",
+      iconName: "activity",
+      label: t("Floating P&L"),
+      value: money(totals.floating_pnl, true),
+      valueClass: pnlClass(totals.floating_pnl),
+      sub: [
+        tn(totals.open_positions, "{n} open position", "{n} open positions"),
+        unpriced ? h("span", { class: "muted", title: t("Open positions without a last price count as zero") }, ` · ${t("{n} without a live price", { n: unpriced })}`) : null,
+      ],
+    }),
+    metricCard({
+      key: "margin",
+      iconName: "gauge",
+      label: t("Active Margin"),
+      value: money(totals.margin),
+      sub: marginSub,
+      badge: totals.margin_estimated
+        ? h("span", { class: "badge warn metric-badge", title: t("Some open positions have no margin figure (unknown contract or currency): link the account to a bridge for broker figures") }, t("estimated"))
+        : null,
+    }),
+  );
+}
+
+/** The dashboard header: logo, name, the account shown and its live figures (polled while shown). */
+function mountHero(box) {
+  let stopped = false;
+  let timer = null;
+  let data = null;
+  const fresh = h("span", { class: "hero-fresh" });
+  let scope = h("div", { class: "hero-scope" }, h("span", { class: "hero-scope-name" }, " "));
+  let metrics = h(
+    "div",
+    { class: "hero-metrics skeleton", "aria-busy": "true" },
+    [0, 1, 2, 3].map(() => h("div", { class: "metric" }, h("div", { class: "metric-label" }, " "), h("div", { class: "metric-value" }, " "), h("div", { class: "metric-sub" }, " "))),
+  );
+  clear(
+    box,
+    h(
+      "div",
+      { class: "hero-top" },
+      h("div", { class: "hero-brand" }, h("span", { class: "hero-logo" }, logoMark()), h("div", { class: "hero-ident" }, h("div", { class: "hero-name" }, "Trading OS"), scope)),
+      fresh,
+    ),
+    metrics,
+  );
+  const swap = (old, next) => (old.replaceWith(next), next);
+
+  // Long amounts ("164.712,77 USD") shrink until every card's figure fits, all four at the same size.
+  // (Measured with a hidden copy: scrollWidth is rounded and misses a text a fraction of a pixel too wide.)
+  function fitValues() {
+    const values = [...metrics.querySelectorAll(".metric-value")];
+    if (!values.length || !metrics.isConnected) return;
+    values.forEach((el) => (el.style.fontSize = ""));
+    const base = parseFloat(getComputedStyle(values[0]).fontSize);
+    let scale = 1;
+    for (const el of values) {
+      const probe = h("span", { style: { position: "absolute", visibility: "hidden", whiteSpace: "nowrap" } }, el.textContent);
+      el.append(probe);
+      const natural = probe.getBoundingClientRect().width;
+      probe.remove();
+      if (natural > 0) scale = Math.min(scale, (el.clientWidth - 2) / natural);
+    }
+    if (scale < 1) {
+      const size = `${Math.max(14, Math.floor(base * scale))}px`;
+      values.forEach((el) => (el.style.fontSize = size));
+    }
+  }
+  let resizeFrame = 0;
+  const onResize = () => {
+    cancelAnimationFrame(resizeFrame);
+    resizeFrame = requestAnimationFrame(fitValues);
+  };
+  window.addEventListener("resize", onResize);
+
+  function showSource() {
+    if (!data) return;
+    const source = heroSource(data);
+    fresh.className = `hero-fresh${source.live ? " live" : ""}`;
+    fresh.title = source.live ? t("Balance, equity and margin as last reported by the account's bridge") : t("Computed from your journal: closed trades plus open positions at their last known price. Link the account to a bridge for live broker figures.");
+    clear(fresh, source.live ? h("span", { class: "live-dot", "aria-hidden": "true" }) : icon("journal"), h("span", {}, sourceText(source)));
+  }
+
+  async function load() {
+    timer = null;
+    if (!document.hidden || !data) {
+      try {
+        const next = await api.get("/api/accounts/summary");
+        if (stopped) return;
+        data = next;
+        scope = swap(scope, heroScope(data));
+        metrics = swap(metrics, heroMetrics(data));
+        fitValues();
+        showSource();
+      } catch (error) {
+        if (stopped) return;
+        if (!data) clear(fresh, icon("alert"), h("span", {}, error.message));
+      }
+    }
+    if (!stopped) timer = setTimeout(load, HERO_POLL_MS);
+  }
+
+  // "updated 12s ago" keeps counting between polls.
+  const ticker = setInterval(() => data && heroSource(data).live && showSource(), 1000);
+  load();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+    clearInterval(ticker);
+    cancelAnimationFrame(resizeFrame);
+    window.removeEventListener("resize", onResize);
+  };
+}
+
 export async function render(root) {
   const charts = [];
-  const destroy = () => charts.splice(0).forEach((c) => c.destroy());
   const body = h("div", { class: "stack" });
+  const promoSlot = h("div", { class: "promo-slot" });
+  const hero = h("section", { class: "hero-head", "aria-label": t("Account overview") });
+  const stopHero = mountHero(hero);
+  let stopPromos = null;
+  let left = false;
+  Promise.resolve()
+    .then(() => mountPromoCarousel(promoSlot))
+    .then((stop) => (left ? stop?.() : (stopPromos = stop)))
+    .catch(() => {}); // the carousel never breaks the dashboard
+  const destroy = () => charts.splice(0).forEach((c) => c.destroy());
+  const cleanup = () => {
+    left = true;
+    stopHero();
+    if (typeof stopPromos === "function") stopPromos();
+    stopPromos = null;
+    destroy();
+  };
   const exportLink = h(
     "a",
     { class: "btn", href: "/api/reports/performance.pdf", download: "", title: t("Download a PDF performance report for the current filters") },
@@ -506,12 +730,19 @@ export async function render(root) {
     }
   }
 
-  clear(
-    root,
-    h("div", { class: "page-head" }, h("div", {}, h("h1", {}, t("Performance")), h("p", {}, t("Trade statistics by close date; daily P&L and equity by the day each exit was filled"))), exportLink),
-    buildFilters(load),
-    body,
-  );
-  await load();
-  return destroy;
+  try {
+    clear(
+      root,
+      promoSlot,
+      hero,
+      h("div", { class: "page-head" }, h("div", {}, h("h1", {}, t("Performance")), h("p", {}, t("Trade statistics by close date; daily P&L and equity by the day each exit was filled"))), exportLink),
+      buildFilters(load),
+      body,
+    );
+    await load();
+  } catch (error) {
+    cleanup(); // no poll may outlive a page that failed to render
+    throw error;
+  }
+  return cleanup;
 }

@@ -13,7 +13,10 @@ function showFull(disclaimer) {
 }
 
 // The agreement can't be dismissed: no close button, Escape and backdrop clicks are ignored.
+// Resolves once the trader accepted.
 function requireAcceptance(disclaimer) {
+  let accepted;
+  const done = new Promise((resolve) => (accepted = resolve));
   const agree = h("input", { type: "checkbox", id: "disclaimer-agree" });
   const accept = h("button", { class: "btn primary", type: "button", disabled: true }, t("Accept & continue"));
   agree.addEventListener("change", () => (accept.disabled = !agree.checked));
@@ -40,6 +43,7 @@ function requireAcceptance(disclaimer) {
       await api.post("/api/disclaimer/accept");
       document.removeEventListener("keydown", trapFocus, true);
       backdrop.remove();
+      accepted();
     } catch (error) {
       accept.disabled = false;
       toast(error.message, "error");
@@ -47,8 +51,10 @@ function requireAcceptance(disclaimer) {
   });
   document.body.append(backdrop);
   agree.focus();
+  return done;
 }
 
+/** Footer + first-launch agreement. ``accepted`` resolves once the risks were accepted (at once if already). */
 export async function mountDisclaimer() {
   const footer = document.getElementById("app-footer");
   let disclaimer;
@@ -56,12 +62,12 @@ export async function mountDisclaimer() {
     disclaimer = await api.get("/api/disclaimer");
   } catch {
     clear(footer, t("Risk warning: trading involves substantial risk of loss. Nothing in this app is financial advice."));
-    return;
+    return { accepted: new Promise(() => {}) }; // unknown: never assume it was accepted
   }
   clear(
     footer,
     h("span", {}, disclaimer.footer, " "),
     h("button", { class: "link-button", type: "button", onclick: () => showFull(disclaimer) }, t("Read the full disclaimer")),
   );
-  if (!disclaimer.accepted) requireAcceptance(disclaimer);
+  return { accepted: disclaimer.accepted ? Promise.resolve() : requireAcceptance(disclaimer) };
 }

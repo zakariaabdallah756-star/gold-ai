@@ -250,6 +250,15 @@ function rulesSection() {
         options: (state.plan.enums.languages || []).map((l) => [l.code, l.name]),
         help: t("Interface, guardrail messages, notifications and Vision AI answers"),
       },
+      {
+        name: "onboarding_video_url",
+        label: t("Onboarding video link"),
+        type: "url",
+        maxlength: "300",
+        placeholder: "https://www.youtube.com/watch?v=…",
+        help: t("YouTube, Vimeo or an .mp4 / .webm link, played in the Getting started guide (play button in the top bar)"),
+        full: true,
+      },
     ],
     s,
   );
