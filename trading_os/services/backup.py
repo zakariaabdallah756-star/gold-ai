@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from .. import __version__
 from ..models import (
+    AccountCredential,
     AccountSettings,
     AlertRule,
     BacktestTrade,
@@ -72,6 +73,7 @@ PRIVATE_COLUMNS = {
         "connection",
         "connection_config",
         "execution_enabled",
+        "max_lots_per_order",
         "snapshot",
         "snapshot_at",
         "last_seen_at",
@@ -264,8 +266,12 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
     counts: dict[str, int] = {}
     current = db.get(AccountSettings, 1)
     kept_secrets = {key: getattr(current, key) for key in PRIVATE_COLUMNS["account_settings"]} if current else {}
+    # This machine's order routing, kept only for an account that comes back as the same account.
     kept_routing = {
-        row.id: {key: getattr(row, key) for key in PRIVATE_COLUMNS["trading_accounts"]}
+        row.id: (
+            (row.name, row.login, row.server),
+            {key: getattr(row, key) for key in PRIVATE_COLUMNS["trading_accounts"]},
+        )
         for row in db.scalars(select(TradingAccount))
     }
     try:
@@ -286,9 +292,21 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
         for key, value in kept_secrets.items():
             setattr(settings, key, value)
         _validate_settings(settings)
+        restored, matched = set(), set()
         for row in db.scalars(select(TradingAccount)):
-            for key, value in kept_routing.get(row.id, {}).items():
-                setattr(row, key, value)
+            restored.add(row.id)
+            identity, values = kept_routing.get(row.id, (None, {}))
+            if identity == (row.name, row.login, row.server):
+                matched.add(row.id)
+                for key, value in values.items():
+                    setattr(row, key, value)
+            else:  # another account (or a new one) under this id: nothing routes anywhere until set up again
+                row.connection, row.connection_config, row.execution_enabled = "none", {}, False
+                row.snapshot, row.snapshot_at, row.last_seen_at, row.last_error = {}, None, None, ""
+        # Secrets (passwords, tokens, the EA's bridge token) stay only with the very same account.
+        for credential in db.scalars(select(AccountCredential)):
+            if credential.account_id not in matched:
+                db.delete(credential)
         db.flush()
         # Backups from before v1.5 have no accounts: their trades go to a default account made from the settings.
         accounts.ensure_default_account(db, settings)

@@ -248,15 +248,39 @@ void ExecuteLine(const string line)
    if(ticket < 0 && error == ERR_INVALID_STOPS && type == "market" && (sl > 0 || tp > 0))
    {
       // ECN accounts refuse stops on a market order: open it first, then set the stop loss and target.
+      // Only when the stops are valid for the current price - a stop already passed (fast market) or inside
+      // the broker's minimum distance is refused, never traded without protection.
       RefreshRates();
-      price  = buy ? MarketInfo(symbol, MODE_ASK) : MarketInfo(symbol, MODE_BID);
+      double ask   = MarketInfo(symbol, MODE_ASK);
+      double bid   = MarketInfo(symbol, MODE_BID);
+      double point = MarketInfo(symbol, MODE_POINT);
+      double gap   = MarketInfo(symbol, MODE_STOPLEVEL) * point;
+      bool stopsOk = buy ? ((sl <= 0 || sl < bid - gap) && (tp <= 0 || tp > ask + gap))
+                         : ((sl <= 0 || sl > ask + gap) && (tp <= 0 || tp < bid - gap));
+      if(!stopsOk)
+      {
+         Report(id, "rejected", 0, 0, "The stop loss or target is on the wrong side of the price or too close to it");
+         return;
+      }
+      price  = buy ? ask : bid;
       ticket = OrderSend(symbol, cmd, lots, price, InpMaxSlippage, 0, 0, comment, InpMagic, 0, clrNONE);
       error  = (ticket < 0) ? GetLastError() : 0;
       if(ticket > 0 && OrderSelect(ticket, SELECT_BY_TICKET))
       {
          if(!OrderModify(ticket, OrderOpenPrice(), sl, tp, 0, clrNONE))
-            Print("Trading OS: order ", id, " opened but its stop loss / target could not be set: ",
-                  ErrorDescription(GetLastError()));
+         {
+            // Never leave a position without its stop: close it again and report why.
+            string why = ErrorDescription(GetLastError());
+            RefreshRates();
+            double closeAt = buy ? MarketInfo(symbol, MODE_BID) : MarketInfo(symbol, MODE_ASK);
+            bool closed = OrderClose(ticket, OrderLots(), closeAt, InpMaxSlippage, clrNONE);
+            if(closed)
+               Report(id, "rejected", 0, 0, "Opened but the stop loss could not be set (" + why + "): closed again");
+            else
+               Report(id, "filled", ticket, OrderOpenPrice(),
+                      "WARNING: opened WITHOUT stop loss (" + why + ") and could not be closed - set it in MetaTrader now");
+            return;
+         }
       }
    }
    if(ticket < 0)

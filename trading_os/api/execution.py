@@ -239,11 +239,19 @@ def download_ea(platform: Literal["mq5", "mq4"]):
 
 
 async def bridge_fields(request: Request) -> dict:
-    """``key=value`` pairs of a form or plain-text body (the EA needs no JSON)."""
-    raw = await request.body()
-    if len(raw) > MAX_BRIDGE_BODY:
+    """``key=value`` pairs of a form or plain-text body (the EA needs no JSON).
+
+    These endpoints answer before any sign-in, so the body is capped while it is read, never after.
+    """
+    declared = request.headers.get("content-length", "")
+    if declared.isdigit() and int(declared) > MAX_BRIDGE_BODY:
         raise HTTPException(status_code=413, detail=tr("Request too large"))
-    return mt_bridge.parse_fields(raw) if raw else {}
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > MAX_BRIDGE_BODY:
+            raise HTTPException(status_code=413, detail=tr("Request too large"))
+    return mt_bridge.parse_fields(bytes(raw)) if raw else {}
 
 
 BridgeFields = Annotated[dict, Depends(bridge_fields)]

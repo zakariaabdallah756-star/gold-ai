@@ -22,6 +22,7 @@ MISSING_PACKAGE = N_(
     "(pip install MetaTrader5)"
 )
 DONE_CODES = (10008, 10009, 10010)  # TRADE_RETCODE_PLACED, _DONE, _DONE_PARTIAL
+PARTIAL_CODE = 10010
 _LOCK = threading.Lock()
 
 
@@ -142,8 +143,14 @@ class Mt5TerminalBridge(Bridge):
             )
         if order.order_type == "market":
             fill = base.number(getattr(result, "price", None)) or float(price)
+            filled = base.number(getattr(result, "volume", None)) if retcode == PARTIAL_CODE else None
             return BridgeResult(
-                "filled", ref, fill, tr("Filled at {price:g} (ticket {ticket})", price=fill, ticket=ref), details
+                "filled",
+                ref,
+                fill,
+                tr("Filled at {price:g} (ticket {ticket})", price=fill, ticket=ref),
+                details,
+                filled_lots=filled if filled and filled < order.lots else None,
             )
         return BridgeResult("pending", ref, None, tr("Pending order placed (ticket {ticket})", ticket=ref), details)
 

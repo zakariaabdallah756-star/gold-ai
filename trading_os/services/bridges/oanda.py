@@ -21,6 +21,7 @@ from .base import Bridge, BridgeConfigError, BridgeContext, BridgeResult, Bridge
 HOSTS = {"practice": "https://api-fxpractice.oanda.com", "live": "https://api-fxtrade.oanda.com"}
 ACCOUNT_RE = re.compile(r"^[0-9A-Za-z-]{5,40}$")
 INSTRUMENT_RE = re.compile(r"^[A-Z0-9]{2,10}_[A-Z0-9]{2,10}$")
+UNIT_TOLERANCE = 0.01  # the units sent may be at most 1% below the approved lots
 COMMON_INSTRUMENTS = {
     "NAS100": "NAS100_USD",
     "US100": "NAS100_USD",
@@ -94,8 +95,9 @@ class OandaBridge(Bridge):
     # ------------------------------------------------------------- orders
 
     def units(self, order: Order) -> int:
+        """Whole OANDA units, rounded DOWN: never a bigger position than the lots the trader approved."""
         size = order.contract_size or 1.0
-        units = int(round(order.lots * size))
+        units = math.floor(abs(order.lots) * size + 1e-9)
         return units if order.side == "buy" else -units
 
     def submit(self, ctx: BridgeContext, order: Order) -> BridgeResult:
@@ -110,6 +112,18 @@ class OandaBridge(Bridge):
         units = self.units(order)
         if units == 0:
             return BridgeResult("rejected", message=tr("{lots:g} lots is less than one OANDA unit", lots=order.lots))
+        sent_lots = abs(units) / (order.contract_size or 1.0)
+        if order.lots and (order.lots - sent_lots) / order.lots > UNIT_TOLERANCE:
+            return BridgeResult(
+                "rejected",
+                message=tr(
+                    "{lots:g} lots is {units} OANDA units ({sent:g} lots) - more than 1% off. Choose a size OANDA "
+                    "can trade in whole units.",
+                    lots=order.lots,
+                    units=abs(units),
+                    sent=round(sent_lots, 6),
+                ),
+            )
         spec: dict = {"instrument": instrument, "units": str(units), "positionFill": "DEFAULT"}
         if order.order_type == "market":
             spec.update(type="MARKET", timeInForce="FOK")

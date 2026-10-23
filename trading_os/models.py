@@ -676,6 +676,8 @@ class TradingAccount(TimestampMixin, Base):
     """
 
     __tablename__ = "trading_accounts"
+    # Ids are never reused: a deleted account's id must not inherit its secrets, links or EA bridge token.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(80), unique=True)
@@ -723,6 +725,8 @@ class Execution(Base):
     """An order sent (or queued) to a trading account through its bridge."""
 
     __tablename__ = "executions"
+    # Ids only go up, even after a restore: the MetaTrader EA skips order ids it already handled.
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"), index=True)

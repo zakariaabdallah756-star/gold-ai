@@ -117,6 +117,12 @@ def report_price(fields: dict[str, str]) -> float | None:
     return base.number(fields.get("price"))
 
 
+def report_volume(fields: dict[str, str]) -> float | None:
+    """Lots really filled (``volume=``), when the EA reports a partial fill."""
+    value = base.number(fields.get("volume"))
+    return value if value is not None and value > 0 else None
+
+
 def snapshot_from_fields(fields: dict[str, str]) -> dict:
     return base.snapshot_from(
         balance=fields.get("balance"),

@@ -7,7 +7,7 @@ import hmac
 import json
 import sys
 import types
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -433,7 +433,8 @@ def test_pending_orders_cancel_and_expire(client):
     stale = send(client, acct["id"]).json()
     with client.app.state.session_factory() as db:
         row = db.get(Execution, stale["execution"]["id"])
-        row.created_at = row.created_at - timedelta(minutes=10)
+        aged = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
+        row.request = {**row.request, "created_utc": aged}  # the lifetime runs in real (UTC) time
         db.commit()
     assert client.get("/api/bridge/orders", params={"token": token}).text == ""  # never fired late
     expired = client.get("/api/executions").json()["items"][0]

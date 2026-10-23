@@ -91,6 +91,7 @@ class BridgeResult:
     fill_price: float | None = None
     message: str = ""
     response: dict = field(default_factory=dict)  # secret-free details kept on the Execution
+    filled_lots: float | None = None  # a partial fill: the lots really filled
 
     @property
     def accepted(self) -> bool:

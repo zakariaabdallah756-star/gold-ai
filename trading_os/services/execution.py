@@ -31,9 +31,9 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -53,7 +53,7 @@ from .bridges import (
     sanitize,
     truncate,
 )
-from .bridges.base import ORDER_TYPES, RESULT_STATUSES
+from .bridges.base import BROKER_SYMBOL_RE, JOURNAL_SYMBOL_RE, ORDER_TYPES, RESULT_STATUSES
 from .guardrails import Violation
 from .i18n import tr
 from .sizing import blended_rr, planned_rr, risk_for_lots
@@ -64,6 +64,34 @@ STATUSES = ("pending", "sent", "filled", "rejected", "error", "cancelled")
 INTERRUPTED_AFTER = timedelta(minutes=2)  # a send that never finished (the app stopped mid-call)
 REJECTED_TAG = "order-rejected"
 LOG_LIMIT = 200
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _age(execution: Execution, key: str = "created_utc") -> timedelta | None:
+    """Real time since ``request[key]`` (UTC): immune to time-zone changes and daylight-saving shifts."""
+    stamp = (execution.request or {}).get(key) or (execution.response or {}).get(key)
+    if not stamp:
+        return None
+    try:
+        return _utc_now() - datetime.fromisoformat(stamp)
+    except ValueError:
+        return None
+
+
+def destination(account: TradingAccount) -> dict:
+    """Where the account's orders go (no secrets): an order is cancelled only where it was sent."""
+    bridge = BRIDGES.get(account.connection)
+    config = account.connection_config or {}
+    keys = bridge.destination_keys if bridge is not None else ()
+    return {
+        "connection": account.connection,
+        **{key: config.get(key) for key in keys},
+        "login": account.login,
+        "server": account.server,
+    }
 
 
 class ExecutionError(Exception):
@@ -227,7 +255,10 @@ def submit(
             "max_lots",
         )
 
+    if not JOURNAL_SYMBOL_RE.match(draft.symbol or ""):
+        raise ExecutionError(tr("{symbol} is not a valid symbol", symbol=(draft.symbol or "")[:40]), 422, "symbol")
     now = _now(settings)
+    market = _market(db, draft.symbol)
     data = draft.model_copy(
         update={
             "account_id": account.id,
@@ -237,6 +268,8 @@ def submit(
             "exit_time": None,
             "exit_price": None,
             "pnl": None,
+            # The risk the guardrails judge comes from the lots and the stop, never from the client.
+            "risk_amount": None if market is not None else draft.risk_amount,
         }
     )
     # The very same evaluation as POST /api/trades: a block means nothing is sent (raises TradeError too).
@@ -244,10 +277,15 @@ def submit(
     if evaluation.blocked:
         raise trade_service.TradeBlocked(evaluation.violations)
 
-    market = _market(db, data.symbol)
     broker_symbol = bridge.broker_symbol(
         data.symbol, ctx.config, market.base_currency if market else None, market.quote_currency if market else ""
     )
+    if not BROKER_SYMBOL_RE.match(broker_symbol or ""):
+        raise ExecutionError(
+            tr("{symbol} is not a valid broker symbol - check the symbol map", symbol=(broker_symbol or "")[:40]),
+            422,
+            "symbol",
+        )
     take_profit = data.take_profit
     if take_profit is None and data.targets:
         take_profit = data.targets[-1].price
@@ -275,7 +313,13 @@ def submit(
         db.flush()  # claims the key (unique) and gives the order its id
         order = _order(execution, market)
         execution.request = sanitize(
-            {"order": order.to_dict(), "trade": data.model_dump(mode="json")}, ctx.secret_values()
+            {
+                "order": order.to_dict(),
+                "trade": data.model_dump(mode="json"),
+                "destination": destination(account),
+                "created_utc": _utc_now().isoformat(),
+            },
+            ctx.secret_values(),
         )
         db.commit()
     except IntegrityError:
@@ -301,6 +345,13 @@ def submit(
     _apply_result(settings, execution, result, ctx.secret_values())
     account.last_error = "" if result.accepted else truncate(result.message)
     trade = None
+    if result.accepted and result.filled_lots and result.filled_lots < lots:
+        # Partially filled: the journal holds what really reached the account.
+        data = data.model_copy(update={"position_size": result.filled_lots, "risk_amount": None})
+        execution.message = truncate(
+            f"{execution.message} · "
+            + tr("partially: {filled:g} of {lots:g} lots", filled=result.filled_lots, lots=lots)
+        )
     if result.accepted:
         trade = _record_trade(db, settings, execution, data, fill_price=result.fill_price)
     db.commit()
@@ -409,6 +460,21 @@ def cancel(db: Session, settings: AccountSettings, box, execution: Execution) ->
     bridge = BRIDGES.get(execution.bridge)
     response = execution.response or {}
     delivered = execution.bridge == "mt_bridge" and bool(response.get("delivered_at"))
+    if delivered and execution.status == "sent" and response.get("unconfirmed"):
+        # No report from MetaTrader within the order lifetime: the trader checked the terminal and releases it.
+        claimed = db.execute(
+            update(Execution)
+            .where(Execution.id == execution.id, Execution.status == "sent")
+            .values(status="cancelled", updated_at=_now(settings))
+        ).rowcount
+        if not claimed:
+            db.rollback()
+            raise ExecutionError(tr("This order changed meanwhile - refresh the log"), 409, "changed")
+        db.refresh(execution)
+        execution.message = tr("Released: marked as not placed (MetaTrader never reported it)")
+        _release_trade(db, execution)
+        db.commit()
+        return execution
     if delivered and execution.status in ("pending", "sent"):
         raise ExecutionError(
             tr("The MetaTrader terminal already has this order - cancel it in MetaTrader"), 409, "delivered"
@@ -422,7 +488,28 @@ def cancel(db: Session, settings: AccountSettings, box, execution: Execution) ->
             "not_cancellable",
         )
     account = db.get(TradingAccount, execution.account_id)
+    sent_to = (execution.request or {}).get("destination")
+    if execution.bridge in ("oanda", "mt5_terminal") and sent_to and sent_to != destination(account):
+        raise ExecutionError(
+            tr(
+                "This order was sent to another destination than the account's current connection - cancel it on your platform"
+            ),
+            409,
+            "destination_changed",
+        )
     if execution.bridge in ("paper", "mt_bridge"):
+        # Claim it atomically: the EA's poll may be handing it out at this very moment.
+        claimed = db.execute(
+            update(Execution)
+            .where(Execution.id == execution.id, Execution.status == "pending")
+            .values(status="cancelled", updated_at=_now(settings))
+        ).rowcount
+        if not claimed:
+            db.rollback()
+            raise ExecutionError(
+                tr("The MetaTrader terminal already has this order - cancel it in MetaTrader"), 409, "delivered"
+            )
+        db.refresh(execution)
         result = BridgeResult("cancelled", execution.broker_ref, message=tr("Cancelled in Trading OS"))
     else:
         ctx = bridge_context(db, settings, box, account)
@@ -469,8 +556,11 @@ def expire_stale(db: Session, settings: AccountSettings, account_id: int | None 
     for row in list(db.scalars(stmt)):
         response = row.response or {}
         created = row.created_at or now
+        age = _age(row)
+        if age is None:  # an order stored before ages were kept in UTC
+            age = now - created
         if not response.get("completed"):
-            if now - created > INTERRUPTED_AFTER:
+            if age > INTERRUPTED_AFTER:
                 row.status = "error"
                 row.message = tr("Interrupted while sending - check your trading platform for this order")
                 row.updated_at = now
@@ -479,7 +569,7 @@ def expire_stale(db: Session, settings: AccountSettings, account_id: int | None 
         if row.bridge == "mt_bridge" and response.get("queued") and not response.get("delivered_at"):
             account = db.get(TradingAccount, row.account_id)
             limit = mt_bridge.ttl(account.connection_config if account else {})
-            if now - created > limit:
+            if age > limit:
                 row.status = "cancelled"
                 row.message = tr(
                     "Expired: the MetaTrader terminal did not pick the order up within {seconds} s",
@@ -488,6 +578,27 @@ def expire_stale(db: Session, settings: AccountSettings, account_id: int | None 
                 row.updated_at = now
                 _release_trade(db, row)
                 changed += 1
+    # Handed to the EA but never reported (its answer or its report got lost): say so, and let the trader
+    # release the journal trade once they checked MetaTrader (cancel). It is never handed out again.
+    sent = select(Execution).where(Execution.status == "sent", Execution.bridge == "mt_bridge")
+    if account_id is not None:
+        sent = sent.where(Execution.account_id == account_id)
+    for row in list(db.scalars(sent)):
+        response = row.response or {}
+        if response.get("unconfirmed") or not response.get("delivered_at"):
+            continue
+        account = db.get(TradingAccount, row.account_id)
+        limit = mt_bridge.ttl(account.connection_config if account else {})
+        age = _age(row, "delivered_utc")
+        if age is not None and age > limit:
+            row.response = {**response, "unconfirmed": True}
+            row.message = tr(
+                "No report from MetaTrader within {seconds} s - check the terminal. If the order is not there, "
+                "release it to remove its journal trade.",
+                seconds=int(limit.total_seconds()),
+            )
+            row.updated_at = now
+            changed += 1
     if changed:
         db.commit()
     return changed
@@ -513,15 +624,22 @@ def poll_orders(db: Session, settings: AccountSettings, account: TradingAccount)
             .where(Execution.account_id == account.id, Execution.status == "pending", Execution.bridge == "mt_bridge")
             .order_by(Execution.id)
         )
-        for row in rows:
+        for row in list(rows):
             response = row.response or {}
             if not response.get("queued") or response.get("delivered_at"):
                 continue
+            # Claim it atomically: a cancel or a second EA on the same token may race this poll.
+            claimed = db.execute(
+                update(Execution)
+                .where(Execution.id == row.id, Execution.status == "pending")
+                .values(status="sent", updated_at=now)
+            ).rowcount
+            if not claimed:
+                continue
+            db.refresh(row)
             lines.append(mt_bridge.order_line(_order(row, None)))
-            row.status = "sent"
             row.message = tr("Delivered to the MetaTrader terminal - waiting for its report")
-            row.response = {**response, "delivered_at": now.isoformat()}
-            row.updated_at = now
+            row.response = {**response, "delivered_at": now.isoformat(), "delivered_utc": _utc_now().isoformat()}
     db.commit()
     return lines
 
@@ -547,14 +665,24 @@ def report_order(
             db.commit()
             return execution  # the same report sent twice
         fill = price or execution.price
+        volume = mt_bridge.report_volume(fields)
+        partial = volume is not None and 0 < volume < execution.lots - 1e-9
         execution.status = "filled"
         execution.broker_ref = ticket or execution.broker_ref
         execution.fill_price = fill
         execution.message = tr("Filled at {price:g} (ticket {ticket})", price=fill, ticket=execution.broker_ref or "-")
+        if partial:
+            execution.message += " · " + tr(
+                "partially: {filled:g} of {lots:g} lots", filled=volume, lots=execution.lots
+            )
+        if note:  # e.g. the EA could not set the stop loss: the trader must see it
+            execution.message = truncate(f"{execution.message} - {note}")
         execution.response = {**(execution.response or {}), "report": report}
         execution.updated_at = now
-        account.last_error = ""
+        account.last_error = truncate(note) if note else ""
         trade = trade_service.get_trade(db, execution.trade_id) if execution.trade_id else None
+        if trade is not None and partial and not trade.events:
+            trade.position_size = volume  # the journal holds what really filled
         if trade is not None:
             apply_fill(db, settings, trade, fill, now)
         else:  # the order filled although its journal trade is gone: the position is real, log it again

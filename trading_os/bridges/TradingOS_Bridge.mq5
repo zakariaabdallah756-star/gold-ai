@@ -258,19 +258,24 @@ void ExecuteLine(const string line)
       double fill = g_trade.ResultPrice();
       if(fill <= 0)
          fill = buy ? SymbolInfoDouble(symbol, SYMBOL_ASK) : SymbolInfoDouble(symbol, SYMBOL_BID);
-      Report(id, "filled", g_trade.ResultOrder(), fill, "");
+      // A partial fill reports the volume really filled, so the journal holds the true size.
+      double volume = g_trade.ResultVolume();
+      Report(id, "filled", g_trade.ResultOrder(), fill, "", code == TRADE_RETCODE_DONE_PARTIAL ? volume : 0);
    }
    else
       Report(id, "placed", g_trade.ResultOrder(), price, "");
 }
 
 //--- report one order's result (a few tries if Trading OS does not answer)
-void Report(const long id, const string status, const ulong ticket, const double price, const string message)
+void Report(const long id, const string status, const ulong ticket, const double price, const string message,
+            const double volume = 0)
 {
    string body = "status=" + status
                  + "&ticket=" + IntegerToString((long)ticket)
                  + "&price=" + DoubleToString(price, 8)
                  + "&message=" + UrlEncode(message);
+   if(volume > 0)
+      body += "&volume=" + DoubleToString(volume, 2);
    string response;
    int code = -1;
    for(int attempt = 0; attempt < 3; attempt++)
