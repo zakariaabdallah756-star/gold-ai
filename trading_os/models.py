@@ -771,3 +771,44 @@ class Promo(TimestampMixin, Base):
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     builtin_key: Mapped[str] = mapped_column(String(40), default="")  # seeded announcement (shown translated)
+
+
+class AcademyVideo(TimestampMixin, Base):
+    """A YouTube video or playlist in the Trading Academy, with the trader's progress and private notes."""
+
+    __tablename__ = "academy_videos"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    topic: Mapped[str] = mapped_column(String(20), default="psychology")  # psychology | risk | strategies | discipline
+    kind: Mapped[str] = mapped_column(String(10), default="video")  # video | playlist
+    video_id: Mapped[str] = mapped_column(String(11), default="")  # "" for a whole playlist
+    playlist_id: Mapped[str] = mapped_column(String(64), default="")  # the list a video plays in, or the playlist
+    start_sec: Mapped[int] = mapped_column(Integer, default=0)
+    title: Mapped[str] = mapped_column(String(200))
+    channel: Mapped[str] = mapped_column(String(120), default="")
+    description: Mapped[str] = mapped_column(Text, default="")  # why it is worth watching (shown on the card)
+    thumbnail_url: Mapped[str] = mapped_column(String(300), default="")  # i.ytimg.com only
+    notes: Mapped[str] = mapped_column(Text, default="")  # private: never sent anywhere
+    completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # account-local
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class LearnerSession(TimestampMixin, Base):
+    """An AI Strategy Learner conversation: the trader's texts, the answers and the strategy draft they built."""
+
+    __tablename__ = "learner_sessions"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    title: Mapped[str] = mapped_column(String(120), default="")
+    source: Mapped[str] = mapped_column(String(12), default="rules")  # rules | transcript (the first text)
+    # [{role: user | assistant, kind: rules | transcript | chat, text, at, engine: ai | basic, content?}]
+    messages: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    draft: Mapped[dict] = mapped_column(JSON, default=dict)  # services.learner.StrategyDraft
+    engine: Mapped[str] = mapped_column(String(8), default="basic")  # engine of the latest answer: ai | basic
+    model: Mapped[str] = mapped_column(String(60), default="")  # Claude model of the latest AI answer
+    strategy_id: Mapped[int | None] = mapped_column(
+        ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True, index=True
+    )
