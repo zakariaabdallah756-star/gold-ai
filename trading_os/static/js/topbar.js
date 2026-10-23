@@ -7,7 +7,7 @@ import { api } from "./api.js";
 import { h, icon, toast } from "./dom.js";
 import { t, tn } from "./i18n.js";
 import { openOnboarding } from "./onboarding.js";
-import { accounts, activeAccount, onStatus, setActiveAccount, state } from "./state.js";
+import { accounts, activeAccount, onStatus, reloadAccounts, setActiveAccount, state } from "./state.js";
 
 const FALLBACK_LANGUAGES = [
   { code: "en", name: "English" },
@@ -21,14 +21,23 @@ const slots = {};
 
 // ------------------------------------------------------------------ data
 
+const SYNCED_FIELDS = ["name", "kind", "status", "color", "currency", "broker"];
+
+/** True when accounts were added, removed or renamed elsewhere (another tab or device) since the plan loaded. */
+function plansAccountsAreStale(listed) {
+  const known = new Map(accounts().map((account) => [account.id, account]));
+  return listed.length !== known.size || listed.some((account) => !known.has(account.id) || SYNCED_FIELDS.some((key) => known.get(account.id)[key] !== account[key]));
+}
+
 /** Refresh every account's figures (the switcher's equities). Only the latest answer is kept. */
 export async function loadAccountsSummary() {
   const seq = ++summarySeq;
   const data = await api.get("/api/accounts/summary?account=all");
-  if (seq === summarySeq) {
-    summary = data;
-    slots.switcher?.update();
-  }
+  if (seq !== summarySeq) return data;
+  summary = data;
+  if (plansAccountsAreStale(data.accounts)) await reloadAccounts().catch(() => {});
+  slots.switcher?.update();
+  slots.profile?.update();
   return data;
 }
 
@@ -195,6 +204,7 @@ function createSwitcher() {
     outside.listen();
     const selected = options.findIndex((option) => option.id === currentId());
     focusOption(focusLast ? options.length - 1 : Math.max(selected, 0));
+    loadAccountsSummary().catch(() => {}); // fresh equities (and accounts added elsewhere) while it is open
   }
 
   function close(restoreFocus = true) {
