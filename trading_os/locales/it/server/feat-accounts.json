@@ -1,0 +1,11 @@
+{
+  "All accounts": "Tutti i conti",
+  "An account with that name already exists": "Esiste già un conto con questo nome",
+  "The account '{name}' is archived: reactivate it to log trades on it": "Il conto '{name}' è archiviato: riattivalo per registrarci trade",
+  "The default account cannot be archived": "Il conto predefinito non può essere archiviato",
+  "The default account cannot be deleted": "Il conto predefinito non può essere eliminato",
+  "The video link must start with https:// (or /static/ for a file in the app)": "Il link del video deve iniziare con https:// (o /static/ per un file dell'app)",
+  "Unknown trading account {id}": "Conto di trading {id} sconosciuto",
+  "{account}: {message}": "{account}: {message}",
+  "{count} trades are logged on this account: archive it instead (journal history is never deleted)": "Su questo conto sono registrati {count} trade: archivialo invece (lo storico del diario non viene mai eliminato)"
+}

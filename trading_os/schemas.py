@@ -71,6 +71,17 @@ class SettingsIn(BaseModel):
     news_match_currency: bool = True
     default_auto_be: bool = True
     default_trail_pips: float = Field(0.0, ge=0)
+    promos_enabled: bool = True
+    promo_interval_sec: int = Field(7, ge=3, le=60)
+    onboarding_video_url: Annotated[str, StringConstraints(max_length=300, strip_whitespace=True)] = ""
+    onboarding_done: bool = False
+
+    @field_validator("onboarding_video_url")
+    @classmethod
+    def _video_url(cls, value: str) -> str:
+        if value and not (value.startswith("https://") or value.startswith("/static/")):
+            raise ValueError(tr("The video link must start with https:// (or /static/ for a file in the app)"))
+        return value
 
     @field_validator("timezone")
     @classmethod
@@ -89,10 +100,44 @@ class SettingsIn(BaseModel):
 
 
 class SettingsOut(SettingsIn, ORMModel):
+    default_account_id: int | None = None
+    active_account_id: int | None = None  # the trading account the app shows; None = all accounts
     cooloff_until: datetime | None = None
     cooloff_reason: str = ""
     disclaimer_accepted_at: datetime | None = None
     disclaimer_version: str = ""
+
+
+# --------------------------------------------------------------------------- trading accounts
+
+
+class TradingAccountIn(BaseModel):
+    """What the Trading Accounts form edits. Connection, execution and secrets have their own endpoints."""
+
+    name: Name
+    kind: Literal["live", "demo", "prop", "funded"] = "live"
+    broker: Annotated[str, StringConstraints(max_length=60, strip_whitespace=True)] = ""
+    platform: Literal["mt4", "mt5", "ctrader", "tradingview", "api", "other"] = "other"
+    login: Annotated[str, StringConstraints(max_length=40, strip_whitespace=True)] = ""
+    server: Annotated[str, StringConstraints(max_length=80, strip_whitespace=True)] = ""
+    currency: Currency = "USD"
+    starting_balance: float = Field(10_000.0, gt=0)
+    leverage: int = Field(100, ge=1, le=3000)
+    color: Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")] = "#26a69a"
+    status: Literal["active", "archived"] = "active"
+    notes: LongText = ""
+
+
+class ActiveAccountIn(BaseModel):
+    account_id: int | None = None  # None = all accounts together
+
+
+class CredentialsIn(BaseModel):
+    """Write-only secrets: a value replaces the stored one, "" removes it, a missing field keeps it."""
+
+    password: Annotated[str, StringConstraints(max_length=200)] | None = None
+    api_token: Annotated[str, StringConstraints(max_length=2000)] | None = None
+    webhook_secret: Annotated[str, StringConstraints(max_length=200)] | None = None
 
 
 # --------------------------------------------------------------------------- trading plan
@@ -319,6 +364,9 @@ class DailyStatusOut(BaseModel):
     upcoming_news: list[dict] = Field(default_factory=list)
     # Filled by services.prop_rules when a prop-firm challenge is active ("prop mode").
     prop: dict | None = None
+    # The trading account shown (None = all accounts together) and the accounts counted.
+    account_id: int | None = None
+    accounts: list[int] = Field(default_factory=list)
 
 
 # --------------------------------------------------------------------------- trades
@@ -378,6 +426,7 @@ class TradeIn(BaseModel):
         default_factory=list, max_length=30
     )
     notes: LongText = ""
+    account_id: int | None = None  # trading account; None = the account shown (or the default)
     source: Literal["manual", "signal", "calculator"] = "manual"
     signal_text: LongText = ""
 
@@ -481,6 +530,7 @@ class TradeOut(ORMModel):
     exit_price: float | None
     position_size: float | None
     risk_amount: float | None
+    account_id: int | None = None
     fees: float
     pnl: float | None
     pnl_manual: bool

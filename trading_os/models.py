@@ -122,6 +122,16 @@ class AccountSettings(TimestampMixin, Base):
     remote_password_hash: Mapped[str] = mapped_column(String(200), default="")  # scrypt; empty = no password
     remote_session_secret: Mapped[str] = mapped_column(String(64), default="")  # signs sign-in cookies
 
+    # Trading accounts (v1.5). ``default_account_id`` mirrors account_name / currency / starting_balance above;
+    # ``active_account_id`` is the account the app shows (None = all accounts together).
+    default_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    active_account_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Dashboard promo carousel and the onboarding guide.
+    promos_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    promo_interval_sec: Mapped[int] = mapped_column(Integer, default=7)
+    onboarding_video_url: Mapped[str] = mapped_column(String(300), default="")
+    onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False)
+
 
 class Market(TimestampMixin, Base):
     """A tradable instrument and the contract specification used for sizing."""
@@ -256,6 +266,10 @@ class Trade(TimestampMixin, Base):
     mistakes: Mapped[list[str]] = mapped_column(JSON, default=list)
     notes: Mapped[str] = mapped_column(Text, default="")
     source: Mapped[str] = mapped_column(String(12), default="manual")  # manual | signal | calculator
+    # The trading account the trade belongs to (services.accounts); NULL only in databases older than v1.5.
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("trading_accounts.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     signal_text: Mapped[str] = mapped_column(Text, default="")
 
     # Position management. ``managed`` is True once the trade has fill events
@@ -466,6 +480,10 @@ class PropChallenge(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(10), default="active")  # active | passed | failed | archived
     active: Mapped[bool] = mapped_column(Boolean, default=False)  # the one challenge driving "prop mode"
     enforce: Mapped[bool] = mapped_column(Boolean, default=True)  # block live entries that break the rules
+    # The trading account whose trades the challenge follows (None = every trade, as before v1.5).
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("trading_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     notes: Mapped[str] = mapped_column(Text, default="")
 
 
@@ -587,6 +605,10 @@ class AlertRule(TimestampMixin, Base):
     atr_multiple: Mapped[float] = mapped_column(Float, default=1.5)
     targets_rr: Mapped[list[float]] = mapped_column(JSON, default=list)  # empty = one target at the minimum R:R
     risk_pct: Mapped[float | None] = mapped_column(Float, nullable=True)  # None = account default
+    # Account whose equity sizes the alert's ticket (None = the default account).
+    account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("trading_accounts.id", ondelete="SET NULL"), nullable=True
+    )
     cooldown_minutes: Mapped[int] = mapped_column(Integer, default=60)
     notify: Mapped[bool] = mapped_column(Boolean, default=True)
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -644,3 +666,104 @@ class Candle(Base):
     low: Mapped[float] = mapped_column(Float)
     close: Mapped[float] = mapped_column(Float)
     volume: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class TradingAccount(TimestampMixin, Base):
+    """A trading account: a broker account, a prop-firm challenge or funded account, a demo.
+
+    Secrets (passwords, API tokens, the bridge token) live in ``account_credentials``, encrypted and never
+    exported. ``snapshot`` holds the last balance/equity/margin a bridge reported (``snapshot_at``).
+    """
+
+    __tablename__ = "trading_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    kind: Mapped[str] = mapped_column(String(12), default="live")  # live | demo | prop | funded
+    broker: Mapped[str] = mapped_column(String(60), default="")
+    platform: Mapped[str] = mapped_column(String(12), default="other")  # mt4 | mt5 | ctrader | api | other
+    login: Mapped[str] = mapped_column(String(40), default="")  # account number (not a secret)
+    server: Mapped[str] = mapped_column(String(80), default="")
+    currency: Mapped[str] = mapped_column(String(3), default="USD")
+    starting_balance: Mapped[float] = mapped_column(Float, default=10_000.0)
+    leverage: Mapped[int] = mapped_column(Integer, default=100)  # 1:N, for the margin estimate
+    color: Mapped[str] = mapped_column(String(9), default="#26a69a")
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active | archived
+    notes: Mapped[str] = mapped_column(Text, default="")
+    # Order routing (services.execution): none | paper | webhook | mt_bridge | mt5_terminal | oanda
+    connection: Mapped[str] = mapped_column(String(16), default="none")
+    connection_config: Mapped[dict] = mapped_column(JSON, default=dict)  # non-secret settings
+    execution_enabled: Mapped[bool] = mapped_column(Boolean, default=False)  # orders may be sent
+    max_lots_per_order: Mapped[float | None] = mapped_column(Float, nullable=True)
+    snapshot: Mapped[dict] = mapped_column(JSON, default=dict)  # balance, equity, margin, ... from a bridge
+    snapshot_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # last bridge contact
+    last_error: Mapped[str] = mapped_column(String(300), default="")
+
+
+class AccountCredential(Base):
+    """An encrypted secret of a trading account (services.secrets_store). Machine-local: never in backups.
+
+    ``account_id`` is a plain column (no foreign key) so a restore that replaces the accounts keeps the
+    secrets of accounts that come back with the same id.
+    """
+
+    __tablename__ = "account_credentials"
+    __table_args__ = (UniqueConstraint("account_id", "kind"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(Integer, index=True)
+    kind: Mapped[str] = mapped_column(String(20))  # password | api_token | webhook_secret | bridge_token
+    ciphertext: Mapped[str] = mapped_column(Text)
+    hint: Mapped[str] = mapped_column(String(8), default="")  # last characters, for "...a1b2"
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class Execution(Base):
+    """An order sent (or queued) to a trading account through its bridge."""
+
+    __tablename__ = "executions"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"), index=True)
+    trade_id: Mapped[int | None] = mapped_column(ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(64), unique=True)
+    bridge: Mapped[str] = mapped_column(String(16))
+    symbol: Mapped[str] = mapped_column(String(20))
+    broker_symbol: Mapped[str] = mapped_column(String(40), default="")
+    direction: Mapped[str] = mapped_column(String(5))  # long | short
+    order_type: Mapped[str] = mapped_column(String(8), default="market")  # market | limit | stop
+    lots: Mapped[float] = mapped_column(Float)
+    price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    take_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # pending (queued for a polling bridge) | sent | filled | rejected | error | cancelled
+    status: Mapped[str] = mapped_column(String(10), default="pending")
+    broker_ref: Mapped[str] = mapped_column(String(64), default="")  # ticket / order id
+    fill_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    message: Mapped[str] = mapped_column(String(300), default="")
+    request: Mapped[dict] = mapped_column(JSON, default=dict)  # what was sent (never secrets)
+    response: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class Promo(TimestampMixin, Base):
+    """A card of the dashboard carousel: a platform announcement, a partner or a prop-firm discount."""
+
+    __tablename__ = "promos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(12), default="announcement")  # announcement | partner | discount
+    title: Mapped[str] = mapped_column(String(80))
+    body: Mapped[str] = mapped_column(String(300), default="")
+    cta_label: Mapped[str] = mapped_column(String(40), default="")
+    cta_url: Mapped[str] = mapped_column(String(500), default="")  # #/route or https:// link
+    code: Mapped[str] = mapped_column(String(40), default="")  # discount code typed by the trader
+    partner_id: Mapped[int | None] = mapped_column(ForeignKey("partners.id", ondelete="SET NULL"), nullable=True)
+    theme: Mapped[str] = mapped_column(String(10), default="teal")  # teal | blue | gold | purple | red
+    starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    builtin_key: Mapped[str] = mapped_column(String(40), default="")  # seeded announcement (shown translated)

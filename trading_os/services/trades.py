@@ -9,9 +9,9 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import Select, String, cast, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from ..models import AccountSettings, ChecklistDay, Market, Strategy, Trade, TradeTarget, TradingSession
+from ..models import AccountSettings, ChecklistDay, Market, Strategy, Trade, TradeTarget, TradingAccount, TradingSession
 from ..schemas import TradeIn
-from . import analytics, context_rules, positions, prop_rules, uploads
+from . import accounts, analytics, context_rules, positions, prop_rules, uploads
 from .account import (
     CLOSE_TIME,
     booked_clause,
@@ -90,6 +90,7 @@ class Evaluation:
     session: str
     live: bool
     violations: list[Violation] = field(default_factory=list)
+    account_id: int | None = None  # the trading account the trade is (or stays) logged on
 
     @property
     def blocked(self) -> bool:
@@ -126,11 +127,17 @@ def evaluate(
     exit_time = normalize_time(data.exit_time, tz)
     if exit_time is not None and exit_time < entry_time:
         raise TradeError(tr("Exit time cannot be before entry time"))
+    account = _trade_account(db, settings, data, existing)
+    # The daily rules, equity and risk % are the trade's own account's (services.accounts).
+    ids = (account.id,) if account is not None else None
+    currency = (
+        account.currency if account is not None and not accounts.is_default(settings, account) else settings.currency
+    )
 
     market = db.scalar(select(Market).where(Market.symbol == data.symbol))
     risk_amount = data.risk_amount
     if risk_amount is None and data.position_size and market is not None:
-        computed = risk_for_lots(market, settings.currency, data.entry_price, data.stop_loss, data.position_size)
+        computed = risk_for_lots(market, currency, data.entry_price, data.stop_loss, data.position_size)
         risk_amount = round(computed, 2) if computed is not None else None
 
     windows = list(db.scalars(select(TradingSession)))
@@ -142,7 +149,7 @@ def evaluate(
         rr = blended_rr(data.entry_price, data.stop_loss, [(t.price, t.close_pct) for t in data.targets])
     else:
         rr = planned_rr(data.entry_price, data.stop_loss, data.take_profit)
-    equity = equity_at(db, settings, entry_time)
+    equity = equity_at(db, settings, entry_time, ids)
     strategy = db.scalar(select(Strategy).where(Strategy.name == data.strategy)) if data.strategy else None
 
     violations = trade_rule_violations(
@@ -187,14 +194,14 @@ def evaluate(
     live = entry_like and data.status == "open" and entry_time.date() >= today
 
     if live:
-        day, own_risk = _live_day_state(db, settings, today, existing)
+        day, own_risk = _live_day_state(db, settings, today, existing, ids)
         new_risk = max((risk_amount or 0.0) - own_risk, 0.0) if risk_amount is not None else None
         violations += daily_violations(settings, day, new_risk)
         # Prop-firm challenge rules ("prop mode", services.prop_rules).
         violations += prop_rules.entry_violations(db, settings, risk_amount=new_risk, entry_time=entry_time, now=now)
     elif entry_like and entry_time.date() == today:
         # Logged after the fact: judge the day as it stood when the trade was entered.
-        violations += daily_violations(settings, _day_state_at(db, settings, entry_time, existing))
+        violations += daily_violations(settings, _day_state_at(db, settings, entry_time, existing, ids))
     if entry_like:
         # Economic-calendar window and kill switch (services.context_rules).
         violations += context_rules.entry_violations(db, settings, symbol=data.symbol, entry_time=entry_time, now=now)
@@ -227,14 +234,29 @@ def evaluate(
         session=session_name,
         live=live,
         violations=violations,
+        account_id=account.id if account is not None else None,
     )
 
 
+def _trade_account(
+    db: Session, settings: AccountSettings, data: TradeIn, existing: Trade | None
+) -> TradingAccount | None:
+    """The account the trade is logged on: the one in ``data``, else the edited trade's, else a default."""
+    try:
+        if data.account_id is not None and (existing is None or data.account_id != existing.account_id):
+            return accounts.account_for_new_trade(db, settings, data.account_id)
+        if existing is not None:
+            return db.get(TradingAccount, existing.account_id) if existing.account_id else None
+        return accounts.account_for_new_trade(db, settings, None)
+    except accounts.AccountError as exc:
+        raise TradeError(str(exc)) from exc
+
+
 def _live_day_state(
-    db: Session, settings: AccountSettings, today: date, existing: Trade | None
+    db: Session, settings: AccountSettings, today: date, existing: Trade | None, account_ids=None
 ) -> tuple[DayState, float]:
     """Today's state for a live entry, without the edited trade's own count and open risk."""
-    day = compute_day_state(db, settings, today)
+    day = compute_day_state(db, settings, today, account_ids)
     own_risk = 0.0
     if existing is not None:
         if existing.entry_time.date() == today:
@@ -245,7 +267,9 @@ def _live_day_state(
     return day, own_risk
 
 
-def _day_state_at(db: Session, settings: AccountSettings, when: datetime, existing: Trade | None) -> DayState:
+def _day_state_at(
+    db: Session, settings: AccountSettings, when: datetime, existing: Trade | None, account_ids=None
+) -> DayState:
     """The day as it stood at ``when``: trades entered before it and P&L realised before it.
 
     Open risk at that moment is unknown, so the daily risk budget is not judged.
@@ -253,12 +277,13 @@ def _day_state_at(db: Session, settings: AccountSettings, when: datetime, existi
     start, _ = day_bounds(when.date())
     # Inclusive of the same second: a loss closed as this trade was entered came first.
     earlier = select(func.count(Trade.id)).where(Trade.entry_time >= start, Trade.entry_time <= when)
+    earlier = accounts.filter_trades(earlier, account_ids)
     if existing is not None:
         earlier = earlier.where(Trade.id != existing.id)
-    day = compute_day_state(db, settings, when.date())
+    day = compute_day_state(db, settings, when.date(), account_ids)
     return replace(
         day,
-        realized_pnl_today=realized_pnl(db, since=start, before=when + timedelta(seconds=1)),
+        realized_pnl_today=realized_pnl(db, since=start, before=when + timedelta(seconds=1), account_ids=account_ids),
         trades_today=int(db.scalar(earlier) or 0),
         open_risk=0.0,
     )
@@ -292,6 +317,8 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
         trade.exit_time = ev.exit_time if data.status == "closed" else None
         trade.exit_price = data.exit_price if data.status == "closed" else None
     trade.entry_time = ev.entry_time
+    if ev.account_id is not None:
+        trade.account_id = ev.account_id
     trade.symbol = data.symbol
     trade.direction = data.direction
     trade.entry_price = data.entry_price

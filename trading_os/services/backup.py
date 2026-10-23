@@ -29,11 +29,13 @@ from ..models import (
     ChecklistItem,
     Confluence,
     DailyReview,
+    Execution,
     Market,
     MistakeType,
     NewsEvent,
     NotificationLog,
     Partner,
+    Promo,
     PropChallenge,
     Screenshot,
     Strategy,
@@ -41,16 +43,17 @@ from ..models import (
     Trade,
     TradeEvent,
     TradeTarget,
+    TradingAccount,
     TradingSession,
     VisionAnalysis,
     VisionMessage,
 )
-from . import uploads
+from . import accounts, uploads
 from .i18n import tr
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 # Older backups restore fine: missing tables/columns fall back to defaults.
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4)
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5)
 # Secrets that stay on this machine: never exported, kept as-is on restore.
 # (Notification channels and pushed candles are not part of backups at all.)
 PRIVATE_COLUMNS = {
@@ -63,7 +66,19 @@ PRIVATE_COLUMNS = {
         "remote_password_hash",
         "remote_session_secret",
     ),
+    # How an account reaches its broker is this machine's business, and a restore must never switch live
+    # order routing on: these stay as they are for accounts that come back with the same id.
+    "trading_accounts": (
+        "connection",
+        "connection_config",
+        "execution_enabled",
+        "snapshot",
+        "snapshot_at",
+        "last_seen_at",
+        "last_error",
+    ),
 }
+# (Trading account secrets live in ``account_credentials``, which backups never contain.)
 # Columns renamed since older backups were written: {table: {old key: new key}}.
 LEGACY_KEYS = {"partners": {"referral_url": "link_url"}}
 BACKUP_JSON_NAME = "backup.json"
@@ -73,6 +88,7 @@ MAX_UNPACKED_TOTAL = 2 * 1024 * 1024 * 1024
 # Insert order respects foreign keys; deletion runs in reverse.
 MODELS = (
     AccountSettings,
+    TradingAccount,
     Market,
     TradingSession,
     Strategy,
@@ -84,6 +100,7 @@ MODELS = (
     NewsEvent,
     DailyReview,
     Partner,
+    Promo,
     PropChallenge,
     BacktestTrade,
     Trade,
@@ -94,6 +111,7 @@ MODELS = (
     VisionMessage,
     NotificationLog,
     StrategyAlert,
+    Execution,
 )
 
 CSV_COLUMNS = (
@@ -241,6 +259,10 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
     counts: dict[str, int] = {}
     current = db.get(AccountSettings, 1)
     kept_secrets = {key: getattr(current, key) for key in PRIVATE_COLUMNS["account_settings"]} if current else {}
+    kept_routing = {
+        row.id: {key: getattr(row, key) for key in PRIVATE_COLUMNS["trading_accounts"]}
+        for row in db.scalars(select(TradingAccount))
+    }
     try:
         for model in reversed(MODELS):
             db.execute(delete(model))
@@ -259,6 +281,12 @@ def restore_data(db: Session, payload: dict) -> dict[str, int]:
         for key, value in kept_secrets.items():
             setattr(settings, key, value)
         _validate_settings(settings)
+        for row in db.scalars(select(TradingAccount)):
+            for key, value in kept_routing.get(row.id, {}).items():
+                setattr(row, key, value)
+        db.flush()
+        # Backups from before v1.5 have no accounts: their trades go to a default account made from the settings.
+        accounts.ensure_default_account(db, settings)
         db.commit()
     except BackupError:
         db.rollback()

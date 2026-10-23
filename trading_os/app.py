@@ -16,9 +16,11 @@ from .api import routers
 from .config import STATIC_DIR, AppConfig, load_config
 from .database import create_db_engine, init_db
 from .seed import seed_defaults
-from .services import alerts, i18n, network, notify
+from .services import accounts, alerts, i18n, network, notify
+from .services.account import get_settings
 from .services.backup import BackupError
 from .services.scheduler import Scheduler
+from .services.secrets_store import SecretBox
 from .services.sizing import SizingError
 from .services.trades import TradeBlocked, TradeError
 from .services.uploads import UploadError
@@ -30,6 +32,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     session_factory = init_db(engine)
     with session_factory() as db:
         seed_defaults(db)
+        accounts.ensure_default_account(db, get_settings(db))
     scheduler = Scheduler(session_factory)
     notify.register_jobs(scheduler, config)
     alerts.register_jobs(scheduler, config)
@@ -57,6 +60,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.state.engine = engine
     app.state.session_factory = session_factory
     app.state.scheduler = scheduler
+    app.state.secrets = SecretBox(config.data_dir)  # trading account secrets (services.secrets_store)
 
     for router in routers:
         app.include_router(router)

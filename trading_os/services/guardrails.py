@@ -52,6 +52,10 @@ class Violation:
     def as_warning(self) -> Violation:
         return Violation(self.code, self.message, "warn")
 
+    def named(self, account: str) -> Violation:
+        """The same rule, its message prefixed with the trading account it applies to."""
+        return Violation(self.code, tr("{account}: {message}", account=account, message=self.message), self.severity)
+
 
 @dataclass
 class DayState:

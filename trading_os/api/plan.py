@@ -31,6 +31,7 @@ from ..models import (
     MistakeType,
     NewsEvent,
     Strategy,
+    TradingAccount,
     TradingSession,
 )
 from ..schemas import (
@@ -49,6 +50,7 @@ from ..schemas import (
     StrategyIn,
     StrategyOut,
 )
+from ..services import accounts
 from ..services import backtest as backtest_service
 from ..services import i18n
 from ..services.account import local_now
@@ -78,6 +80,7 @@ def update_settings(payload: SettingsIn, settings: SettingsDep, db: DbDep):
         _move_absolute_times(db, settings, settings.timezone, changes["timezone"])
     for key, value in changes.items():
         setattr(settings, key, value)
+    accounts.sync_default_from_settings(db, settings)  # the default account follows name, currency, balance
     db.commit()
     return settings
 
@@ -118,6 +121,10 @@ def read_plan(settings: SettingsDep, db: DbDep, config: ConfigDep):
         "confluences": dump(Confluence, ConfluenceOut, Confluence.name),
         "checklist_items": dump(ChecklistItem, ChecklistItemOut, ChecklistItem.sort_order, ChecklistItem.id),
         "mistake_types": dump(MistakeType, MistakeTypeOut, MistakeType.name),
+        "accounts": [
+            accounts.account_out(db, settings, a)
+            for a in db.scalars(select(TradingAccount).order_by(TradingAccount.id))
+        ],
         "enums": {
             "emotions": EMOTIONS,
             "timeframes": TIMEFRAMES,

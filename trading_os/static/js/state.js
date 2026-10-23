@@ -20,7 +20,7 @@ export async function loadPlan() {
   const plan = await api.get("/api/plan");
   state.plan = plan;
   state.clockOffsetMs = new Date(plan.now).getTime() - Date.now();
-  setCurrency(plan.settings.currency);
+  setCurrency(displayCurrency());
   return plan;
 }
 
@@ -46,4 +46,47 @@ export function marketBySymbol(symbol) {
 
 export function strategyByName(name) {
   return state.plan?.strategies.find((strategy) => strategy.name === name) || null;
+}
+
+// ------------------------------------------------------------------ trading accounts
+
+/** Every trading account (from /api/plan; no secrets). */
+export function accounts() {
+  return state.plan?.accounts || [];
+}
+
+/** The account the app shows, or null when every account is shown together. */
+export function activeAccount() {
+  const id = state.plan?.settings.active_account_id;
+  return id == null ? null : accounts().find((account) => account.id === id) || null;
+}
+
+/** The currency money is shown in: the account shown, else the settings'. */
+export function displayCurrency() {
+  return activeAccount()?.currency || state.plan?.settings.currency || "USD";
+}
+
+/**
+ * Show one account (or all with ``null``) across the app. The server remembers it; the status bar is refreshed
+ * here and the caller re-renders the page.
+ */
+export async function setActiveAccount(accountId) {
+  const result = await api.put("/api/accounts/active", { account_id: accountId });
+  state.plan.settings.active_account_id = result.active_account_id;
+  for (const account of accounts()) account.is_active = account.id === result.active_account_id;
+  setCurrency(displayCurrency());
+  state.status = result.status;
+  for (const listener of listeners) listener(state.status);
+  return result;
+}
+
+/** Reload the accounts list after an account was added, edited or removed. */
+export async function reloadAccounts() {
+  const data = await api.get("/api/accounts");
+  if (state.plan) {
+    state.plan.accounts = data.accounts.map(({ metrics, ...account }) => account);
+    state.plan.settings.active_account_id = data.active_account_id;
+    setCurrency(displayCurrency());
+  }
+  return data;
 }
