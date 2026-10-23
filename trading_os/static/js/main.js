@@ -6,7 +6,10 @@ import { clear, field, h, icon, modal, segmented, toast, withNodes } from "./dom
 import { fmt, pnlClass, toInputDateTime } from "./format.js";
 import { mountDisclaimer } from "./disclaimer.js";
 import { N_, t, tn, useLanguage } from "./i18n.js";
-import { accountNow, loadPlan, loadStatus, onStatus, state } from "./state.js";
+import { autoOpenOnboarding } from "./onboarding.js";
+import { accountNow, accounts, activeAccount, loadPlan, loadStatus, onStatus, state } from "./state.js";
+import { renderTopbar } from "./topbar.js";
+import * as tradingAccounts from "./views/accounts.js";
 import * as alerts from "./views/alerts.js";
 import * as backup from "./views/backup.js";
 import * as calculator from "./views/calculator.js";
@@ -36,6 +39,7 @@ const ROUTES = [
   { path: "review", label: N_("Review"), icon: "review", view: review, group: N_("Improve") },
   { path: "incubator", label: N_("Incubator"), icon: "flame", view: incubator, group: N_("Improve") },
   { path: "prop", label: N_("Prop Firm"), icon: "shield", view: prop, group: N_("Improve") },
+  { path: "accounts", label: N_("Trading Accounts"), icon: "wallet", view: tradingAccounts, group: N_("Setup") },
   { path: "plan", label: N_("Trading Plan"), icon: "plan", view: plan, group: N_("Setup") },
   { path: "partners", label: N_("Partners"), icon: "star", view: partners, group: N_("Setup") },
   { path: "backup", label: N_("Backup & Export"), icon: "backup", view: backup, group: N_("Setup") },
@@ -321,10 +325,10 @@ function renderStatus(status) {
   const cooling = cooloffMs !== null && cooloffMs > 0;
   scheduleExpiryRefresh(cooloffMs);
 
-  clear(
-    document.getElementById("topbar"),
-    h("div", { class: "title" }, t(currentRoute.label)),
-    h(
+  renderTopbar(document.getElementById("topbar"), {
+    title: t(currentRoute.label),
+    onSwitch: route,
+    strip: h(
       "div",
       { class: "status-strip" },
       status.checklist_required
@@ -366,13 +370,13 @@ function renderStatus(status) {
       newsChip(status),
       propChip(status),
     ),
-    h(
+    killswitch: h(
       "button",
       { class: `btn sm killswitch${cooling ? " on" : ""}`, type: "button", onclick: openKillSwitch },
       icon("power"),
       cooling ? t("Cool-off active") : t("Kill switch"),
     ),
-  );
+  });
 
   const banner = document.getElementById("banner");
   const shown = status.reasons.filter((r) => r.code !== "CHECKLIST_INCOMPLETE" || currentRoute.path !== "premarket");
@@ -420,7 +424,7 @@ function renderStatus(status) {
 
   clear(
     document.getElementById("sidebar-foot"),
-    h("div", {}, state.plan.settings.account_name),
+    h("div", {}, activeAccount()?.name || (accounts().filter((a) => a.status === "active").length > 1 ? t("All accounts") : state.plan.settings.account_name)),
     h("div", { class: "equity num" }, fmt.money(status.current_equity)),
     h(
       "div",
@@ -479,9 +483,10 @@ async function boot() {
   }
   onStatus(renderStatus);
   renderStatus(state.status);
-  await mountDisclaimer();
+  const disclaimer = await mountDisclaimer();
   window.addEventListener("hashchange", route);
   route();
+  disclaimer.accepted.then(autoOpenOnboarding); // first launch: the getting-started guide, once the risks were accepted
   setInterval(() => loadStatus().catch(() => {}), 60_000);
 }
 
