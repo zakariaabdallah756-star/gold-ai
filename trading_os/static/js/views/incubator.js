@@ -6,6 +6,7 @@ import { clear, confirmDialog, field, h, icon, modal, numberOrNull, segmented, t
 import { fmt, pnlClass, toInputDateTime } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
 import { accountNow, loadPlan, state } from "../state.js";
+import { mountLearner } from "./learner.js";
 
 // Shown with t(); "incubator" is the stored status of a strategy that is still being tested.
 const STATUS_LABEL = { incubator: N_("In test"), live: N_("Live"), retired: N_("Retired") };
@@ -302,7 +303,7 @@ export async function render(root, { params }) {
               items.map((s) =>
                 h(
                   "button",
-                  { type: "button", class: `bt-strategy${s.id === selectedId ? " selected" : ""}`, onclick: () => ((selectedId = s.id), loadList(), loadDetail()) },
+                  { type: "button", class: `bt-strategy${s.id === selectedId ? " selected" : ""}`, onclick: () => ((selectedId = s.id), remember(), loadList(), loadDetail()) },
                   h("div", { class: "row", style: { justifyContent: "space-between", flexWrap: "nowrap" } }, h("strong", {}, s.name), statusBadge(s.status)),
                   h("div", { class: "bt-strategy-stats" }, h("span", {}, tn(s.trades, "{n} backtest", "{n} backtests")), h("span", {}, `WR ${fmt.pct(s.win_rate, 0)}`), h("span", {}, `PF ${pf(s)}`), h("span", { class: pnlClass(s.expectancy_r) }, `${fmt.r(s.expectancy_r)}/trade`)),
                   s.live_trades && s.trades
@@ -458,17 +459,71 @@ export async function render(root, { params }) {
     );
   }
 
+  // Two tabs: the strategies under test, and the AI Strategy Learner that drafts new ones.
+  let tab = params.get("tab") === "learner" ? "learner" : "strategies";
+  let learnerSession = Number(params.get("session")) || null;
+  let lessonId = Number(params.get("lesson")) || null; // "Turn into a strategy" from an Academy lesson
+  let learnerCleanup = null;
+  const tabs = h("div", { class: "tabs", role: "tablist", "aria-label": t("Incubator sections") });
+  const content = h("div");
+  const newButton = h("button", { class: "btn primary", type: "button", onclick: () => newStrategyDialog(async (id) => ((selectedId = id), await loadList(), loadDetail())) }, icon("plus"), t("New test strategy"));
+
+  function remember() {
+    const search = new URLSearchParams();
+    if (tab === "learner") {
+      search.set("tab", "learner");
+      if (learnerSession) search.set("session", String(learnerSession));
+    } else if (selectedId) {
+      search.set("id", String(selectedId));
+    }
+    const text = search.toString();
+    history.replaceState(null, "", `#/incubator${text ? `?${text}` : ""}`);
+  }
+
+  async function show(next) {
+    tab = next;
+    learnerCleanup?.();
+    learnerCleanup = null;
+    destroyCharts();
+    clear(
+      tabs,
+      [
+        ["strategies", t("Strategies"), "flame"],
+        ["learner", t("AI Strategy Learner"), "sparkles"],
+      ].map(([key, label, glyph]) => h("button", { type: "button", role: "tab", class: key === tab ? "on" : "", "aria-selected": String(key === tab), onclick: () => key !== tab && show(key) }, icon(glyph), label)),
+    );
+    newButton.style.display = tab === "strategies" ? "" : "none"; // (.btn sets display, which beats [hidden])
+    if (tab === "learner") {
+      const box = h("div", { class: "stack" });
+      clear(content, box);
+      learnerCleanup = await mountLearner(box, {
+        sessionId: learnerSession,
+        lessonId,
+        onSession: (id) => ((learnerSession = id), (lessonId = null), remember()),
+        onOpenStrategy: (id) => ((selectedId = id), show("strategies")),
+      });
+    } else {
+      clear(content, h("div", { class: "bt-layout" }, list, detail));
+      await loadList();
+      await loadDetail();
+    }
+    remember();
+  }
+
   clear(
     root,
     h(
       "div",
       { class: "page-head" },
       h("div", {}, h("h1", {}, t("Strategy incubator")), h("p", {}, t("Prove a strategy's edge on historical trades before trading it live"))),
-      h("button", { class: "btn primary", type: "button", onclick: () => newStrategyDialog(async (id) => ((selectedId = id), await loadList(), loadDetail())) }, icon("plus"), t("New test strategy")),
+      newButton,
     ),
-    h("div", { class: "bt-layout" }, list, detail),
+    tabs,
+    content,
   );
-  await loadList();
-  await loadDetail();
-  return destroyCharts;
+  await show(tab);
+  return () => {
+    learnerCleanup?.();
+    destroyCharts();
+  };
 }

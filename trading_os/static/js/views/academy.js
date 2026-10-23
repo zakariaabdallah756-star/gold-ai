@@ -376,6 +376,7 @@ export async function render(root, { params }) {
         { class: "row ac-stage-actions" },
         done,
         next ? h("button", { class: "btn", type: "button", onclick: () => select_(next.id) }, t("Next lesson"), icon("chevronRight")) : null,
+        h("a", { class: "btn ghost", href: `#/incubator?tab=learner&lesson=${video.id}`, title: t("Paste this video's transcript into the AI Strategy Learner") }, icon("sparkles"), t("Turn into a strategy")),
         h("span", { class: "spacer" }),
         h("a", { class: "btn ghost sm", href: video.watch_url, target: "_blank", rel: "noopener noreferrer" }, icon("arrowRight"), t("Open on YouTube"), h("span", { class: "sr-only" }, t(" (opens in a new tab)"))),
         h("button", { class: "btn ghost sm icon-only", type: "button", "aria-label": t("Edit lesson"), title: t("Edit lesson"), onclick: () => videoDialog({ video, topics: data.topics, topic, onSaved: (saved) => reload(saved.id) }) }, icon("edit")),

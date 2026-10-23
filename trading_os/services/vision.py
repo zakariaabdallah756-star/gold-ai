@@ -25,7 +25,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..constants import (
-    AI_FALLBACK_MODELS,
     FOMO_CHASE_R,
     FOMO_NEAR_PRICE_R,
     FOMO_RANGE_EXTREME,
@@ -49,7 +48,7 @@ QA_MAX_TOKENS = 16000
 # Follow-up answers reason over an existing analysis, so chat runs at most at "medium" effort
 # (faster, cheaper); a lower saved effort is respected.
 QA_EFFORT_CEILING = "medium"
-FALLBACK_BETA = "server-side-fallback-2026-07-01"
+FALLBACK_BETA = ai_client.FALLBACK_BETA
 
 MEDIA_TYPES = {"png": "image/png", "jpg": "image/jpeg", "gif": "image/gif", "webp": "image/webp"}
 
@@ -537,10 +536,7 @@ def qa_request(settings: AccountSettings, messages: list[dict[str, Any]]) -> dic
 
 def _with_fallbacks(params: dict[str, Any], model: str) -> dict[str, Any]:
     """Server-side refusal fallback for the models that support it."""
-    if model in AI_FALLBACK_MODELS:
-        params["betas"] = [FALLBACK_BETA]
-        params["fallbacks"] = "default"
-    return params
+    return ai_client.with_fallbacks(params, model)
 
 
 # --------------------------------------------------------------------------- responses
