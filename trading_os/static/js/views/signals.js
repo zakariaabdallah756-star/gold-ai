@@ -1,11 +1,13 @@
 // Signals: paste a Telegram / WhatsApp trade signal, size it with the account's
-// risk rules, check every guardrail, then execute it as a live trade.
+// risk rules, check every guardrail, then execute it as a live trade - logged in
+// the journal, and (v1.5) optionally sent as an order to a connected trading account.
 
 import { api, ApiError } from "../api.js";
-import { clear, confirmDialog, debounce, field, h, icon, numberOrNull, segmented, select, toast } from "../dom.js";
+import { clear, confirmDialog, debounce, field, h, icon, modal, numberOrNull, segmented, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
-import { handoff, loadStatus, state, strategyByName } from "../state.js";
+import { accounts, activeAccount, handoff, loadStatus, state, strategyByName } from "../state.js";
+import { connectionLabel } from "./account-connection.js";
 import { violationList } from "./calculator.js";
 import { copilotPanel, splitCopilot } from "./copilot.js";
 
@@ -16,9 +18,18 @@ const EXAMPLES = [
 ];
 const TRIGGER_LABELS = { tp1: N_("After TP1"), immediate: N_("Immediately") };
 const SIDE = { long: N_("Buy"), short: N_("Sell") };
+const ORDER_TYPES = [
+  ["market", N_("Market")],
+  ["limit", N_("Limit")],
+  ["stop", N_("Stop")],
+];
+const ORDER_TYPE_LABEL = Object.fromEntries(ORDER_TYPES);
+const ACCEPTED = ["filled", "sent", "pending"];
 
 // Kept between visits: the pasted message and the ticket being edited.
-const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, example: -1, context: null, alert: null, vision: null };
+// ``accountId``: the trading account chosen for the ticket; ``orderKey``: the idempotency key of the order this
+// ticket may send (one per ticket, so a double click never sends twice).
+const memory = { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, example: -1, context: null, alert: null, vision: null, accountId: null, orderKey: null };
 
 const num = (value) => numberOrNull({ value: value ?? "" });
 const inputValue = (value) => (value === null || value === undefined ? "" : String(value));
@@ -30,6 +41,8 @@ function normalizeDraft(draft) {
     strategy: draft.strategy || "",
     timeframe: draft.timeframe || "",
     confluences: [...(draft.confluences || [])],
+    account_id: draft.account_id ?? null,
+    order_type: draft.order_type || "market",
     targets: (draft.targets || []).map((tp) => ({ price: tp.price ?? null, pips: tp.pips ?? null, close_pct: tp.close_pct ?? null })),
   };
 }
@@ -46,7 +59,28 @@ function guardrailFindings(violations, strategyName, okText) {
 }
 
 function resetMemory() {
-  Object.assign(memory, { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, context: null, alert: null, vision: null });
+  Object.assign(memory, { text: "", parsedText: null, parsed: null, draft: null, splitAuto: true, context: null, alert: null, vision: null, accountId: null, orderKey: null });
+}
+
+/** Active trading accounts a ticket can be logged on. */
+function tradableAccounts() {
+  return accounts().filter((account) => account.status === "active");
+}
+
+/** The account the ticket is for: the one chosen, else the account shown, else the default account. */
+function chosenAccountId() {
+  const list = tradableAccounts();
+  for (const id of [memory.draft?.account_id, memory.accountId, activeAccount()?.id, state.plan?.settings.default_account_id]) {
+    if (id !== null && id !== undefined && list.some((account) => account.id === id)) return id;
+  }
+  return list[0]?.id ?? null;
+}
+
+/** A fresh idempotency key (crypto.getRandomValues also works on plain-http LAN addresses). */
+function newOrderKey() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return `sig-${Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** Same markup as calculator.violationList, for non-guardrail messages. */
@@ -99,7 +133,7 @@ export async function render(root) {
     // A trade idea handed over by another page (Vision AI, a strategy alert) is a fresh paste, judged with the
     // strategy, timeframe, confluences and risk it came with - never the previous ticket's.
     const context = handoff.signalContext || {};
-    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null, draft: null, splitAuto: true, context, alert: context.alert || null, vision: context.vision ? { ...context.vision, text: handoff.signalText } : null });
+    Object.assign(memory, { text: handoff.signalText, parsedText: null, parsed: null, draft: null, splitAuto: true, context, alert: context.alert || null, vision: context.vision ? { ...context.vision, text: handoff.signalText } : null, accountId: context.account_id ?? null, orderKey: null });
     handoff.signalText = null;
     handoff.signalContext = null;
   }
@@ -171,9 +205,10 @@ export async function render(root) {
         strategy: previous?.strategy || "",
         timeframe: previous?.timeframe || "",
         confluences: previous?.confluences || [],
+        account_id: chosenAccountId(),
       });
       if (id !== seq) return;
-      Object.assign(memory, { parsedText: text, parsed: r.parsed, draft: normalizeDraft(r.draft), splitAuto: true, context: null });
+      Object.assign(memory, { parsedText: text, parsed: r.parsed, draft: normalizeDraft(r.draft), splitAuto: true, context: null, orderKey: newOrderKey() });
       renderParsed();
       renderTicket();
       showPreview(r);
@@ -221,6 +256,8 @@ export async function render(root) {
       timeframe: d.timeframe,
       confluences: d.confluences,
       signal_text: memory.text,
+      account_id: d.account_id ?? chosenAccountId(),
+      order_type: d.order_type || "market",
     };
   }
 
@@ -279,6 +316,25 @@ export async function render(root) {
       (value) => {
         d.direction = value;
         changed();
+      },
+    );
+    const accountOptions = tradableAccounts().map((account) => [String(account.id), account.name]);
+    const accountSelect = select(accountOptions, String(d.account_id ?? chosenAccountId() ?? ""), {
+      onchange: (e) => {
+        d.account_id = Number(e.target.value);
+        memory.accountId = d.account_id;
+        memory.orderKey = newOrderKey(); // another account is another order
+        changed();
+      },
+    });
+    const orderTypeSelect = select(
+      ORDER_TYPES.map(([value, label]) => [value, t(label)]),
+      d.order_type || "market",
+      {
+        onchange: (e) => {
+          d.order_type = e.target.value;
+          changed();
+        },
       },
     );
     const stopHelp = d.stop_pips
@@ -566,6 +622,12 @@ export async function render(root) {
 
     clear(
       ticketBox,
+      h(
+        "div",
+        { class: "form-grid" },
+        field(t("Trading account"), accountSelect, { help: t("Sized with this account's equity and logged on it.") }),
+        field(t("Order type"), orderTypeSelect, { help: t("How the order is placed when you send it to the account.") }),
+      ),
       h("div", { class: "form-grid" }, field(t("Instrument"), symbol), field(t("Direction"), direction.el)),
       h(
         "div",
@@ -777,6 +839,34 @@ export async function render(root) {
     if (!ticket) reason = r.errors[0] || t("Complete the ticket to execute.");
     else if (r.check.blocked) reason = tn(blocks.length, "Blocked by {n} guardrail - see above.", "Blocked by {n} guardrails - see above.");
     const button = h("button", { type: "button", class: "btn primary sig-execute", disabled: Boolean(reason), onclick: () => execute(button, guardBox) }, icon("zap"), t("Execute & log trade"));
+    const target = r.account;
+    const sendReason = reason || (target && !target.can_execute ? target.reason : null);
+    const sendButton = target
+      ? h(
+          "button",
+          { type: "button", class: "btn sig-execute-on", disabled: Boolean(sendReason), onclick: () => executeOnAccount(sendButton, guardBox) },
+          icon("arrowRight"),
+          t("Execute on {account}", { account: target.name }),
+        )
+      : null;
+    const sendRow = target
+      ? h(
+          "div",
+          { class: "sig-execute-row sig-send-row" },
+          sendButton,
+          h(
+            "p",
+            { class: "small muted sig-reason" },
+            icon(target.can_execute ? "link" : "lock"),
+            target.can_execute
+              ? t("Sends a {type} order through {connection} after you confirm it, then logs the trade.", {
+                  type: t(ORDER_TYPE_LABEL[target.order_type] || ORDER_TYPE_LABEL.market),
+                  connection: connectionLabel(target.connection),
+                })
+              : target.reason,
+          ),
+        )
+      : null;
 
     clear(
       resultBox,
@@ -787,7 +877,7 @@ export async function render(root) {
           "div",
           {},
           h("h2", {}, t("Result")),
-          h("p", {}, t("{currency} account · min R:R 1:{rr} · max {risk}% per trade", { currency: settings.currency, rr: settings.min_rr, risk: settings.max_risk_pct })),
+          h("p", {}, t("{currency} account · min R:R 1:{rr} · max {risk}% per trade", { currency: r.account?.currency || settings.currency, rr: settings.min_rr, risk: settings.max_risk_pct })),
         ),
       ),
       issueList(r.errors, { kind: "block", tag: t("Fix first"), iconName: "alert" }),
@@ -817,6 +907,7 @@ export async function render(root) {
             }),
         ),
       ),
+      sendRow,
     );
   }
 
@@ -855,22 +946,161 @@ export async function render(root) {
       loadStatus().catch(() => {});
       location.hash = "#/positions";
     } catch (error) {
-      if (error instanceof ApiError && error.status === 423) {
-        clear(
-          guardBox,
-          h("h3", {}, icon("shield"), t("Guardrails")),
-          h("p", { class: "small neg" }, t("Entry refused - fix these first:")),
-          guardrailFindings(error.payload.violations || [], memory.draft?.strategy || ""),
-        );
-        guardBox.scrollIntoView({ behavior: "smooth", block: "center" });
-        toast(t("Trade blocked by your risk rules"), "error");
-        loadStatus().catch(() => {});
-      } else {
-        toast(error.message, "error");
-      }
+      if (error instanceof ApiError && error.status === 423) showBlocked(error, guardBox);
+      else toast(error.message, "error");
     } finally {
       button.disabled = false;
     }
+  }
+
+  function showBlocked(error, guardBox) {
+    clear(
+      guardBox,
+      h("h3", {}, icon("shield"), t("Guardrails")),
+      h("p", { class: "small neg" }, t("Entry refused - fix these first:")),
+      guardrailFindings(error.payload.violations || [], memory.draft?.strategy || ""),
+    );
+    guardBox.scrollIntoView({ behavior: "smooth", block: "center" });
+    toast(t("Trade blocked by your risk rules"), "error");
+    loadStatus().catch(() => {});
+  }
+
+  // ----------------------------------------------------------- execute on a trading account (v1.5)
+  async function executeOnAccount(button, guardBox) {
+    button.disabled = true;
+    try {
+      // The same fresh re-check as Execute; the server runs every guardrail again before sending anything.
+      const fresh = await api.post("/api/signals/preview", payload());
+      showPreview(fresh);
+      if (!fresh.ticket || fresh.check.blocked) {
+        toast(t("The ticket can't be executed as it stands - review the result panel."), "warn");
+        return;
+      }
+      if (!fresh.account?.can_execute) {
+        toast(fresh.account?.reason || t("Order sending is off for this account."), "warn");
+        return;
+      }
+      const warnings = [...fresh.check.violations.filter((v) => v.severity === "warn"), ...(memory.vision?.warnings || [])];
+      if (!(await confirmOrder(fresh, warnings))) return;
+      memory.orderKey = memory.orderKey || newOrderKey();
+      const result = await api.post("/api/execution/orders", {
+        account_id: fresh.account.id,
+        idempotency_key: memory.orderKey,
+        order_type: fresh.account.order_type,
+        trade: fresh.ticket,
+      });
+      const accepted = ACCEPTED.includes(result.execution.status);
+      if (accepted) {
+        if (result.trade && memory.alert && memory.alert.symbol === result.trade.symbol) {
+          api.post(`/api/alerts/${memory.alert.id}/status`, { status: "taken", trade_id: result.trade.id }).catch(() => {});
+        }
+        resetMemory();
+        loadStatus().catch(() => {});
+      } else {
+        memory.orderKey = newOrderKey(); // a rejected order may be sent again, on purpose
+      }
+      showOrderResult(result, accepted);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 423) showBlocked(error, guardBox);
+      else toast(error.message, "error");
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  /** The explicit confirmation of an order: account, symbol, side, lots, entry, stop loss and targets. */
+  function confirmOrder(fresh, warnings) {
+    const ticket = fresh.ticket;
+    const target = fresh.account;
+    const type = target.order_type || "market";
+    const targets = ticket.targets.length ? ticket.targets : ticket.take_profit ? [{ price: ticket.take_profit, close_pct: 100 }] : [];
+    const rows = [
+      [t("Account"), `${target.name} · ${connectionLabel(target.connection)}`],
+      [t("Instrument"), ticket.symbol],
+      [t("Side"), h("span", { class: `badge ${ticket.direction}` }, t(SIDE[ticket.direction]))],
+      [t("Lots"), fmt.lots(ticket.position_size)],
+      [t("Order type"), t(ORDER_TYPE_LABEL[type])],
+      [t("Entry"), type === "market" ? t("≈ {price} (market price)", { price: fmt.price(ticket.entry_price) }) : fmt.price(ticket.entry_price)],
+      [t("Stop loss"), fmt.price(ticket.stop_loss)],
+      [
+        t("Take profits"),
+        targets.length ? targets.map((tp, i) => `TP${i + 1} ${fmt.price(tp.price)} (${fmt.num(tp.close_pct, Number.isInteger(tp.close_pct) ? 0 : 1)}%)`).join(" · ") : t("None"),
+      ],
+    ];
+    const live = target.connection !== "paper";
+    return new Promise((resolve) => {
+      let answered = false;
+      const finish = (value) => {
+        answered = true;
+        resolve(value);
+        ref.close();
+      };
+      const ref = modal({
+        title: t("Send this order to {account}?", { account: target.name }),
+        body: h(
+          "div",
+          { class: "stack sig-order-confirm" },
+          h("dl", { class: "sig-order-list" }, rows.map(([label, value]) => [h("dt", {}, label), h("dd", {}, value)])),
+          targets.length > 1
+            ? h("p", { class: "small muted" }, t("The order carries the last target ({price}); exits at the other targets are tracked in the journal - manage them on your platform.", { price: fmt.price(ticket.take_profit) }))
+            : null,
+          warnings.length
+            ? issueList([tn(warnings.length, "This trade breaks {n} rule (warnings, not blocks).", "This trade breaks {n} rules (warnings, not blocks).")], { kind: "warn", tag: t("Note"), iconName: "alert" })
+            : null,
+          live ? h("p", { class: "small" }, icon("alert"), " ", t("This is a real order on your trading account.")) : h("p", { class: "small muted" }, t("Paper trading: simulated, nothing reaches a broker.")),
+        ),
+        footer: [
+          h("button", { type: "button", class: "btn ghost", onclick: () => finish(false) }, t("Cancel")),
+          h("button", { type: "button", class: `btn ${live ? "danger" : "primary"}`, onclick: () => finish(true) }, icon("arrowRight"), t("Send order")),
+        ],
+        onClose: () => answered || resolve(false),
+      });
+    });
+  }
+
+  /** What happened to the order: filled at X with a ticket, queued for the MT terminal, or rejected and why. */
+  function showOrderResult(result, accepted) {
+    const ex = result.execution;
+    let headline;
+    if (ex.status === "filled") headline = t("Filled at {price} · ticket {ticket}", { price: fmt.price(ex.fill_price ?? ex.price), ticket: ex.broker_ref || "—" });
+    else if (ex.status === "pending" && ex.bridge === "mt_bridge") headline = t("Queued for the MetaTrader terminal - the EA places it within seconds.");
+    else if (ex.status === "pending") headline = t("Pending order waiting at {price}", { price: fmt.price(ex.price) });
+    else if (ex.status === "sent") headline = t("Sent - waiting for the broker's confirmation.");
+    else if (ex.status === "rejected") headline = t("Rejected: {reason}", { reason: ex.message });
+    else headline = t("Not confirmed: {reason}", { reason: ex.message });
+    const kind = accepted ? "success" : "error";
+    toast(headline, kind, 6000);
+    const ref = modal({
+      title: accepted ? t("Order sent to {account}", { account: result.account.name }) : t("Order not executed"),
+      body: h(
+        "div",
+        { class: "stack" },
+        h("div", { class: `sig-order-result ${accepted ? "ok" : "bad"}`, role: "status" }, icon(accepted ? "checkCircle" : "xCircle"), h("strong", {}, headline)),
+        ex.message && !["rejected", "error"].includes(ex.status) ? h("p", { class: "small muted" }, ex.message) : null,
+        result.duplicate ? h("p", { class: "small muted" }, t("This ticket was already sent - this is the first result, nothing was sent again.")) : null,
+        h("p", { class: "small" }, result.trade ? t("Logged in the journal on {account}.", { account: result.account.name }) : t("Nothing was logged in the journal.")),
+      ),
+      footer: [
+        accepted
+          ? h(
+              "button",
+              {
+                type: "button",
+                class: "btn ghost",
+                onclick: () => {
+                  ref.close();
+                  location.hash = "#/positions";
+                },
+              },
+              t("Open positions"),
+            )
+          : null,
+        h("button", { type: "button", class: "btn primary", onclick: () => ref.close() }, t("Close")),
+      ],
+      onClose: () => {
+        if (accepted) clearAll();
+      },
+    });
   }
 
   // ----------------------------------------------------------- layout
