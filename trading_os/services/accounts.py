@@ -103,6 +103,11 @@ def sync_settings_from_default(settings: AccountSettings, account: TradingAccoun
     settings.starting_balance = account.starting_balance
 
 
+def currency_of(settings: AccountSettings, account: TradingAccount | None) -> str:
+    """An account's currency (the default account follows the settings; no account: the settings')."""
+    return account.currency if account is not None and not is_default(settings, account) else settings.currency
+
+
 def account_for_new_trade(db: Session, settings: AccountSettings, requested: int | None) -> TradingAccount | None:
     """The account a new trade is logged on: the one asked for, else the account shown, else the default."""
     for candidate in (requested, settings.active_account_id, settings.default_account_id):
@@ -136,7 +141,13 @@ def resolve_scope(db: Session, settings: AccountSettings, account_id=ACTIVE) -> 
     if not accounts:
         return Scope(None)
     # Real money only: demo/paper accounts, archived accounts and other currencies are shown on their own.
-    included = [a for a in accounts if a.status == "active" and a.currency == settings.currency and a.kind != "demo"]
+    included = [
+        a
+        for a in accounts
+        if a.status == "active"
+        and a.currency == settings.currency
+        and (a.kind != "demo" or a.id == settings.default_account_id)  # new trades land on the default
+    ]
     if not included:  # nothing comparable: fall back to the default account alone
         included = [a for a in accounts if a.id == settings.default_account_id] or accounts[:1]
     excluded = tuple(a for a in accounts if a not in included)

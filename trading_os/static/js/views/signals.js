@@ -7,6 +7,7 @@ import { clear, confirmDialog, debounce, field, h, icon, modal, numberOrNull, se
 import { fmt } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
 import { accounts, activeAccount, handoff, loadStatus, state, strategyByName } from "../state.js";
+import { accountMoney } from "../accounts-ui.js";
 import { connectionLabel } from "./account-connection.js";
 import { violationList } from "./calculator.js";
 import { copilotPanel, splitCopilot } from "./copilot.js";
@@ -717,6 +718,10 @@ export async function render(root) {
   function renderResult(r) {
     const d = memory.draft;
     const s = r.sizing;
+    // Money in the ticket's own account currency (it can differ from the account shown).
+    const currency = r.account?.currency;
+    const money = (value) => accountMoney(value, currency);
+    const signedMoney = (value) => accountMoney(value, currency, { signed: true });
     const ticket = r.ticket;
     const side = ticket?.direction || d?.direction;
     const stopPrice = ticket?.stop_loss ?? d?.stop_loss;
@@ -748,12 +753,12 @@ export async function render(root) {
       ? h(
           "div",
           { class: "live-metrics", style: { marginTop: 0 } },
-          metric(t("Risk at stop"), fmt.signedMoney(-s.max_loss), "neg"),
+          metric(t("Risk at stop"), signedMoney(-s.max_loss), "neg"),
           metric(t("Risk % of equity"), fmt.pct(s.actual_risk_pct, 2)),
-          metric(t("Allowed risk"), `${fmt.money(s.risk_amount)} (${fmt.pct(s.risk_pct, 2)})`),
-          metric(t("Pip value / lot"), fmt.money(s.pip_value_per_lot)),
+          metric(t("Allowed risk"), `${money(s.risk_amount)} (${fmt.pct(s.risk_pct, 2)})`),
+          metric(t("Pip value / lot"), money(s.pip_value_per_lot)),
           metric(t("Blended R:R"), fmt.rr(r.blended_rr)),
-          metric(t("Potential profit"), r.potential_profit === null ? "—" : fmt.signedMoney(r.potential_profit), r.potential_profit > 0 ? "pos" : ""),
+          metric(t("Potential profit"), r.potential_profit === null ? "—" : signedMoney(r.potential_profit), r.potential_profit > 0 ? "pos" : ""),
         )
       : null;
 
@@ -777,7 +782,7 @@ export async function render(root) {
                   h("td", { class: "num" }, `${fmt.num(x.close_pct, Number.isInteger(x.close_pct) ? 0 : 1)}%`),
                   h("td", { class: "num" }, fmt.lots(x.lots)),
                   h("td", { class: "num" }, fmt.rr(x.rr)),
-                  h("td", { class: `num ${x.profit > 0 ? "pos" : x.profit < 0 ? "neg" : ""}` }, x.profit === null ? "—" : fmt.signedMoney(x.profit)),
+                  h("td", { class: `num ${x.profit > 0 ? "pos" : x.profit < 0 ? "neg" : ""}` }, x.profit === null ? "—" : signedMoney(x.profit)),
                 ),
               ),
             ),
@@ -792,11 +797,11 @@ export async function render(root) {
             {},
             h(
               "div",
-              { class: "rr-bar", role: "img", "aria-label": t("Risk {risk} versus blended reward {reward}", { risk: fmt.money(s.max_loss), reward: fmt.money(r.potential_profit) }) },
+              { class: "rr-bar", role: "img", "aria-label": t("Risk {risk} versus blended reward {reward}", { risk: money(s.max_loss), reward: money(r.potential_profit) }) },
               h("div", { class: "risk", style: { flex: String(1 / (1 + r.blended_rr)) } }),
               h("div", { class: "reward", style: { flex: String(r.blended_rr / (1 + r.blended_rr)) } }),
             ),
-            h("div", { class: "row small muted" }, h("span", {}, t("Risk {amount}", { amount: fmt.signedMoney(-s.max_loss) })), h("span", { class: "spacer" }), h("span", {}, t("Reward {amount}", { amount: fmt.signedMoney(r.potential_profit) }))),
+            h("div", { class: "row small muted" }, h("span", {}, t("Risk {amount}", { amount: signedMoney(-s.max_loss) })), h("span", { class: "spacer" }), h("span", {}, t("Reward {amount}", { amount: signedMoney(r.potential_profit) }))),
           )
         : null;
 

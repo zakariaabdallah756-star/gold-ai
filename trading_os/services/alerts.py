@@ -41,7 +41,7 @@ from ..models import (
     TradingSession,
 )
 from ..schemas import TargetIn, TradeIn
-from . import detectors, market_data, notify, trades
+from . import accounts, detectors, market_data, notify, trades
 from .account import current_equity, get_settings, local_now
 from .copilot import TradeContext, strategy_violations
 from .guardrails import Violation
@@ -156,6 +156,7 @@ class Evaluation:
     risk_pct: float | None = None
     sizing_note: str = ""
     account_id: int | None = None  # trading account the ticket is sized and checked on
+    currency: str = ""  # that account's currency
     precheck: list[dict] | None = None
     reason: str = ""  # why this is not a setup ('' when found)
 
@@ -374,6 +375,7 @@ def _size(db: Session, settings: AccountSettings, rule: AlertRule, ev: Evaluatio
     chosen = db.get(TradingAccount, rule.account_id) if rule.account_id else None
     account_id = chosen.id if chosen is not None and chosen.status == "active" else settings.default_account_id
     ev.account_id = account_id
+    ev.currency = accounts.currency_of(settings, db.get(TradingAccount, account_id) if account_id else None)
     equity = current_equity(db, settings, (account_id,) if account_id else None)
     ev.risk_pct = risk_pct
     ev.risk_amount = round(equity * risk_pct / 100, 2) if equity > 0 else None
@@ -385,7 +387,12 @@ def _size(db: Session, settings: AccountSettings, rule: AlertRule, ev: Evaluatio
         return
     try:
         result = calculate_position_size(
-            market, settings.currency, equity, risk_pct, entry=levels.entry, stop=levels.stop_loss
+            market,
+            ev.currency,
+            equity,
+            risk_pct,
+            entry=levels.entry,
+            stop=levels.stop_loss,
         )
     except SizingError as exc:
         ev.sizing_note = str(exc)
@@ -552,7 +559,7 @@ def build_note(settings: AccountSettings, rule: AlertRule, alert: StrategyAlert,
         risk = tr(
             "risk {amount:,.2f} {currency} ({pct:g}%)",
             amount=ev.risk_amount,
-            currency=settings.currency,
+            currency=ev.currency or settings.currency,
             pct=ev.risk_pct,
         )
     lines = [

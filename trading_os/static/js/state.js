@@ -26,6 +26,12 @@ export async function loadPlan() {
 
 export async function loadStatus() {
   state.status = await api.get("/api/risk/status");
+  // Another tab or device switched the account shown: follow it (accounts, currency, the page).
+  const shown = state.plan?.settings.active_account_id ?? null;
+  if (state.plan && (state.status.account_id ?? null) !== shown) {
+    await reloadAccounts().catch(() => {});
+    window.dispatchEvent(new CustomEvent("tos:account-changed"));
+  }
   for (const listener of listeners) listener(state.status);
   return state.status;
 }

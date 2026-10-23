@@ -91,6 +91,7 @@ class Evaluation:
     live: bool
     violations: list[Violation] = field(default_factory=list)
     account_id: int | None = None  # the trading account the trade is (or stays) logged on
+    currency: str = ""  # that account's currency: P&L, risk and conversions are in it
 
     @property
     def blocked(self) -> bool:
@@ -190,7 +191,9 @@ def evaluate(
         and existing.status == "open"
         and (risk_amount or 0.0) > (existing.risk_amount or 0.0) + 0.005
     )
-    entry_like = existing is None or reopening or risk_raised
+    # Moving an open trade to another trading account is a new entry there (its limits, its trade count).
+    moved = existing is not None and account is not None and existing.account_id != account.id
+    entry_like = existing is None or reopening or risk_raised or moved
     live = entry_like and data.status == "open" and entry_time.date() >= today
 
     if live:
@@ -237,6 +240,7 @@ def evaluate(
         live=live,
         violations=violations,
         account_id=account.id if account is not None else None,
+        currency=currency,
     )
 
 
@@ -260,7 +264,8 @@ def _live_day_state(
     """Today's state for a live entry, without the edited trade's own count and open risk."""
     day = compute_day_state(db, settings, today, account_ids)
     own_risk = 0.0
-    if existing is not None:
+    # The edited trade only counts against the account it is already on.
+    if existing is not None and (account_ids is None or existing.account_id in account_ids):
         if existing.entry_time.date() == today:
             day = replace(day, trades_today=max(day.trades_today - 1, 0))
         if existing.status == "open":
@@ -321,6 +326,7 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
     trade.entry_time = ev.entry_time
     if ev.account_id is not None:
         trade.account_id = ev.account_id
+    trade.currency_hint = ev.currency  # not stored: lets services.positions value a trade not yet in the session
     trade.symbol = data.symbol
     trade.direction = data.direction
     trade.entry_price = data.entry_price
@@ -372,11 +378,19 @@ def _apply(trade: Trade, data: TradeIn, ev: Evaluation, settings: AccountSetting
                 tr("Enter the net P&L, or set a position size on a configured market so it can be auto-calculated.")
             )
         gross = gross_pnl(
-            ev.market, settings.currency, data.direction, data.entry_price, data.exit_price, data.position_size
+            ev.market,
+            ev.currency or settings.currency,
+            data.direction,
+            data.entry_price,
+            data.exit_price,
+            data.position_size,
         )
         if gross is None:
             raise TradeError(
-                tr("{hint} - or enter the net P&L manually.", hint=conversion_hint(ev.market, settings.currency))
+                tr(
+                    "{hint} - or enter the net P&L manually.",
+                    hint=conversion_hint(ev.market, ev.currency or settings.currency),
+                )
             )
         pnl, manual = gross - data.fees, False
 

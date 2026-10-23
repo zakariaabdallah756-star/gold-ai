@@ -31,9 +31,9 @@ from contextlib import contextmanager
 from datetime import datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
-from ..models import AccountSettings, Market, Trade, TradeEvent
+from ..models import AccountSettings, Market, Trade, TradeEvent, TradingAccount
 from . import position_engine as engine
 from .account import local_now
 from .i18n import tr
@@ -105,20 +105,33 @@ def to_position(trade: Trade) -> engine.Position:
 # --------------------------------------------------------------------------- money
 
 
+def trade_currency(trade: Trade, settings: AccountSettings) -> str:
+    """The currency of the trade's own trading account (the default account follows the settings)."""
+    known = getattr(trade, "currency_hint", None)  # set by services.trades while a new trade is being built
+    if known:
+        return known
+    if trade.account_id and trade.account_id != settings.default_account_id:
+        session = object_session(trade)
+        account = session.get(TradingAccount, trade.account_id) if session is not None else None
+        if account is not None:
+            return account.currency
+    return settings.currency
+
+
 def fill_pnl(trade: Trade, market: Market | None, settings: AccountSettings, price: float, lots: float) -> float | None:
-    """Gross P&L of closing ``lots`` at ``price`` in account currency (None if not derivable)."""
+    """Gross P&L of closing ``lots`` at ``price`` in the trade account's currency (None if not derivable)."""
     if market is None:
         return None
-    pnl = gross_pnl(market, settings.currency, trade.direction, trade.entry_price, price, lots)
+    pnl = gross_pnl(market, trade_currency(trade, settings), trade.direction, trade.entry_price, price, lots)
     return round(pnl, 2) if pnl is not None else None
 
 
-def _manual_pnl_hint(symbol: str, market: Market | None, settings: AccountSettings) -> str:
+def _manual_pnl_hint(symbol: str, market: Market | None, currency: str) -> str:
     if market is None:
         return tr(
             "{symbol} is not in your markets, so fill P&L can't be calculated - enter the P&L manually", symbol=symbol
         )
-    return tr("{hint} - or enter the fill P&L manually", hint=conversion_hint(market, settings.currency))
+    return tr("{hint} - or enter the fill P&L manually", hint=conversion_hint(market, currency))
 
 
 def risk_at_stop(trade: Trade, market: Market | None, settings: AccountSettings, lots: float | None) -> float | None:
@@ -127,7 +140,7 @@ def risk_at_stop(trade: Trade, market: Market | None, settings: AccountSettings,
         return 0.0
     stop = trade.current_stop if trade.current_stop is not None else trade.stop_loss
     if market is not None and lots:
-        risk = risk_for_lots(market, settings.currency, trade.entry_price, stop, lots)
+        risk = risk_for_lots(market, trade_currency(trade, settings), trade.entry_price, stop, lots)
         if risk is not None:
             return round(risk, 2)
     if trade.risk_amount is None:
@@ -177,7 +190,7 @@ def recompute(trade: Trade, market: Market | None, settings: AccountSettings) ->
             continue
         pnl = fill_pnl(trade, market, settings, event.price, event.lots)
         if pnl is None and event.pnl is None:
-            raise PositionError(_manual_pnl_hint(trade.symbol, market, settings))
+            raise PositionError(_manual_pnl_hint(trade.symbol, market, trade_currency(trade, settings)))
         if pnl is not None:
             event.pnl = pnl
         # Otherwise keep the value computed when the market was still configured.
@@ -242,12 +255,13 @@ def validate_edit(
     calculated = [event for event in fills if not event.pnl_manual]
     if calculated and (symbol != trade.symbol or abs(entry_price - trade.entry_price) > EPSILON):
         sample = calculated[0]
-        if market is None or gross_pnl(market, settings.currency, direction, entry_price, sample.price, 1.0) is None:
+        currency = trade_currency(trade, settings)
+        if market is None or gross_pnl(market, currency, direction, entry_price, sample.price, 1.0) is None:
             raise PositionError(
                 tr(
                     "The recorded fills can't be revalued for {symbol} ({hint})",
                     symbol=symbol,
-                    hint=_manual_pnl_hint(symbol, market, settings),
+                    hint=_manual_pnl_hint(symbol, market, currency),
                 )
             )
 

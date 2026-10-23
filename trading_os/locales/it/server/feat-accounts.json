@@ -6,6 +6,7 @@
   "The account '{name}' is archived: reactivate it to log trades on it": "Il conto '{name}' è archiviato: riattivalo per registrarci trade",
   "The default account cannot be archived": "Il conto predefinito non può essere archiviato",
   "The default account cannot be deleted": "Il conto predefinito non può essere eliminato",
+  "The prop challenge '{name}' follows this account: link it to another account (or none) first": "La prop challenge '{name}' segue questo conto: collegala prima a un altro conto (o a nessuno)",
   "The video link must start with https:// (or /static/ for a file in the app)": "Il link del video deve iniziare con https:// (o /static/ per un file dell'app)",
   "Unknown trading account {id}": "Conto di trading {id} sconosciuto",
   "{account}: {message}": "{account}: {message}",

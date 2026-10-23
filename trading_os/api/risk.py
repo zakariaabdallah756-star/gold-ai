@@ -23,12 +23,13 @@ def position_size(payload: PositionSizeIn, settings: SettingsDep, db: DbDep):
     # Sized for the account a new trade would be logged on (the one shown, else the default).
     target = accounts.account_for_new_trade(db, settings, None)
     ids = (target.id,) if target is not None else None
+    currency = accounts.currency_of(settings, target)
     equity = payload.account_equity or account.current_equity(db, settings, ids)
     risk_pct = payload.risk_pct or settings.default_risk_pct
 
     result = calculate_position_size(
         market,
-        settings.currency,
+        currency,
         equity,
         risk_pct,
         entry=payload.entry_price,

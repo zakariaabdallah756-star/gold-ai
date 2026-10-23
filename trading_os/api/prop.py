@@ -9,7 +9,7 @@ from sqlalchemy import select
 
 from ..models import PropChallenge, TradingAccount
 from ..schemas import FiniteModel
-from ..services import prop
+from ..services import accounts, prop
 from ..services.account import local_today
 from ..services.i18n import tr
 from .deps import DbDep, SettingsDep, get_or_404
@@ -168,7 +168,9 @@ def challenge_report(challenge_id: int, settings: SettingsDep, db: DbDep):
     metrics = prop.refresh(db, settings, challenge)
     return {
         **_summary(challenge, metrics),
-        "currency": settings.currency,
+        "currency": accounts.currency_of(
+            settings, db.get(TradingAccount, challenge.account_id) if challenge.account_id else None
+        ),
         "history": metrics.history,
         "rules_note": tr(prop.VERIFY_NOTE),
     }

@@ -491,6 +491,7 @@ async function boot() {
   renderStatus(state.status);
   const disclaimer = await mountDisclaimer();
   window.addEventListener("hashchange", route);
+  window.addEventListener("tos:account-changed", () => route()); // switched on another tab or device
   route();
   disclaimer.accepted.then(autoOpenOnboarding); // first launch: the getting-started guide, once the risks were accepted
   setInterval(() => loadStatus().catch(() => {}), 60_000);

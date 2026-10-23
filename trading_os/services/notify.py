@@ -36,7 +36,15 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from ..models import AccountSettings, Market, NewsEvent, NotificationChannel, NotificationLog, TradingSession
+from ..models import (
+    AccountSettings,
+    Market,
+    NewsEvent,
+    NotificationChannel,
+    NotificationLog,
+    TradingAccount,
+    TradingSession,
+)
 from . import account, accounts, news, notify_channels, webpush
 from .i18n import N_, tr
 from .notify_channels import DeliveryError, Message, SubscriptionExpired, VapidKeys, truncate
@@ -447,11 +455,14 @@ def risk_watch(session_factory: sessionmaker[Session]) -> dict:
         already = _logged_values(db, "risk", "key", today_start, now) | _logged_values(
             db, "risk", "code", today_start, now
         )
-        # Never what the app happens to show: every account counts, each judged on its own when there are several.
-        scope = accounts.resolve_scope(db, settings, None)
-        several = len(scope.accounts) > 1
+        # Never what the app happens to show, nor the "all accounts" totals: every active account (demo and
+        # other currencies included) is judged on its own when there are several.
+        active = list(
+            db.scalars(select(TradingAccount).where(TradingAccount.status == "active").order_by(TradingAccount.id))
+        )
+        several = len(active) > 1
         sent = 0
-        for target in scope.accounts if several else (None,):
+        for target in active if several else (None,):
             status = account.daily_status(db, settings, target.id if target is not None else None)
             for note in risk_notes(status):
                 code = note.data["code"]

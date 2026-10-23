@@ -7,10 +7,10 @@ are set with a short hint. Order routing (connection, execution) lives in ``api/
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
-from ..models import Trade, TradingAccount
+from ..models import AlertRule, PropChallenge, Trade, TradingAccount
 from ..schemas import ActiveAccountIn, CredentialsIn, TradingAccountIn
 from ..services import account as account_service
 from ..services import accounts, secrets_store
@@ -126,6 +126,18 @@ def delete_account(account_id: int, db: DbDep, settings: SettingsDep):
                 count=trades,
             ),
         )
+    challenge = db.scalar(select(PropChallenge).where(PropChallenge.account_id == account.id).limit(1))
+    if challenge is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=tr(
+                "The prop challenge '{name}' follows this account: link it to another account (or none) first",
+                name=challenge.name,
+            ),
+        )
+    # Explicitly, not through database cascades (databases upgraded from v1.4 have none):
+    # alert rules sized on this account fall back to the default account.
+    db.execute(update(AlertRule).where(AlertRule.account_id == account.id).values(account_id=None))
     if settings.active_account_id == account.id:
         settings.active_account_id = None
     secrets_store.remove_account(db, account.id)

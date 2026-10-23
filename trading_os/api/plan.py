@@ -76,6 +76,15 @@ def update_settings(payload: SettingsIn, settings: SettingsDep, db: DbDep):
         SettingsIn.model_validate({**merged, **changes})
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()[0]["msg"].removeprefix("Value error, ")) from exc
+    name = changes.get("account_name")
+    if name and name != settings.account_name:
+        clash = db.scalar(
+            select(TradingAccount.id).where(
+                TradingAccount.name == name, TradingAccount.id != (settings.default_account_id or 0)
+            )
+        )
+        if clash is not None:
+            raise HTTPException(status_code=409, detail=tr("An account with that name already exists"))
     if changes.get("timezone") and changes["timezone"] != settings.timezone:
         _move_absolute_times(db, settings, settings.timezone, changes["timezone"])
     for key, value in changes.items():

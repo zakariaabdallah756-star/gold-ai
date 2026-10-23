@@ -70,6 +70,7 @@ class DayState:
     open_trades: int
     trades_today: int
     checklist_complete: bool
+    currency: str = ""  # the trading account's currency ("" = the settings')
 
     @property
     def loss_used(self) -> float:
@@ -168,7 +169,7 @@ def trade_rule_violations(
 
 def daily_violations(settings, day: DayState, new_risk: float | None = None) -> list[Violation]:
     severity = "block" if settings.daily_limit_mode == "lock" else "warn"
-    currency = settings.currency
+    currency = day.currency or settings.currency
     violations: list[Violation] = []
 
     if settings.require_checklist and not day.checklist_complete:

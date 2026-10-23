@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models import AccountSettings, Trade, TradeEvent
+from ..models import AccountSettings, Trade, TradeEvent, TradingAccount
 from . import accounts, checklist
 from .guardrails import DayState, daily_state, daily_violations
 
@@ -155,7 +155,15 @@ def compute_day_state(
         open_trades=int(open_trades or 0),
         trades_today=int(trades_today or 0),
         checklist_complete=checklist.is_complete(db, today),
+        currency=_scope_currency(db, settings, account_ids),
     )
+
+
+def _scope_currency(db: Session, settings: AccountSettings, account_ids: AccountIds) -> str:
+    """The currency of one account's day (several accounts or none: the settings')."""
+    if account_ids is None or len(account_ids) != 1:
+        return settings.currency
+    return accounts.currency_of(settings, db.get(TradingAccount, account_ids[0]))
 
 
 STATE_RANK = {"ok": 0, "warning": 1, "locked": 2, "breached": 3}
