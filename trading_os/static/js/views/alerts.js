@@ -984,6 +984,7 @@ export async function render(root, { params }) {
         timeframe: alert.timeframe || "",
         confluences: alert.confluences || [],
         risk_pct: alert.details?.risk_pct ?? null,
+        account_id: alert.details?.account_id ?? null, // the account the alert was sized on
         alert: { id: alert.id, symbol: alert.symbol },
       };
       location.hash = "#/signals";

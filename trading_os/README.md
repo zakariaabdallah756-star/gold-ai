@@ -18,8 +18,10 @@ calendar import, market data for strategy alerts and your notification channels.
 > **Risk warning.** Trading involves substantial risk of loss and is not
 > suitable for everyone. Content and tools are for organizational and
 > educational purposes only and do not constitute financial advice. Strategy
-> alerts never execute anything: the decision to trade is always yours. The app
-> shows this warning on first launch and in the footer of every page.
+> alerts never execute anything: the decision to trade is always yours. Orders
+> reach a connected trading account only when you confirm them, and then they are
+> real trades. The app shows this warning on first launch and in the footer of
+> every page.
 
 ## Quick start
 
@@ -212,9 +214,24 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 - AI assistant
 - Notifications
 - Partners
+- Promotions (the dashboard carousel)
 - Network & access (other devices, allowed host names, remote-access password)
 
 **Partners.** A reference list of brokers and prop firms, shown with a plain trading-risk disclaimer. Edit the list in *Trading Plan → Partners*, where you can also give a partner a custom link that replaces its official website link.
+
+**Promo carousel.** The dashboard can show a rotating banner carousel at the top:
+- platform announcements;
+- cards for your featured partners;
+- discount codes you received yourself.
+
+It rotates every few seconds and stops while you hover it, use the keyboard inside it, switch tabs or press pause. It never rotates when your system asks for reduced motion. Browse with the arrows, the dots, the keyboard arrow keys or a swipe. The × button hides a card on this device; *Show hidden* brings it back.
+
+Manage it in *Trading Plan → Promotions*:
+- switch it on or off and set the rotation interval;
+- reorder cards, switch them off, or schedule them with start and end dates in your account time zone;
+- add announcements, partner cards or discount cards, with a live preview.
+
+Partner cards use the partner's own description and link. Partner and discount cards always show the risk disclaimer. Trading OS never suggests codes or offers: a discount card shows only what you typed. Button links can be app pages (`#/journal`) or `https://` links, which open in a new tab.
 
 **Backup & Export.** Trades as CSV (Excel-friendly, formula-injection safe), a full JSON backup, and a ZIP with JSON plus screenshots. You can restore from JSON or ZIP; a safety snapshot of the current data is written to `backups/` first. Backups never contain secrets: no AI API key, notification channels, Web Push keys or market data keys. These stay on the machine and are kept as they are on restore.
 
@@ -248,6 +265,53 @@ Challenge 2* and a *Live broker account*. Every trade belongs to one account.
     in `secret.key` in the data folder.
   - No page or API returns them; only the last characters are shown as a hint.
   - They are never included in backups, and a restore never switches order routing on.
+
+## Connecting accounts and sending orders
+
+Each trading account can be connected, so that a signal you confirm is sent straight to it. Open *Trading Accounts*, pick an account and use its **Connection & order sending** panel.
+
+| Connection | What happens | Needs |
+|---|---|---|
+| **Paper trading** | Market orders fill at the ticket's price; limit and stop orders wait as pending. Nothing leaves Trading OS: the safe way to try the flow (the demo journal has a paper account). | nothing |
+| **MetaTrader EA bridge (MT4/MT5)** | Orders are queued. An Expert Advisor in your MetaTrader terminal, on this PC or a VPS, fetches them, places them and reports fills and account figures. Works with any MT4/MT5 broker. | the EA + a bridge token |
+| **MetaTrader 5 on this computer** | Trading OS drives the MT5 terminal installed here through the official `MetaTrader5` Python package. **Windows only** (`pip install MetaTrader5`). | MT5 login and server on the account, MT5 password |
+| **Webhook bridge** | Each order is POSTed as JSON to your own bridge (trade copier, VPS script). With a signing secret the body is signed: `X-TradingOS-Signature: sha256=<HMAC-SHA256 of the body>`. A 2xx answer means sent; a JSON answer with `ticket`/`order_id` and `fill_price` is shown as the fill. https only (plain http for localhost/LAN). | webhook URL, optional secret |
+| **OANDA** | Orders go to your OANDA practice or live account through the v20 REST API (units = lots × contract size; XAUUSD becomes XAU_USD). | account ID, environment, API token |
+
+Every connection can add a **symbol suffix** (`XAUUSD` → `XAUUSD.m`) or a **symbol map** (`XAUUSD=GOLD`) for broker symbol names. Passwords and tokens are write-only (see *Trading accounts* above).
+
+**Sending an order.**
+1. On *Signals*, choose the **Trading account**. It defaults to the account shown, else the default account, and sizing uses that account's equity.
+2. Next to *Execute & log trade* (journal only), **Execute on <account>** is enabled when that account has order sending switched on.
+3. It asks you to confirm account, symbol, side, lots, entry, stop loss and targets.
+4. It then shows the result: filled at X with the ticket, queued for the MetaTrader terminal, or rejected with the reason.
+
+The journal trade is logged on that account at the fill price. The order carries the stop loss and the last target; exits at the other targets are tracked in the journal.
+
+**MetaTrader EA setup.**
+1. Download `TradingOS_Bridge.mq5` (MT5) or `TradingOS_Bridge.mq4` (MT4) from the account's panel; both are also in `trading_os/bridges/`.
+2. In MetaTrader open *File > Open Data Folder > MQL5 (or MQL4) > Experts* and copy the file there. Open it in MetaEditor and press **Compile**.
+3. In *Tools > Options > Expert Advisors*, tick **Allow WebRequest for listed URL** and add the Trading OS address exactly as you type it in the EA, e.g. `http://127.0.0.1:8765`. From a VPS, use the address of the computer running Trading OS; if it is a host name, allow it under *Trading Plan → Network & access*.
+4. On the computer running Trading OS, create the **bridge token** in the account's panel and copy it.
+5. Attach the EA to one chart, paste the server address and the token, switch Algo Trading on, then press **Test connection**. "Last seen" turns green.
+6. **Test on a demo account first.** The EA sources are templates that have not been compiled here.
+
+**Bridge protocol.** It is plain text. The token goes in the `X-Bridge-Token` header or in `?token=`.
+- `GET /api/bridge/orders` returns one order per line: `id|symbol|side|type|lots|price|sl|tp`.
+- `POST /api/bridge/orders/{id}` takes `status=filled|placed|rejected&ticket=..&price=..&message=..`.
+- `POST /api/bridge/account` takes `balance=..&equity=..&margin=..&free_margin=..&profit=..&positions=..`. These figures feed the live account metrics on the dashboard.
+
+The bridge endpoints work from another machine even when a remote-access password is set: they check the token themselves, and an unknown token gets 401.
+
+**Safety rails.**
+- **Off by default, on deliberately.** Order sending is a per-account switch. Anything but paper trading needs the account's exact name typed to turn it on. These switch it off: changing the connection or where it sends, archiving the account, or changing an MT5 terminal account's login or server. A restore never switches it on.
+- **Your guardrails first.** An order runs the same checks as logging the trade, on its own account: kill switch, daily loss limit, checklist gate, prop-firm rules and risk caps. A blocked trade is never sent (HTTP 423).
+- **Never twice.** Each ticket has an idempotency key, so a double click or a retried request returns the first result. The EA receives each order once and remembers the last order it placed.
+- **No stale fills.** MetaTrader orders not picked up within the order lifetime (default 120 s) expire. Switching sending off cancels the orders still waiting.
+- **Size cap.** *Max lots per order* refuses a larger order before anything is sent.
+- **Only on your click.** Strategy alerts and background jobs never send orders. Execution happens only when you press *Execute on <account>* and confirm.
+- **Honest journal.** A pending order that is rejected, cancelled or expires removes its untouched journal trade; the execution log keeps the record. A trade you already edited is kept and tagged `order-rejected`.
+- **No secrets in logs.** The execution log (`GET /api/executions`) never stores tokens, passwords or signatures. The bridge token can be shown or rotated only on the computer running Trading OS.
 
 ## How the guardrails work
 

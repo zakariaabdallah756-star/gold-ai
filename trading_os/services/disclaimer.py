@@ -12,7 +12,7 @@ from __future__ import annotations
 from ..models import AccountSettings
 from .i18n import N_, tr
 
-DISCLAIMER_VERSION = "2026-10-20"
+DISCLAIMER_VERSION = "2026-10-23"
 
 FOOTER_TEXT = N_(
     "Risk warning: Trading involves substantial risk of loss and is not suitable for everyone. Content and tools "
@@ -62,6 +62,15 @@ SECTIONS = (
             "Strategy alerts are automated pattern matches on market data that can be delayed, incomplete or wrong. "
             "They are not trade recommendations: nothing is ever executed automatically, and every decision to trade "
             "is yours alone."
+        ),
+    ),
+    (
+        N_("Order execution"),
+        N_(
+            "Sending an order to a connected trading account places a real trade with real money (paper trading "
+            "excepted). Bridges, Expert Advisors, webhooks and broker APIs can fail, be delayed, fill at a different "
+            "price or reject an order: always check every order and position on your trading platform. Orders are "
+            "only sent when you confirm them; you remain responsible for each one."
         ),
     ),
     (

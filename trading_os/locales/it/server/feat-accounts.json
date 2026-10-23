@@ -1,6 +1,8 @@
 {
   "All accounts": "Tutti i conti",
   "An account with that name already exists": "Esiste già un conto con questo nome",
+  "Order execution": "Esecuzione degli ordini",
+  "Sending an order to a connected trading account places a real trade with real money (paper trading excepted). Bridges, Expert Advisors, webhooks and broker APIs can fail, be delayed, fill at a different price or reject an order: always check every order and position on your trading platform. Orders are only sent when you confirm them; you remain responsible for each one.": "Inviare un ordine a un conto di trading collegato apre un trade reale con denaro reale (tranne il paper trading). Bridge, Expert Advisor, webhook e API dei broker possono non funzionare, subire ritardi, eseguire a un prezzo diverso o rifiutare un ordine: controlla sempre ogni ordine e posizione sulla tua piattaforma di trading. Gli ordini vengono inviati solo quando li confermi; resti responsabile di ognuno.",
   "The account '{name}' is archived: reactivate it to log trades on it": "Il conto '{name}' è archiviato: riattivalo per registrarci trade",
   "The default account cannot be archived": "Il conto predefinito non può essere archiviato",
   "The default account cannot be deleted": "Il conto predefinito non può essere eliminato",

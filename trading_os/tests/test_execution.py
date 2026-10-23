@@ -616,9 +616,13 @@ def test_the_signal_preview_sizes_for_the_chosen_trading_account(client):
 
 
 def test_strategy_alerts_and_background_jobs_never_send_orders():
-    """Only POST /api/execution/orders calls the execution service: no job, alert or other module does."""
+    """Only POST /api/execution/orders calls the execution service: no job, alert or other module does.
+
+    The one exception, api/accounts.py, may only cancel queued orders when an edit switches sending off.
+    """
     package = Path(__file__).resolve().parent.parent
     importers = set()
+    allowed_in_accounts = {"cancel_queued"}
     for path in package.rglob("*.py"):
         if "tests" in path.parts:
             continue
@@ -628,7 +632,11 @@ def test_strategy_alerts_and_background_jobs_never_send_orders():
             module = node.module or ""
             names = {alias.name for alias in node.names}
             if module.endswith("execution") or (module.endswith("services") and "execution" in names):
-                importers.add(path.relative_to(package).as_posix())
+                where = path.relative_to(package).as_posix()
+                if where == "api/accounts.py" and module.endswith("services.execution"):
+                    assert names <= allowed_in_accounts, names
+                    continue
+                importers.add(where)
             elif node.level == 1 and not module and "execution" in names and path.parent.name == "services":
                 importers.add(path.relative_to(package).as_posix())
     assert importers == {"api/execution.py"}, importers

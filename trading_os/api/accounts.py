@@ -14,6 +14,7 @@ from ..models import Trade, TradingAccount
 from ..schemas import ActiveAccountIn, CredentialsIn, TradingAccountIn
 from ..services import account as account_service
 from ..services import accounts, secrets_store
+from ..services.execution import cancel_queued  # switching sending off only: nothing here sends orders
 from ..services.i18n import tr
 from .deps import DbDep, SettingsDep, get_or_404
 
@@ -95,8 +96,14 @@ def update_account(account_id: int, payload: TradingAccountIn, db: DbDep, settin
     account = get_or_404(db, TradingAccount, account_id)
     if accounts.is_default(settings, account) and payload.status != "active":
         raise HTTPException(status_code=409, detail=tr("The default account cannot be archived"))
+    before = (account.login, account.server)
     for key, value in payload.model_dump().items():
         setattr(account, key, value)
+    # Where orders go changed (another MT5 login/server) or the account was archived: sending switches off.
+    moved = account.connection == "mt5_terminal" and before != (account.login, account.server)
+    if account.execution_enabled and (moved or account.status != "active"):
+        account.execution_enabled = False
+        cancel_queued(db, settings, account, tr("Cancelled: order sending was switched off"))
     if accounts.is_default(settings, account):
         accounts.sync_settings_from_default(settings, account)
     if payload.status != "active" and settings.active_account_id == account.id:

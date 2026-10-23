@@ -200,3 +200,23 @@ def test_account_metrics_floating_pnl_margin_and_bridge_snapshots(client):
     live = client.get("/api/accounts/summary").json()
     assert live["totals"]["live"] is True and live["totals"]["equity"] == 10_350.0
     assert live["accounts"][0]["metrics"]["source"] == "bridge"
+
+
+def test_editing_where_orders_go_or_archiving_switches_sending_off(client):
+    prop = new_account(client, platform="mt5", login="1001", server="Broker-Demo")
+    factory = client.app.state.session_factory
+    with factory() as db:
+        account = db.get(TradingAccount, prop["id"])
+        account.connection, account.execution_enabled = "mt5_terminal", True
+        db.commit()
+    body = {**PROP, "login": "1001", "server": "Broker-Demo", "notes": "renamed notes only"}
+    client.put(f"/api/accounts/{prop['id']}", json=body)
+    assert accounts_by_name(client)["FTMO Challenge 1"]["execution_enabled"] is True
+    client.put(f"/api/accounts/{prop['id']}", json={**body, "server": "Broker-Live"})
+    assert accounts_by_name(client)["FTMO Challenge 1"]["execution_enabled"] is False
+
+    with factory() as db:
+        db.get(TradingAccount, prop["id"]).execution_enabled = True
+        db.commit()
+    client.put(f"/api/accounts/{prop['id']}", json={**body, "server": "Broker-Live", "status": "archived"})
+    assert accounts_by_name(client)["FTMO Challenge 1"]["execution_enabled"] is False

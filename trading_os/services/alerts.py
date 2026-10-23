@@ -625,6 +625,7 @@ def record_alert(
             "targets_rr": levels.targets_rr,
             "stop_note": levels.stop_note,
             "risk_pct": ev.risk_pct,
+            "account_id": ev.account_id,
             "sizing_note": ev.sizing_note,
         },
         signal_text=signal_text(
