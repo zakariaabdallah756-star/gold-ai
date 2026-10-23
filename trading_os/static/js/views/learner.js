@@ -234,6 +234,8 @@ export async function mountLearner(root, { sessionId = null, lessonId = null, on
     if (busy || !text.trim()) return;
     await flushDraft();
     busy = true;
+    draftCard.inert = true; // edits made now would be saved over the answer's new draft
+    draftCard.classList.add("is-busy");
     drawChat();
     try {
       const body = { kind: session || kind !== "chat" ? kind : "rules", text, engine };
@@ -241,11 +243,15 @@ export async function mountLearner(root, { sessionId = null, lessonId = null, on
       overview = await api.get("/api/learner");
       onSession(session.id);
       busy = false;
+      draftCard.inert = false;
+      draftCard.classList.remove("is-busy");
       kind = "chat";
       composerText = "";
       drawAll();
     } catch (error) {
       busy = false;
+      draftCard.inert = false;
+      draftCard.classList.remove("is-busy");
       error.text = text;
       composerText = text;
       drawChat({ error });

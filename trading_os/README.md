@@ -6,14 +6,18 @@ entries. Position sizing comes with hard risk rules and a signal parser, and ope
 positions can be managed with scale-out targets. The trade journal includes
 mistakes and post-market reviews. A statistical dashboard tells you whether you
 actually have an edge. On top of that there are a strategy incubator for
-backtests, a prop-firm challenge tracker, an optional AI chart assistant, a
-strategy alert engine that scans the market for your setups, and push
-notifications to your phone.
+backtests (with an AI Strategy Learner that turns your rules or a video transcript
+into a testable strategy), a prop-firm challenge tracker, a Trading Academy for
+your own YouTube lessons, an optional AI chart assistant, a strategy alert engine
+that scans the market for your setups, and push notifications to your phone.
 
 Everything runs on your machine. Data lives in one SQLite file plus a
 screenshots folder, and there are no accounts or telemetry. The only network
-calls are the optional ones you set up yourself: Vision AI, the economic
-calendar import, market data for strategy alerts and your notification channels.
+calls are the optional ones you set up yourself: Vision AI and the Strategy
+Learner (Claude), the economic calendar import, market data for strategy alerts,
+your notification channels, YouTube videos you add to the Academy (played with
+YouTube's privacy-enhanced player, titles looked up when you leave them blank)
+and connected trading accounts.
 
 > **Risk warning.** Trading involves substantial risk of loss and is not
 > suitable for everyone. Content and tools are for organizational and
@@ -125,7 +129,7 @@ Choosing one switches the whole app to that account (see *Trading accounts* belo
 
 **Getting started guide.** The play button next to the avatar opens a guide with two tabs:
 - **Video**: set a YouTube, Vimeo or direct .mp4 / .webm link, or a file under `/static/`, in *Trading Plan → Account & risk rules → Onboarding video link*. YouTube plays from youtube-nocookie.com.
-- **Step-by-step**: nine steps, each with a *Take me there* link. They cover the trading plan and risk rules, accounts and the switcher, the pre-market checklist, signals and the risk calculator with execution, positions and journal, strategy alerts and Vision AI, review/calendar/incubator, prop-firm tracking, and backup and remote access.
+- **Step-by-step**: ten steps, each with a *Take me there* link. They cover the trading plan and risk rules, accounts and the switcher, the pre-market checklist, signals and the risk calculator with execution, positions and journal, strategy alerts and Vision AI, review/calendar/incubator, the Academy and the AI Strategy Learner, prop-firm tracking, and backup and remote access.
 
 On first launch the guide opens by itself once the risk disclaimer has been accepted, once per browser session, until you tick *Don't show this again* or finish the tour.
 
@@ -208,6 +212,14 @@ The journal has search, filters, sorting, pagination and full CRUD.
 - A side-by-side **backtest vs live** comparison gives a verdict once enough live trades exist. Its **expectancy gap** shows how far live trading is from the backtest per trade: in R, in money at the backtest's risk per trade (so position size and fees don't distort it), and as the share of the backtest edge kept live, next to what live trades really made. Drawdowns are compared in R, money and %. Renaming a strategy keeps its live history: journal trades logged under the old name still count (a new strategy that takes the old name owns them from then on).
 - Strategies being tested are shown as *In test*. Promote a strategy to *live* or retire it. A **PDF report** is available per strategy.
 
+**AI Strategy Learner** (the Incubator's second tab). Turn a strategy you can describe, or one you watched, into a draft you can backtest:
+- **Describe rules** in plain English or Italian, or **paste a transcript** of a YouTube video (on YouTube: *… → Show transcript*), a subtitle file (`.srt` / `.vtt`) or your own summary. Timestamps, `[Music]`-style tags and broken caption lines are cleaned up for you, with a preview of what was removed.
+- The Learner extracts a **draft**: name and summary, markets, timeframes, sessions, direction, confluences (required or optional, with details such as `EMA 50`), entry rules, stop placement, exit rules, risk parameters (risk per trade, minimum reward:risk, trades a day, daily loss limit) and filters. It lists what the text does not say (*Still missing*) and red flags (no stop loss, martingale, "guaranteed" results, risk above your plan's limits).
+- **Refine** it in the chat ("only London", "the stop goes below the wick"), or edit any field directly: changes save on their own.
+- **Create incubator strategy** writes it into the Incubator as *In test*: the written rules, timeframes, your sessions, direction, required confluences (new ones can be added to your confluence library) and minimum R:R, which the Strategy Co-Pilot then checks on trades. Log backtest trades to prove the edge. Updating rewrites the strategy only while it is still in the incubator; once promoted, a new one is created instead.
+- **Engines.** With Claude set up (*Trading Plan → AI assistant*), the text is read by Claude with a strict output format; the source is treated as data, never as instructions. Without it, a **basic extraction** runs on this computer: it copies the matching sentences (or word windows in captions without punctuation) and never invents a value. Risk numbers stay in the strategy's rules: your plan's limits and guardrails keep applying to every trade.
+- From an Academy lesson, *Turn into a strategy* opens the Learner ready for that video's transcript.
+
 **Prop Firm.** Track a funded-account challenge (FTMO, FundedNext presets or custom rules). It shows:
 - profit target progress
 - daily loss used vs limit
@@ -215,6 +227,15 @@ The journal has search, filters, sorting, pagination and full CRUD.
 - trading days and days left, with a balance chart and daily history
 
 With *enforce* on, live entries that would breach the challenge's daily loss or drawdown are blocked. Presets are a starting point: firms change their rules, so always verify them on the firm's website.
+
+### Learning & Growth
+
+**Academy.** Your own library of YouTube lessons, organised by topic: **Psychology**, **Risk Management**, **Strategies** and **Discipline**.
+- Paste any YouTube video or playlist link (watch, `youtu.be`, Shorts, live, embed or playlist links, with or without a start time). The title and channel are filled in from YouTube when you leave them blank (offline, you type them). Other sites are refused.
+- Lessons play right in the page with YouTube's privacy-enhanced player (`youtube-nocookie.com`), one at a time, next to the topic's list.
+- **Mark as completed** (the date is kept) and follow your progress per topic and overall; *Next lesson* jumps to the next one you have not finished.
+- **Private notes** per lesson save on their own as you type. They stay on this computer and are included in backups.
+- Reorder lessons within a topic, edit or remove them. An empty topic offers a YouTube search for it: Trading OS never picks videos for you.
 
 ### Setup
 
@@ -252,7 +273,7 @@ With *enforce* on, live entries that would breach the challenge's daily loss or 
 - cards for your featured partners;
 - discount codes you received yourself.
 
-It rotates every few seconds and stops while you hover it, use the keyboard inside it, switch tabs or press pause. It never rotates when your system asks for reduced motion. Browse with the arrows, the dots, the keyboard arrow keys or a swipe. The × button hides a card on this device; *Show hidden* brings it back.
+It turns to the next card every 4 seconds (you can choose 3-60). It holds while the mouse is over it, while a finger is on it (resuming a few seconds after you let go), while you use the keyboard inside it, while the tab is hidden, or when you press pause, and it resumes as soon as that ends. Each card gets its full time. Journals still on the old 7-second default move to 4 seconds once. It never rotates when your system asks for reduced motion. Browse with the arrows, the dots, the keyboard arrow keys or a swipe. The × button hides a card on this device; *Show hidden* brings it back.
 
 Manage it in *Trading Plan → Promotions*:
 - switch it on or off and set the rotation interval;
@@ -438,8 +459,8 @@ trading_os/
   database.py     engine, in-place schema migrations
   seed.py         default plan (markets, sessions, strategies, checklist, mistakes, partners)
   api/            REST routers (plan, accounts, execution, checklist, risk, trades, positions, signals,
-                  alerts, news, notifications, reviews, analytics, vision, backtest, prop, partners,
-                  promos, reports, backup, network, i18n)
+                  alerts, news, notifications, reviews, analytics, vision, backtest, academy, learner,
+                  prop, partners, promos, reports, backup, network, i18n)
   services/       domain logic
     sizing.py         position sizing & R:R math           (pure)
     guardrails.py     risk rules & day state               (pure)
@@ -457,6 +478,9 @@ trading_os/
     news.py / context_rules.py  economic calendar, kill switch
     prop.py / prop_rules.py     prop challenge metrics and rules
     backtest.py       incubator metrics, CSV import, backtest vs live
+    learner.py        AI Strategy Learner: sessions, Claude requests, drafts -> incubator strategies
+    learner_extract.py transcript cleaning, the strategy draft, offline rule extraction (pure)
+    academy.py        Trading Academy: YouTube link parsing, lessons, progress
     vision.py / ai_client.py    Claude chart analysis and Q&A
     reviews.py        post-market reviews               partners.py  partner listings
     report_pdf.py     PDF reports                        disclaimer.py risk disclaimer
@@ -471,8 +495,8 @@ trading_os/
   bridges/        MetaTrader Expert Advisors (TradingOS_Bridge.mq5 / .mq4) for the EA bridge
   locales/it/     Italian catalogs (server and web)
   static/         dark-themed SPA (vanilla ES modules, no build step; Chart.js vendored),
-                  service worker (sw.js) and web app manifest
-  tests/          unit + API tests
+                  service worker (sw.js) and web app manifest; js/autoplay.js is the carousel timing
+  tests/          unit + API tests; a few browser tests run when Playwright and Chromium are installed
 ```
 
 Interactive API documentation is served at <http://localhost:8765/api/docs>.
@@ -488,7 +512,8 @@ ruff check --select F,E9,B --line-length 120 trading_os
 
 Notes:
 - Tables are created on startup, and older databases are upgraded in place: new columns are added with their defaults and the schema version is kept in `PRAGMA user_version`. Backups from v1.0 onwards can be restored.
-- The test suite never calls the network. The Claude client, the calendar feed, market data sources and notification channels are replaced with fakes.
+- The test suite never calls the network. The Claude client, the calendar feed, market data sources, YouTube title lookups and notification channels are replaced with fakes.
+- A few tests drive the real pages in headless Chromium (the carousel, the Academy, the Strategy Learner) and the carousel timing runs in `node`; they are skipped when Playwright/Chromium or `node` are not installed. With Playwright installed but no browser downloaded, run `playwright install chromium` once.
 - Background jobs (alert scanner, risk and news watchers) run on one thread inside the server. Set `TRADING_OS_BACKGROUND_JOBS=0` to switch them off; the tests do this and run jobs on demand.
 - The server binds to `127.0.0.1` by default. `--lan` listens on every network; set a remote-access password before you do, or use it only on a network you trust (see *Open it from your phone or another computer*).
 - Requests are answered only for `localhost`, IP addresses, the computer's own name and allowed host names, which protects against DNS rebinding. Changes from other websites are refused: a write whose `Origin` or `Sec-Fetch-Site` header shows another site gets 403 (wildcard entries are never trusted as an `Origin`). Scripts that send no `Origin` header, such as the candle push, keep working.

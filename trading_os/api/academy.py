@@ -9,6 +9,7 @@ from ..models import AcademyVideo
 from ..schemas import FiniteModel
 from ..services import academy
 from ..services.account import local_now
+from ..services.i18n import tr
 from .deps import DbDep, SettingsDep, get_or_404
 
 router = APIRouter(prefix="/api/academy", tags=["academy"])
@@ -40,7 +41,7 @@ class VideoIn(FiniteModel):
 
     @field_validator("title", "channel", "description")
     @classmethod
-    def _single_spaces(cls, value: str) -> str:
+    def _unix_newlines(cls, value: str) -> str:
         return value.replace("\r\n", "\n")
 
 
@@ -60,7 +61,7 @@ class OrderIn(FiniteModel):
 def _conflict(existing: AcademyVideo) -> HTTPException:
     return HTTPException(
         status_code=409,
-        detail=academy.tr(
+        detail=tr(
             "This one is already in the Academy: {title} ({topic})",
             title=existing.title,
             topic=academy.topic_label(existing.topic),
@@ -123,13 +124,15 @@ def update_video(video_id: int, payload: VideoIn, db: DbDep):
     if existing:
         raise _conflict(existing)
     moved = link != academy.link_of(video)
+    found = academy.lookup(link) if moved else {}
     if moved:
         academy.apply_link(video, link)
-        video.thumbnail_url = academy.lookup(link)["thumbnail_url"] if link.kind == "playlist" else ""
+        video.thumbnail_url = found["thumbnail_url"] if link.kind == "playlist" else ""
     if payload.topic != video.topic:
         video.topic, video.sort_order = payload.topic, academy.next_order(db, payload.topic)
-    video.title = payload.title or video.title
-    video.channel = payload.channel
+    # Another video without a typed title: its own title (the old one would describe the old video).
+    video.title = payload.title or (found.get("title") or academy.default_title(link) if moved else video.title)
+    video.channel = payload.channel or found.get("channel", "")
     video.description = payload.description
     db.commit()
     return academy.video_out(video)
@@ -165,7 +168,7 @@ def reorder(payload: OrderIn, db: DbDep):
     if sorted(payload.ids) != sorted(videos) or len(set(payload.ids)) != len(payload.ids):
         raise HTTPException(
             status_code=422,
-            detail=academy.tr("Send every video of {topic} exactly once", topic=academy.topic_label(payload.topic)),
+            detail=tr("Send every video of {topic} exactly once", topic=academy.topic_label(payload.topic)),
         )
     for order, video_id in enumerate(payload.ids):
         videos[video_id].sort_order = order

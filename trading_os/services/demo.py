@@ -37,7 +37,7 @@ from ..models import (
     TradingAccount,
 )
 from ..schemas import TargetIn, TradeIn
-from . import alerts, market_data, positions, prop
+from . import alerts, learner, market_data, positions, prop
 from .account import local_now
 from .backtest import derive
 from .sizing import round_lots
@@ -347,6 +347,7 @@ def seed_demo(db: Session, today: date, trading_days: int = 80, seed: int = 11, 
     challenge = _seed_prop_challenge(db, settings, today)
     _seed_accounts(db, settings, challenge)
     _seed_alerts(db, settings, now)
+    _seed_learner(db, settings, now or datetime.combine(today, time(12, 0)))
     return created
 
 
@@ -560,3 +561,17 @@ def _seed_alerts(db: Session, settings: AccountSettings, now: datetime) -> None:
             last_alert = closed_at
     rule.last_checked_at = now
     db.commit()
+
+
+DEMO_STRATEGY_TEXT = (
+    "Strategy: Asian range sweep\n"
+    "I trade gold on the 15 minute chart in the London session. The H4 trend must be up. I wait for a sweep of the "
+    "Asian low, then a break of structure on M5, and enter on the retest of the order block. Stop below the swept "
+    "low, take profit at 1:3 and close half at 1R. Risk 0.5% per trade, max 2 trades per day. Avoid trading before "
+    "red folder news."
+)
+
+
+def _seed_learner(db: Session, settings: AccountSettings, now: datetime) -> None:
+    """One AI Strategy Learner conversation (read by the offline extractor), its draft ready to become a strategy."""
+    learner.start(db, settings, "rules", DEMO_STRATEGY_TEXT, "basic", lambda _settings: None, now)

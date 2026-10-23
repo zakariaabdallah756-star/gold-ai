@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models import AccountSettings, Confluence, LearnerSession, Market, Strategy, TradingSession
-from . import ai_client, i18n
+from . import ai_client, backtest, i18n
 from .i18n import N_, tr
 from .learner_extract import (
     ANSWER_SCHEMA,
@@ -31,6 +31,7 @@ from .learner_extract import (
     basic_extract,
     basic_reply,
     clean_transcript,
+    detect_language,
     merge,
     missing_items,
     model_draft,
@@ -283,6 +284,10 @@ def ask_ai(
 # ---------------------------------------------------------------------------- sessions
 
 
+def _claude_answered(messages: list[dict]) -> bool:
+    return any(m.get("role") == "assistant" and m.get("engine") == "ai" and m.get("content") for m in messages)
+
+
 def _title(draft: StrategyDraft, text: str) -> str:
     return (draft.name or " ".join(text.split())[:80] or tr("Strategy draft"))[:TITLE_MAX]
 
@@ -308,6 +313,10 @@ def _turn(
     current = StrategyDraft.model_validate(session.draft or {})
     chosen = resolve_engine(settings, engine)
     prompt = opening_turn(plan, kind, clean) if first else follow_up_turn(current, kind, clean)
+    if chosen == "ai" and not first and not _claude_answered(session.messages or []):
+        # Earlier answers came from the basic engine: Claude has not seen the plan or the source yet.
+        source = session.messages[0]
+        prompt = "\n\n".join([opening_turn(plan, source.get("kind", "rules"), source.get("text", "")), prompt])
     model = ""
     raw = ""
     if chosen == "ai":
@@ -319,6 +328,8 @@ def _turn(
         extracted = basic_extract(clean, plan)
         draft = extracted if first else merge(current, extracted, plan, clean)
         reply = basic_reply(draft, follow_up=not first, ai_configured=ai_configured(settings))
+        if first and detect_language(clean) != i18n.current():
+            reply += " " + tr("Rules are copied in the language of the text; with Claude they are written in yours.")
     at = now.isoformat()
     user = {"role": "user", "kind": kind, "text": clean, "stats": stats, "at": at, "prompt": prompt}
     answer = {"role": "assistant", "kind": "chat", "text": reply, "at": at, "engine": chosen, "model": model}
@@ -490,7 +501,10 @@ def to_strategy(
             required.append(name)
             library[name].active = True  # a required confluence must be selectable on the trade form
     sessions, unknown = map_sessions(draft, list(db.scalars(select(TradingSession.name))))
+    before = {"name": strategy.name}
     strategy.name = _unique_name(db, draft.name, None if created else strategy.id)
+    if not created:
+        backtest.strategy_renamed(db, strategy, before)  # journal trades under the old name keep counting
     strategy.description = draft.summary[:5000]
     strategy.timeframes = ", ".join(draft.timeframes)[:60]
     strategy.rules = rules_text(draft, session, today, plan_warnings(draft, plan_context(db, settings)))

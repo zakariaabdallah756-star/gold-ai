@@ -50,5 +50,6 @@
   "your description": "la tua descrizione",
   "long and short": "long e short",
   "long only": "solo long",
-  "short only": "solo short"
+  "short only": "solo short",
+  "Rules are copied in the language of the text; with Claude they are written in yours.": "Le regole sono copiate nella lingua del testo; con Claude vengono scritte nella tua."
 }

@@ -217,6 +217,7 @@ ANSWER_SCHEMA: dict = _obj(reply=_STR, draft=DRAFT_SCHEMA)
 
 # ------------------------------------------------------------------------- transcripts
 
+_CUE_LINE = re.compile(r"^\s*(?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3}\s*-->\s*(?:\d{1,2}:)?\d{1,2}:\d{2}[.,]\d{1,3}.*$")
 _TIMESTAMP_LINE = re.compile(r"^\s*[\[(]?(?:\d{1,2}:)?\d{1,2}:\d{2}[\])]?(?:\s+|$)")
 _TIMESTAMP_BRACKETED = re.compile(r"[\[(](?:\d{1,2}:)?\d{1,2}:\d{2}[\])]")
 _CAPTION_TAG = re.compile(
@@ -240,6 +241,13 @@ def clean_transcript(raw: str) -> CleanResult:
     [Music] and speaker arrows removed, broken caption lines joined, whitespace collapsed."""
     raw = (raw or "").replace("\r\n", "\n").replace("\r", "\n")
     lines = [line for line in raw.split("\n") if line.strip()]
+    cues = sum(1 for line in lines if _CUE_LINE.match(line))
+    if cues:  # an .srt / .vtt subtitle file: drop the header, cue numbers and "00:00:01.000 --> ..." lines
+        lines = [
+            line
+            for line in lines
+            if not (_CUE_LINE.match(line) or line.strip().isdigit() or line.strip().upper().startswith("WEBVTT"))
+        ]
     stamped = sum(1 for line in lines if _TIMESTAMP_LINE.match(line))
     timestamps = 0
     if stamped >= 3 and stamped >= len(lines) * 0.3:  # a transcript with times, not prose with an "8:30" in it
@@ -254,7 +262,7 @@ def clean_transcript(raw: str) -> CleanResult:
     text, bracketed = _TIMESTAMP_BRACKETED.subn(" ", text)
     text, tags = _CAPTION_TAG.subn(" ", text)
     text = re.sub(r"\s+", " ", text).strip()
-    return CleanResult(text, timestamps + bracketed, tags, len(text.split()), len(raw))
+    return CleanResult(text, cues + timestamps + bracketed, tags, len(text.split()), len(raw))
 
 
 # --------------------------------------------------------------------------- language
@@ -756,7 +764,7 @@ def basic_extract(text: str, plan: PlanContext) -> StrategyDraft:
     stops = _snippets(text, STOP_RE, 4)
     # The stop rule: a sentence about the stop that is not mainly about taking profit ("move the stop to BE").
     stop = next((rule for rule in stops if not EXIT_RE.search(rule)), stops[0] if stops else "")
-    exits = [rule for rule in _snippets(text, EXIT_RE, 8) if rule != stop][:6]
+    exits = _snippets(text, EXIT_RE, 6)  # "stop below the low, take profit at 1:3" is both a stop and an exit rule
     draft: dict[str, Any] = {
         "markets": _markets(text, plan),
         "timeframes": _timeframes_in(text),

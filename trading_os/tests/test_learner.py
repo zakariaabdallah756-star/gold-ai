@@ -81,6 +81,12 @@ def test_inline_timestamps_and_speaker_marks_are_removed():
     assert result.timestamps == 3 and result.tags >= 3
 
 
+def test_subtitle_files_are_cleaned_too():
+    vtt = "WEBVTT\n\n1\n00:00:01.000 --> 00:00:04.000\nwe buy gold\n\n2\n00:00:04,500 --> 00:00:07,000\nafter the sweep"
+    result = lx.clean_transcript(vtt)
+    assert result.text == "we buy gold after the sweep" and result.timestamps == 2
+
+
 def test_times_inside_prose_are_kept():
     text = "8:30 is the New York data release.\nI wait until 9:45 to enter.\nNo trades on Friday."
     assert lx.clean_transcript(text).text == text.replace("\n", " ")
@@ -173,6 +179,11 @@ def test_captions_without_punctuation_give_word_windows():
     assert draft.risk.risk_per_trade_pct == 2 and draft.risk.min_rr == 3
     assert any("guaranteed" in w for w in draft.warnings)
     assert "favourite scalping strategy" in draft.summary and not draft.summary.startswith("hey guys")
+
+
+def test_a_sentence_with_the_stop_and_the_target_counts_for_both():
+    draft = lx.basic_extract("Enter on the retest. Stop below the swept low, take profit at 1:3.", PLAN)
+    assert draft.stop_loss == draft.exit_rules[0] == "Stop below the swept low, take profit at 1:3."
 
 
 def test_clock_times_are_never_read_as_reward_to_risk():
@@ -424,6 +435,27 @@ def test_updating_rewrites_the_strategy_only_while_it_is_in_the_incubator(client
     assert live["status"] == "live" and live["allowed_directions"] == "both"  # the live one was not touched
 
 
+def test_renaming_a_learned_strategy_keeps_its_journal_trades(client):
+    session = start(client).json()
+    url = f"/api/learner/sessions/{session['id']}/strategy"
+    strategy = client.post(url, json={}).json()["strategy"]
+    complete_checklist(client)
+    update_settings(client, warn_outside_sessions=False, max_risk_pct=10, trade_rule_mode="warn")
+    assert client.post("/api/trades", json=trade_payload(strategy=strategy["name"])).status_code == 201
+    client.put(f"/api/learner/sessions/{session['id']}/draft", json={**session["draft"], "name": "Renamed sweep"})
+    renamed = client.post(url, json={}).json()["strategy"]
+    assert renamed["id"] == strategy["id"] and renamed["name"] == "Renamed sweep"
+    saved = next(s for s in client.get("/api/strategies").json() if s["id"] == strategy["id"])
+    assert saved["former_names"] == ["London sweep reversal"]
+    report = client.get(f"/api/backtest/strategies/{strategy['id']}/report").json()
+    assert report["live_names"] == ["Renamed sweep", "London sweep reversal"]
+
+
+def test_texts_in_another_language_are_flagged_in_the_basic_reply(client):
+    assert "language of the text" in start(client, ITALIAN).json()["messages"][1]["text"]
+    assert "language of the text" not in start(client, ENGLISH).json()["messages"][1]["text"]
+
+
 def test_names_never_clash_with_existing_strategies(client):
     session = start(client, "Strategy: SMC\nEnter on the order block retest. Stop below. Target 1:2.").json()
     result = client.post(f"/api/learner/sessions/{session['id']}/strategy", json={}).json()
@@ -589,6 +621,27 @@ def test_follow_ups_replay_the_conversation_with_the_current_draft(client, claud
     )
 
 
+def test_claude_sees_the_plan_and_source_after_basic_answers(client, claude):
+    session = start(client, engine="basic").json()
+    claude.outcomes.append(answer())
+    response = client.post(
+        f"/api/learner/sessions/{session['id']}/messages",
+        json={"kind": "chat", "text": "Make it better.", "engine": "auto"},
+    )
+    assert response.status_code == 200, response.text
+    [only] = claude.calls[0]["messages"]  # the basic answer cannot be replayed...
+    assert only["content"].startswith("The trader's plan:")  # ...so the plan and the source come with the turn
+    assert "<<<\nStrategy: London sweep reversal" in only["content"] and only["content"].endswith(
+        "Trader: Make it better."
+    )
+    claude.outcomes.append(answer())
+    client.post(
+        f"/api/learner/sessions/{session['id']}/messages", json={"kind": "chat", "text": "Again.", "engine": "auto"}
+    )
+    replay = claude.calls[1]["messages"]
+    assert [m["role"] for m in replay] == ["user", "assistant", "user"] and replay[0]["content"] == only["content"]
+
+
 def test_claude_writes_in_the_traders_language(client, claude):
     update_settings(client, language="it")
     claude.outcomes.append(answer())
@@ -707,3 +760,22 @@ def test_an_academy_lesson_opens_the_learner_for_its_transcript(browser_page):  
     page.wait_for_selector(".ln-draft .ln-form")
     assert page.query_selector(".ln-lesson") is None
     assert "Transcript" in page.inner_text(".ln-msg.mine")
+
+
+def test_the_demo_journal_has_a_learner_conversation(client):
+    from trading_os.models import AccountSettings
+    from trading_os.services import demo
+
+    with client.app.state.session_factory() as db:
+        demo._seed_learner(db, db.get(AccountSettings, 1), demo.datetime(2026, 10, 23, 12, 0))
+    [summary] = client.get("/api/learner").json()["sessions"]
+    session = client.get(f"/api/learner/sessions/{summary['id']}").json()
+    assert session["title"] == "Asian range sweep" and session["engine"] == "basic"
+    draft = session["draft"]
+    assert (
+        draft["markets"] == ["XAUUSD"]
+        and draft["timeframes"] == ["M5", "M15", "H4"]
+        and draft["sessions"] == ["London"]
+    )
+    assert draft["entry_rules"][0] == "The H4 trend must be up." and len(draft["entry_rules"]) == 2
+    assert draft["stop_loss"] and draft["exit_rules"] and draft["missing"] == []

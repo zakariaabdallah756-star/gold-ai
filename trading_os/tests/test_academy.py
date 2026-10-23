@@ -183,7 +183,8 @@ def test_editing_moves_a_video_to_another_topic_and_link(client):
         json={"url": "https://youtu.be/ccccccccccc?t=5", "topic": "risk", "title": "", "description": "Why"},
     ).json()
     assert edited["topic"] == "risk" and edited["sort_order"] == 1 and edited["video_id"] == "ccccccccccc"
-    assert edited["title"] == "Old title" and edited["description"] == "Why" and edited["start_sec"] == 5
+    assert edited["title"] == "YouTube video"  # another video, offline: not the old video's title
+    assert edited["description"] == "Why" and edited["start_sec"] == 5
     clash = client.put(
         f"/api/academy/videos/{video['id']}", json={"url": "https://youtu.be/bbbbbbbbbbb", "topic": "risk"}
     )
@@ -192,6 +193,19 @@ def test_editing_moves_a_video_to_another_topic_and_link(client):
         client.put("/api/academy/videos/999", json={"url": f"https://youtu.be/{VID}", "topic": "risk"}).status_code
         == 404
     )
+
+
+def test_a_new_link_without_a_typed_title_gets_its_own_title(client, monkeypatch):
+    video = add(client, title="Old lesson", channel="Old channel")
+    monkeypatch.setattr(academy, "fetch_oembed", lambda url: {"title": "New lesson", "author_name": "New channel"})
+    edited = client.put(
+        f"/api/academy/videos/{video['id']}", json={"url": "https://youtu.be/ccccccccccc", "topic": "psychology"}
+    )
+    assert edited.json()["title"] == "New lesson" and edited.json()["channel"] == "New channel"
+    kept = client.put(
+        f"/api/academy/videos/{video['id']}", json={"url": "https://youtu.be/ccccccccccc", "topic": "risk"}
+    )
+    assert kept.json()["title"] == "New lesson"  # same link: the title stays
 
 
 def test_progress_counts_completed_videos_per_topic(client):

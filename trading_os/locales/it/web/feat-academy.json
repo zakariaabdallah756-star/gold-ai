@@ -46,5 +46,7 @@
   "{done} of {total} lessons completed": "{done} lezioni completate su {total}",
   "{n} lesson": "{n} lezione",
   "{n} lessons": "{n} lezioni",
-  "{title} added to the Academy": "{title} aggiunta all'Academy"
+  "{title} added to the Academy": "{title} aggiunta all'Academy",
+  "Academy and AI Strategy Learner": "Academy e AI Strategy Learner",
+  "Collect YouTube lessons by topic in the Academy, mark them as completed and keep private notes. In the Incubator, the AI Strategy Learner turns your rules or a video transcript into a strategy draft ready for backtesting.": "Raccogli le lezioni di YouTube per argomento nell'Academy, segnale come completate e tieni note private. Nell'Incubatore, l'AI Strategy Learner trasforma le tue regole o la trascrizione di un video in una bozza di strategia pronta per il backtest."
 }
