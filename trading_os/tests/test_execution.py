@@ -1,6 +1,7 @@
 """Live signal execution (v1.5): order bridges, the execution service and API, the MetaTrader EA protocol and the
 safety rails (idempotency, typed confirmation, guardrails before anything is sent, no secret at rest)."""
 
+import ast
 import hashlib
 import hmac
 import json
@@ -16,13 +17,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from trading_os.models import Execution, Trade, TradingAccount
-from trading_os.services import account as account_service
 from trading_os.services import bridges
 from trading_os.services.bridges import base as bridge_base
 from trading_os.services.bridges.oanda import OandaBridge
 from trading_os.services.bridges.paper import PaperBridge
 
-from .conftest import complete_checklist, now_utc, trade_payload, update_settings
+from .conftest import complete_checklist, trade_payload, update_settings
 
 LOCAL = ("127.0.0.1", 50000)
 LAN_PEER = ("192.168.1.50", 50000)
@@ -265,7 +265,7 @@ def test_webhook_orders_are_signed_and_no_secret_is_stored(client, monkeypatch):
     assert execution["broker_ref"] == "778899" and execution["broker_symbol"] == "XAUUSD.pro"
     assert trade["entry_price"] == 2650.4 and trade["account_id"] == acct["id"]
 
-    (url, body, headers), = sent
+    ((url, body, headers),) = sent
     expected = "sha256=" + hmac.new(WEBHOOK_SECRET.encode(), body, hashlib.sha256).hexdigest()
     assert url == "https://bridge.example.com/hook" and headers["X-TradingOS-Signature"] == expected
     assert headers["Idempotency-Key"] == "hook-order-1"
@@ -296,7 +296,6 @@ def test_webhook_rejections_and_timeouts_log_no_trade(client, monkeypatch):
     lost = send(client, acct["id"]).json()["execution"]
     assert lost["status"] == "error" and "may or may not have arrived" in lost["message"]
     assert trades_on(client, acct["id"]) == []
-    assert "Market closed" not in client.get("/api/accounts").text or True  # last_error is shown, never a secret
 
     monkeypatch.setattr(bridge_base, "_http_post", lambda *a: fake_response(202, {}))
     accepted = send(client, acct["id"]).json()
@@ -354,7 +353,11 @@ def test_the_mt_bridge_text_protocol(client):
 
 def test_unknown_bridge_tokens_get_401(client):
     acct, token = bridge_account(client)
-    for path, method in (("/api/bridge/orders", "get"), ("/api/bridge/orders/1", "post"), ("/api/bridge/account", "post")):
+    for path, method in (
+        ("/api/bridge/orders", "get"),
+        ("/api/bridge/orders/1", "post"),
+        ("/api/bridge/account", "post"),
+    ):
         assert getattr(client, method)(path, params={"token": "not-the-token-at-all"}).status_code == 401
         assert getattr(client, method)(path).status_code == 401
     other = new_account(client, name="Other")
@@ -444,10 +447,9 @@ def test_pending_orders_cancel_and_expire(client):
     assert client.post(f"/api/executions/{limit['execution']['id']}/cancel").json()["status"] == "cancelled"
     queued = send(client, acct["id"]).json()
     switch(client, acct["id"], enabled=False)
-    assert client.get("/api/executions").json()["items"][1]["id"] == queued["execution"]["id"]
-    assert [r for r in client.get("/api/executions").json()["items"] if r["id"] == queued["execution"]["id"]][0][
-        "status"
-    ] == "cancelled"
+    rows = {row["id"]: row for row in client.get("/api/executions").json()["items"]}
+    assert rows[queued["execution"]["id"]]["status"] == "cancelled"
+    assert client.get(f"/api/trades/{queued['trade']['id']}").status_code == 404
 
 
 def test_a_rejected_order_keeps_a_trade_the_trader_already_worked_on(client):
@@ -458,7 +460,9 @@ def test_a_rejected_order_keeps_a_trade_the_trader_already_worked_on(client):
     closing = trade_payload(status="closed", exit_price=2660.0, account_id=acct["id"], entry_time=trade["entry_time"])
     assert client.put(f"/api/trades/{trade['id']}", json=closing).status_code == 200
     client.get("/api/bridge/orders", params={"token": token})
-    client.post(f"/api/bridge/orders/{queued['execution']['id']}?token={token}", content="status=rejected&message=Off quotes")
+    client.post(
+        f"/api/bridge/orders/{queued['execution']['id']}?token={token}", content="status=rejected&message=Off quotes"
+    )
     kept = client.get(f"/api/trades/{trade['id']}").json()
     assert "order-rejected" in kept["tags"] and "Off quotes" in kept["notes"]
     assert client.get("/api/executions").json()["items"][0]["trade_id"] == trade["id"]
@@ -500,13 +504,20 @@ def test_oanda_orders_units_and_symbol_mapping(client, monkeypatch):
     euro = dict(symbol="EURUSD", entry_price=1.085, stop_loss=1.083, take_profit=1.091, position_size=0.1)
     send(client, acct["id"], order_type="limit", **euro)
     order = calls[-1][3]["order"]
-    assert (order["instrument"], order["units"], order["type"], order["price"]) == ("EUR_USD", "10000", "LIMIT", "1.08500")
+    assert (order["instrument"], order["units"], order["type"], order["price"]) == (
+        "EUR_USD",
+        "10000",
+        "LIMIT",
+        "1.08500",
+    )
 
     bridge = OandaBridge()
     assert bridge.broker_symbol("NAS100", {}) == "NAS100_USD"
     assert bridge.broker_symbol("XAUUSD", {"symbol_map": {"XAUUSD": "XAU_EUR"}}) == "XAU_EUR"
     tested = client.post(f"/api/accounts/{acct['id']}/test").json()
-    assert tested["ok"] is True and tested["snapshot"]["equity"] == 100150.5 and tested["snapshot"]["open_positions"] == 1
+    assert (
+        tested["ok"] is True and tested["snapshot"]["equity"] == 100150.5 and tested["snapshot"]["open_positions"] == 1
+    )
     stored = "".join(json.dumps(r.request) + json.dumps(r.response) for r in executions(client))
     assert OANDA_TOKEN not in stored and "Bearer" not in stored
 
@@ -593,7 +604,9 @@ def test_the_signal_preview_sizes_for_the_chosen_trading_account(client):
     assert chosen["ticket"]["account_id"] == big["id"] and chosen["account"]["can_execute"] is True
     assert chosen["account"]["name"] == "Big Paper" and chosen["account"]["order_type"] == "market"
 
-    parsed = client.post("/api/signals/parse", json={"text": "XAUUSD BUY LIMIT 2650 SL 2645 TP 2665", "account_id": big["id"]})
+    parsed = client.post(
+        "/api/signals/parse", json={"text": "XAUUSD BUY LIMIT 2650 SL 2645 TP 2665", "account_id": big["id"]}
+    )
     assert parsed.json()["draft"]["account_id"] == big["id"] and parsed.json()["draft"]["order_type"] == "limit"
     sent = client.post(
         "/api/execution/orders",
@@ -605,14 +618,20 @@ def test_the_signal_preview_sizes_for_the_chosen_trading_account(client):
 def test_strategy_alerts_and_background_jobs_never_send_orders():
     """Only POST /api/execution/orders calls the execution service: no job, alert or other module does."""
     package = Path(__file__).resolve().parent.parent
-    callers = sorted(
-        str(path.relative_to(package))
-        for path in package.rglob("*.py")
-        if "tests" not in path.parts
-        and path.name != "execution.py"
-        and ("execution.submit" in path.read_text(encoding="utf-8") or "import execution" in path.read_text(encoding="utf-8"))
-    )
-    assert callers == ["api/__init__.py"], callers
+    importers = set()
+    for path in package.rglob("*.py"):
+        if "tests" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = node.module or ""
+            names = {alias.name for alias in node.names}
+            if module.endswith("execution") or (module.endswith("services") and "execution" in names):
+                importers.add(path.relative_to(package).as_posix())
+            elif node.level == 1 and not module and "execution" in names and path.parent.name == "services":
+                importers.add(path.relative_to(package).as_posix())
+    assert importers == {"api/execution.py"}, importers
 
 
 def test_bridges_never_keep_secrets_in_what_they_store():
@@ -622,4 +641,3 @@ def test_bridges_never_keep_secrets_in_what_they_store():
         secrets,
     )
     assert cleaned == {"nested": {"note": "has ••••"}, "ok": 1}
-    assert now_utc() and account_service.local_now  # imported helpers stay in use

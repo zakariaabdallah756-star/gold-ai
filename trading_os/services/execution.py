@@ -407,6 +407,12 @@ def _release_trade(db: Session, execution: Execution) -> None:
 def cancel(db: Session, settings: AccountSettings, box, execution: Execution) -> Execution:
     """Cancel a pending order (paper, an MT order still waiting for the EA, a resting OANDA / MT5 order)."""
     bridge = BRIDGES.get(execution.bridge)
+    response = execution.response or {}
+    delivered = execution.bridge == "mt_bridge" and bool(response.get("delivered_at"))
+    if delivered and execution.status in ("pending", "sent"):
+        raise ExecutionError(
+            tr("The MetaTrader terminal already has this order - cancel it in MetaTrader"), 409, "delivered"
+        )
     if execution.status != "pending":
         raise ExecutionError(tr("Only a pending order can be cancelled"), 409, "not_pending")
     if bridge is None or not bridge.cancellable:
@@ -414,11 +420,6 @@ def cancel(db: Session, settings: AccountSettings, box, execution: Execution) ->
             tr("Orders sent this way cannot be cancelled from Trading OS - cancel it on your platform"),
             409,
             "not_cancellable",
-        )
-    response = execution.response or {}
-    if execution.bridge == "mt_bridge" and response.get("delivered_at"):
-        raise ExecutionError(
-            tr("The MetaTrader terminal already has this order - cancel it in MetaTrader"), 409, "delivered"
         )
     account = db.get(TradingAccount, execution.account_id)
     if execution.bridge in ("paper", "mt_bridge"):
