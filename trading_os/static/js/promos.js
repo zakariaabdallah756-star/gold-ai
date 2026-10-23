@@ -291,7 +291,7 @@ function buildCarousel(container, data) {
       teardown(); // the page was replaced without calling the cleanup
       return;
     }
-    go(index + 1, { auto: true });
+    go(index + 1);
   }
 
   function pause(reason) {
@@ -316,7 +316,7 @@ function buildCarousel(container, data) {
 
   function onKey(event) {
     if (event.target.closest("input, textarea, select")) return;
-    if (section.contains(document.activeElement)) pauses.add("focus"); // keyboard use inside: stop rotating
+    if (section.contains(document.activeElement)) pause("focus"); // keyboard use inside: stop rotating
     const moves = { ArrowLeft: index - 1, ArrowRight: index + 1, Home: 0, End: promos.length - 1 };
     if (!(event.key in moves) || promos.length < 2) return;
     event.preventDefault();
@@ -347,7 +347,7 @@ function buildCarousel(container, data) {
     }
   }
 
-  function go(target, { auto = false } = {}) {
+  function go(target) {
     if (!promos.length) return;
     index = (target + promos.length) % promos.length;
     const focusInSlide = track.contains(document.activeElement);
@@ -363,7 +363,6 @@ function buildCarousel(container, data) {
     running = false;
     remaining = intervalMs;
     restartProgress();
-    section.classList.toggle("is-auto", auto);
     sync();
   }
 

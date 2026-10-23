@@ -23,6 +23,19 @@ const LIMITS = { title: 80, body: 300, cta_label: 40, cta_url: 500, code: 40 };
 const MIN_INTERVAL = 3;
 const MAX_INTERVAL = 60;
 
+let fieldIds = 0;
+
+/** dom.field() with its label tied to the control inside (for screen readers and click-to-focus). */
+function labelled(label, control, options) {
+  const el = field(label, control, options);
+  const target = control.matches("input, select, textarea") ? control : control.querySelector("input, select, textarea");
+  if (target) {
+    target.id ||= `pe-field-${++fieldIds}`;
+    el.querySelector("label").htmlFor = target.id;
+  }
+  return el;
+}
+
 const isRoute = (url) => /^#\/[\w\-./?=&%]*$/.test(url);
 const isHttps = (url) => /^https:\/\/[^\s@/]+[^\s]*$/i.test(url);
 
@@ -62,7 +75,7 @@ export async function renderPromoSettings(container) {
         "div",
         { class: "pe-settings" },
         h("label", { class: "pe-switch" }, enabled, h("span", { class: "pe-switch-track", "aria-hidden": "true" }), h("span", {}, t("Show the carousel on the dashboard"))),
-        field(t("Rotate every (seconds)"), interval, { help: t("{min}–{max} seconds", { min: MIN_INTERVAL, max: MAX_INTERVAL }) }),
+        labelled(t("Rotate every (seconds)"), interval, { help: t("{min}–{max} seconds", { min: MIN_INTERVAL, max: MAX_INTERVAL }) }),
       ),
       hiddenCount
         ? h(
@@ -237,13 +250,13 @@ export async function renderPromoSettings(container) {
       setTheme(PROMO_THEMES[(i + step + PROMO_THEMES.length) % PROMO_THEMES.length], true);
     }
 
-    const partnerField = field(t("Partner"), partnerSelect);
-    const codeField = field(t("Discount code"), codeInput, { help: t("Only a code you received yourself. Check the current terms on the firm's website.") });
+    const partnerField = labelled(t("Partner"), partnerSelect);
+    const codeField = labelled(t("Discount code"), codeInput, { help: t("Only a code you received yourself. Check the current terms on the firm's website.") });
     const discountNote = h("div", { class: "pe-note warn full" }, icon("alert"), h("span", {}, t("Type the code and the offer exactly as the firm gave them to you. Trading OS never suggests codes or offers.")));
     const builtinNote = v.builtin_key ? h("div", { class: "pe-note full" }, icon("info"), h("span", {}, t("Built-in announcement: its texts follow the app language until you change them."))) : null;
-    const titleField = field(t("Title"), h("div", { class: "stack", style: { gap: "2px" } }, titleInput, counter(titleInput, LIMITS.title)), { full: true });
-    const bodyField = field(t("Text"), h("div", { class: "stack", style: { gap: "2px" } }, bodyInput, counter(bodyInput, LIMITS.body)), { full: true });
-    const urlField = field(t("Button link"), h("div", { class: "stack", style: { gap: "4px" } }, urlInput, urlError), { full: true });
+    const titleField = labelled(t("Title"), h("div", { class: "stack", style: { gap: "2px" } }, titleInput, counter(titleInput, LIMITS.title)), { full: true });
+    const bodyField = labelled(t("Text"), h("div", { class: "stack", style: { gap: "2px" } }, bodyInput, counter(bodyInput, LIMITS.body)), { full: true });
+    const urlField = labelled(t("Button link"), h("div", { class: "stack", style: { gap: "4px" } }, urlInput, urlError), { full: true });
     const urlHelp = h("div", { class: "help" });
     urlField.append(urlHelp);
 
@@ -389,11 +402,11 @@ export async function renderPromoSettings(container) {
       bodyField,
       codeField,
       discountNote,
-      field(t("Button label"), labelInput),
+      labelled(t("Button label"), labelInput),
       urlField,
       h("div", { class: "field full" }, h("span", { class: "label" }, t("Colour")), themes),
-      field(t("Show from"), startsInput),
-      field(t("Show until"), endsInput),
+      labelled(t("Show from"), startsInput),
+      labelled(t("Show until"), endsInput),
       h("label", { class: "check full" }, activeBox, t("Shown in the carousel")),
     );
     partnerField.classList.add("full");
