@@ -1,6 +1,7 @@
 """REST API routers."""
 
 from . import (
+    academy,
     accounts,
     alerts,
     analytics,
@@ -9,6 +10,7 @@ from . import (
     checklist,
     execution,
     i18n,
+    learner,
     network,
     news,
     notifications,
@@ -41,6 +43,8 @@ routers = [
     analytics.router,
     vision.router,
     backtest.router,
+    academy.router,
+    learner.router,
     prop.router,
     partners.router,
     promos.router,

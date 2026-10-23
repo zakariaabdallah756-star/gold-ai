@@ -61,7 +61,8 @@ def update_settings(client, **changes) -> dict:
 @pytest.fixture(autouse=True)
 def _no_network_lookups(monkeypatch):
     """The suite never looks up this computer's LAN addresses or name: tests that need them set their own."""
-    from trading_os.services import network
+    from trading_os.services import academy, network
 
     monkeypatch.setattr(network, "lan_addresses", lambda: ())
     monkeypatch.setattr(network, "machine_names", lambda: ("tradingpc", "tradingpc.local"))
+    monkeypatch.setattr(academy, "fetch_oembed", lambda url: None)  # nor YouTube: tests that need titles set them

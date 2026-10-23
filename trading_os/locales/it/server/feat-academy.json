@@ -1,0 +1,23 @@
+{
+  "New in v1.6: Trading Academy and AI Strategy Learner": "Novità della v1.6: Trading Academy e AI Strategy Learner",
+  "Collect YouTube lessons by topic with private notes and progress, then turn a strategy description or a video transcript into an incubator draft ready for backtesting.": "Raccogli le lezioni di YouTube per argomento, con note private e avanzamento, poi trasforma la descrizione di una strategia o la trascrizione di un video in una bozza dell'incubatore pronta per il backtest.",
+  "Open the Academy": "Apri l'Academy",
+  "Only YouTube links can be added (youtube.com or youtu.be)": "Puoi aggiungere solo link di YouTube (youtube.com o youtu.be)",
+  "Paste a YouTube link": "Incolla un link di YouTube",
+  "Paste the link of a YouTube video or playlist (not a channel or search page)": "Incolla il link di un video o di una playlist di YouTube (non di un canale o di una ricerca)",
+  "Psychology": "Psicologia",
+  "Risk Management": "Gestione del rischio",
+  "Strategies": "Strategie",
+  "Send every video of {topic} exactly once": "Invia ogni video di {topic} una sola volta",
+  "That YouTube playlist link is incomplete": "Il link della playlist di YouTube è incompleto",
+  "That YouTube video link is incomplete": "Il link del video di YouTube è incompleto",
+  "That does not look like a YouTube link": "Non sembra un link di YouTube",
+  "This one is already in the Academy: {title} ({topic})": "È già nell'Academy: {title} ({topic})",
+  "Watch later and Liked videos are private lists: share a public playlist instead": "«Guarda più tardi» e «Video che mi piacciono» sono elenchi privati: condividi invece una playlist pubblica",
+  "YouTube playlist": "Playlist di YouTube",
+  "YouTube video": "Video di YouTube",
+  "trading discipline routine journal": "disciplina trading routine diario",
+  "trading psychology": "psicologia del trading",
+  "trading risk management position sizing": "gestione del rischio trading dimensione posizione",
+  "trading strategy backtest": "strategia di trading backtest"
+}

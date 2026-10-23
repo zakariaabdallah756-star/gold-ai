@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from ..constants import AI_EFFORTS, AI_MODELS
+from ..constants import AI_EFFORTS, AI_FALLBACK_MODELS, AI_MODELS
 from ..models import AccountSettings
 from .i18n import N_, tr
 
@@ -47,6 +47,9 @@ CREDENTIAL_ENV_VARS = (
     "ANTHROPIC_IDENTITY_TOKEN",
     "ANTHROPIC_IDENTITY_TOKEN_FILE",
 )
+
+
+FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
 class AIUnavailable(RuntimeError):
@@ -200,3 +203,22 @@ def models_catalog() -> list[dict[str, Any]]:
 
 def efforts_catalog() -> list[dict[str, str]]:
     return [{"id": effort, "description": tr(EFFORT_INFO[effort])} for effort in AI_EFFORTS]
+
+
+def with_fallbacks(params: dict[str, Any], model: str) -> dict[str, Any]:
+    """Server-side refusal fallback for the models that support it."""
+    if model in AI_FALLBACK_MODELS:
+        params["betas"] = [FALLBACK_BETA]
+        params["fallbacks"] = "default"
+    return params
+
+
+def final_text(final: Any) -> str:
+    """The response text. After a mid-output refusal fallback the fallback model continues the declined
+    model's partial text, so the text blocks are joined without separators."""
+    return "".join(block.text for block in final.content if block.type == "text")
+
+
+def served_model(final: Any, requested: str) -> str:
+    """The model that produced the response (differs from the request after a refusal fallback)."""
+    return getattr(final, "model", None) or requested

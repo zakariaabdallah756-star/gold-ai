@@ -20,7 +20,7 @@ const STATUS = {
   no_partner: { cls: "bad", label: N_("No partner") },
 };
 const LIMITS = { title: 80, body: 300, cta_label: 40, cta_url: 500, code: 40 };
-const MIN_INTERVAL = 3;
+const MIN_INTERVAL = 3; // the same limits as autoplay.js and the server
 const MAX_INTERVAL = 60;
 
 let fieldIds = 0;

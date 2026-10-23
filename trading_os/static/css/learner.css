@@ -1,0 +1,92 @@
+/* AI Strategy Learner (v1.6): the incubator's second tab. Uses the tokens defined in app.css. */
+
+.tabs button .icon { width: 14px; height: 14px; margin-right: 6px; vertical-align: -2px; }
+
+.ln-head { display: flex; justify-content: space-between; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.ln-head-main { display: flex; gap: 14px; align-items: flex-start; flex: 1 1 420px; min-width: 0; }
+.ln-head-main h2 { margin: 0 0 4px; font-size: 17px; }
+.ln-head-main p { margin: 0; max-width: 720px; }
+.ln-head-icon {
+  flex: none; display: grid; place-items: center; width: 44px; height: 44px; border-radius: 12px;
+  background: linear-gradient(135deg, rgba(57, 135, 229, 0.3), rgba(155, 116, 232, 0.25)); border: 1px solid var(--border-strong);
+}
+.ln-head-icon .icon { width: 22px; height: 22px; color: #b8c9ff; }
+.ln-head-side { display: grid; gap: 8px; justify-items: end; }
+.ln-head-side select { max-width: 260px; }
+.ln-head-side .row { flex-wrap: nowrap; }
+.ln-head-side .badge .icon { width: 12px; height: 12px; }
+a.badge:hover { text-decoration: none; filter: brightness(1.15); }
+
+.ln-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); gap: 16px; align-items: start; }
+.ln-chat, .ln-draft { min-width: 0; }
+.ln-chat .card-head h2, .ln-draft .card-head h2 { display: inline-flex; align-items: center; gap: 8px; }
+.ln-chat .card-head h2 .icon, .ln-draft .card-head h2 .icon { width: 16px; height: 16px; color: var(--muted); }
+
+.ln-messages { display: flex; flex-direction: column; gap: 10px; max-height: 520px; overflow-y: auto; margin-bottom: 12px; padding: 2px; }
+.ln-msg { max-width: 92%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); }
+.ln-msg.mine { align-self: flex-end; background: var(--accent-wash); border-color: rgba(57, 135, 229, 0.3); border-bottom-right-radius: 4px; }
+.ln-msg.theirs { align-self: flex-start; border-bottom-left-radius: 4px; }
+.ln-msg-meta { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; margin-bottom: 6px; }
+.ln-msg-meta .badge .icon { width: 12px; height: 12px; }
+.ln-msg-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; font-size: 13px; color: var(--text); }
+.ln-msg-text.clamped { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.ln-more { margin-top: 4px; padding-left: 0; }
+.ln-start { display: grid; gap: 8px; justify-items: start; padding: 4px 0 14px; }
+.ln-start p { margin: 0; }
+.ln-error { margin: 0 0 12px; align-items: flex-start; }
+.ln-lesson {
+  display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; margin: 0 0 12px;
+  padding: 10px 12px; border-radius: var(--radius-sm); background: var(--accent-wash); border: 1px solid rgba(57, 135, 229, 0.3);
+}
+.ln-lesson > .icon { width: 18px; height: 18px; color: var(--accent); }
+.ln-lesson p { margin: 2px 0 0; }
+@media (max-width: 640px) { .ln-lesson { grid-template-columns: auto minmax(0, 1fr); } .ln-lesson > .btn { grid-column: 1 / -1; justify-self: start; } }
+.ln-error ul { margin: 6px 0 0; }
+
+.ln-composer { display: grid; gap: 8px; }
+.ln-composer-top, .ln-composer-foot { gap: 8px; align-items: center; flex-wrap: wrap; }
+.ln-composer .spacer { flex: 1; }
+.ln-input { width: 100%; resize: vertical; line-height: 1.5; }
+.ln-engine { width: auto; }
+.ln-input-info.bad { color: var(--critical-text); }
+
+.ln-form { margin-bottom: 4px; }
+.ln-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.ln-chip {
+  padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--surface-2);
+  color: var(--text-2); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.ln-chip:hover { color: var(--text); }
+.ln-chip.on { background: var(--accent-wash); border-color: rgba(57, 135, 229, 0.6); color: var(--text); }
+.ln-confluences { display: grid; gap: 6px; }
+.ln-confluence { display: grid; grid-template-columns: minmax(0, 1.2fr) auto minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
+.ln-confluence > .badge:empty { display: none; }
+.ln-required { display: inline-flex; gap: 5px; align-items: center; font-size: 12.5px; color: var(--text-2); white-space: nowrap; }
+.ln-confluences > .btn { justify-self: start; }
+
+.ln-checks { display: grid; gap: 10px; margin: 6px 0 12px; }
+.ln-checks:empty { display: none; }
+.ln-list { padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+.ln-list strong { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; }
+.ln-list strong .icon { width: 14px; height: 14px; }
+.ln-list ul { margin: 6px 0 0; padding-left: 18px; color: var(--text-2); font-size: 12.5px; }
+.ln-list.warn { background: var(--warning-wash); border-color: rgba(250, 178, 25, 0.3); }
+.ln-list.warn strong { color: var(--warning); }
+.ln-list.bad { background: var(--critical-wash); border-color: rgba(208, 59, 59, 0.35); }
+.ln-list.bad strong { color: var(--critical-text); }
+.ln-create { display: grid; gap: 10px; padding-top: 12px; border-top: 1px solid var(--border); }
+.ln-create p { margin: 0; }
+.ln-draft.is-busy { opacity: 0.6; transition: opacity 0.2s; }
+.ln-steps { margin: 4px 0 0; padding-left: 20px; color: var(--text-2); display: grid; gap: 6px; }
+
+@media (max-width: 1100px) {
+  .ln-layout { grid-template-columns: minmax(0, 1fr); }
+  .ln-messages { max-height: 380px; }
+}
+@media (max-width: 640px) {
+  .ln-head-side { justify-items: start; width: 100%; }
+  .ln-head-side select { max-width: 100%; }
+  .ln-confluence { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .ln-confluence > input:nth-of-type(2) { grid-column: 1 / -1; grid-row: 2; }
+  .ln-msg { max-width: 100%; }
+}

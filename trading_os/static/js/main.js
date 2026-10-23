@@ -9,6 +9,7 @@ import { N_, t, tn, useLanguage } from "./i18n.js";
 import { autoOpenOnboarding, openOnboarding } from "./onboarding.js";
 import { accountNow, accounts, activeAccount, loadPlan, loadStatus, onStatus, state } from "./state.js";
 import { renderTopbar } from "./topbar.js";
+import * as academy from "./views/academy.js";
 import * as tradingAccounts from "./views/accounts.js";
 import * as alerts from "./views/alerts.js";
 import * as backup from "./views/backup.js";
@@ -39,6 +40,7 @@ const ROUTES = [
   { path: "review", label: N_("Review"), icon: "review", view: review, group: N_("Improve") },
   { path: "incubator", label: N_("Incubator"), icon: "flame", view: incubator, group: N_("Improve") },
   { path: "prop", label: N_("Prop Firm"), icon: "shield", view: prop, group: N_("Improve") },
+  { path: "academy", label: N_("Academy"), icon: "graduation", view: academy, group: N_("Learning & Growth") },
   { path: "accounts", label: N_("Trading Accounts"), icon: "wallet", view: tradingAccounts, group: N_("Setup") },
   { path: "plan", label: N_("Trading Plan"), icon: "plan", view: plan, group: N_("Setup") },
   { path: "partners", label: N_("Partners"), icon: "star", view: partners, group: N_("Setup") },

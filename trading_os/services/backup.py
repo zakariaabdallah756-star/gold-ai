@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from .. import __version__
 from ..models import (
+    AcademyVideo,
     AccountCredential,
     AccountSettings,
     AlertRule,
@@ -31,6 +32,7 @@ from ..models import (
     Confluence,
     DailyReview,
     Execution,
+    LearnerSession,
     Market,
     MistakeType,
     NewsEvent,
@@ -52,9 +54,9 @@ from ..models import (
 from . import accounts, uploads
 from .i18n import tr
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 # Older backups restore fine: missing tables/columns fall back to defaults.
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5)
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6)
 # Secrets that stay on this machine: never exported, kept as-is on restore.
 # (Notification channels and pushed candles are not part of backups at all.)
 PRIVATE_COLUMNS = {
@@ -114,6 +116,8 @@ MODELS = (
     NotificationLog,
     StrategyAlert,
     Execution,
+    AcademyVideo,
+    LearnerSession,
 )
 
 CSV_COLUMNS = (

@@ -54,6 +54,12 @@ const STEPS = [
     text: N_("The Dashboard, Calendar and Review show where your edge comes from: by strategy, session, weekday and hour. Test new strategies in the Incubator before they go live."),
   },
   {
+    icon: "graduation",
+    route: "#/academy",
+    title: N_("Academy and AI Strategy Learner"),
+    text: N_("Collect YouTube lessons by topic in the Academy, mark them as completed and keep private notes. In the Incubator, the AI Strategy Learner turns your rules or a video transcript into a strategy draft ready for backtesting."),
+  },
+  {
     icon: "shield",
     route: "#/prop",
     title: N_("Prop firm tracking"),
