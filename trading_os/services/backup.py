@@ -43,6 +43,7 @@ from ..models import (
     Screenshot,
     Strategy,
     StrategyAlert,
+    StrategyBinding,
     Trade,
     TradeEvent,
     TradeTarget,
@@ -54,9 +55,9 @@ from ..models import (
 from . import accounts, uploads
 from .i18n import tr
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 # Older backups restore fine: missing tables/columns fall back to defaults.
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6)
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7)
 # Secrets that stay on this machine: never exported, kept as-is on restore.
 # (Notification channels and pushed candles are not part of backups at all.)
 PRIVATE_COLUMNS = {
@@ -115,6 +116,7 @@ MODELS = (
     VisionMessage,
     NotificationLog,
     StrategyAlert,
+    StrategyBinding,
     Execution,
     AcademyVideo,
     LearnerSession,

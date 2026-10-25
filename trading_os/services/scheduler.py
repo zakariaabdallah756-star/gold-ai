@@ -53,6 +53,7 @@ class Job:
 class Scheduler:
     def __init__(self, session_factory: sessionmaker[Session]):
         self.session_factory = session_factory
+        self.secrets = None  # SecretBox, attached by the app so jobs can reach account credentials
         self._jobs: dict[str, Job] = {}
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None

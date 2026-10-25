@@ -640,7 +640,7 @@ def test_strategy_alerts_and_background_jobs_never_send_orders():
                 importers.add(where)
             elif node.level == 1 and not module and "execution" in names and path.parent.name == "services":
                 importers.add(path.relative_to(package).as_posix())
-    assert importers == {"api/execution.py"}, importers
+    assert importers == {"api/execution.py", "services/auto_execute.py"}, importers
 
 
 def test_bridges_never_keep_secrets_in_what_they_store():

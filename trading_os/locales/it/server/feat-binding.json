@@ -1,0 +1,20 @@
+{
+  "Auto order blocked: {symbol}": "Ordine automatico bloccato: {symbol}",
+  "Auto order failed: {symbol}": "Ordine automatico non riuscito: {symbol}",
+  "Auto order sent: {symbol} {direction}": "Ordine automatico inviato: {symbol} {direction}",
+  "Guardrails blocked it: {codes}": "Le protezioni l'hanno bloccato: {codes}",
+  "Not accepted": "Non accettato",
+  "Order sending is off for this account.": "L'invio ordini è disattivato per questo conto.",
+  "Order sent": "Ordine inviato",
+  "Secrets are unavailable in this context.": "Le credenziali non sono disponibili in questo contesto.",
+  "Switch order sending on for {name} first (Trading Accounts → Connect), then arm automation.": "Attiva prima l'invio ordini per {name} (Conti di trading → Collega), poi arma l'automazione.",
+  "The linked account no longer exists.": "Il conto collegato non esiste più.",
+  "The position size came out as zero at {risk:g}% risk.": "La dimensione della posizione è risultata zero con un rischio del {risk:g}%.",
+  "The pre-market checklist is not done.": "La checklist pre-market non è completata.",
+  "This account is archived.": "Questo conto è archiviato.",
+  "This strategy is already bound to that account": "Questa strategia è già collegata a quel conto",
+  "Today's auto-order limit is reached.": "Il limite di ordini automatici di oggi è stato raggiunto.",
+  "Type the account name exactly ({name}) to let Trading OS place real orders by itself": "Digita esattamente il nome del conto ({name}) per permettere a Trading OS di inviare ordini reali da solo",
+  "automation off": "automazione disattivata",
+  "{symbol} is not one of your markets.": "{symbol} non è uno dei tuoi mercati."
+}

@@ -731,6 +731,10 @@ class Execution(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"), index=True)
     trade_id: Mapped[int | None] = mapped_column(ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
+    # Set when this order was sent automatically by a strategy binding (services.auto_execute).
+    binding_id: Mapped[int | None] = mapped_column(
+        ForeignKey("strategy_bindings.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True)
     bridge: Mapped[str] = mapped_column(String(16))
     symbol: Mapped[str] = mapped_column(String(20))
@@ -812,3 +816,29 @@ class LearnerSession(TimestampMixin, Base):
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True, index=True
     )
+
+
+class StrategyBinding(TimestampMixin, Base):
+    """Binds a strategy to a trading account so its alerts can be sent there automatically (services.auto_execute).
+
+    Automation is off until ``auto_execute`` is armed, which (for a real account) needs the typed account name,
+    and it still needs the account's own order sending switched on. Every auto order passes the full guardrails,
+    the per-binding risk and lot cap, a daily count cap and (optionally) the pre-market checklist.
+    """
+
+    __tablename__ = "strategy_bindings"
+    __table_args__ = (UniqueConstraint("strategy_id", "account_id", name="uq_binding_strategy_account"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(ForeignKey("strategies.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"), index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_execute: Mapped[bool] = mapped_column(Boolean, default=False)  # armed only with the typed account name
+    risk_pct: Mapped[float] = mapped_column(Float, default=1.0)  # risk per auto trade, % of the account's equity
+    max_lots_per_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
+    order_type: Mapped[str] = mapped_column(String(8), default="market")  # market | limit
+    max_trades_per_day: Mapped[int] = mapped_column(Integer, default=3)  # 0 = no extra cap beyond the plan
+    require_checklist: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_auto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # account-local
+    last_result: Mapped[str] = mapped_column(String(300), default="")

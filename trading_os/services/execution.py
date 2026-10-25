@@ -859,6 +859,7 @@ def execution_out(row: Execution) -> dict:
         "id": row.id,
         "account_id": row.account_id,
         "trade_id": row.trade_id,
+        "binding_id": row.binding_id,  # set when this order was placed automatically by a strategy binding
         "bridge": row.bridge,
         "symbol": row.symbol,
         "broker_symbol": row.broker_symbol,

@@ -61,6 +61,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.state.session_factory = session_factory
     app.state.scheduler = scheduler
     app.state.secrets = SecretBox(config.data_dir)  # trading account secrets (services.secrets_store)
+    scheduler.secrets = app.state.secrets  # background auto-execution reaches credentials through the scheduler
 
     for router in routers:
         app.include_router(router)

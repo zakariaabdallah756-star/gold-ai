@@ -6,6 +6,7 @@ import { clear, confirmDialog, field, h, icon, modal, numberOrNull, segmented, t
 import { fmt, pnlClass, toInputDateTime } from "../format.js";
 import { N_, t, tn } from "../i18n.js";
 import { accountNow, loadPlan, state } from "../state.js";
+import { mountBindingCard } from "./binding.js";
 import { mountLearner } from "./learner.js";
 
 // Shown with t(); "incubator" is the stored status of a strategy that is still being tested.
@@ -364,6 +365,8 @@ export async function render(root, { params }) {
     const equity = chartCard(t("Hypothetical equity"), t("{risk} per 1R from {start}", { risk: fmt.money(report.risk_per_trade), start: fmt.money(m.start_equity) }), (canvas) => equityChart(canvas, report.equity_curve));
     const dist = chartCard(t("R-multiple distribution"), t("{wins} wins · {losses} losses · {breakeven} breakeven", { wins: m.wins, losses: m.losses, breakeven: m.breakeven }), (canvas) => distributionChart(canvas, report.distribution));
     charts = m.trades ? [equity, dist] : [];
+    const bindingHost = h("div", {});
+    mountBindingCard(bindingHost, strategy.id).catch(() => {}); // never breaks the page if accounts fail to load
 
     const tradeRows = [...trades].reverse().map((bt) =>
       h(
@@ -428,6 +431,7 @@ export async function render(root, { params }) {
       ),
       m.trades ? h("div", { class: "grid cols-2" }, equity.card, dist.card) : null,
       comparisonCard(report),
+      bindingHost,
       h(
         "div",
         { class: "card" },
