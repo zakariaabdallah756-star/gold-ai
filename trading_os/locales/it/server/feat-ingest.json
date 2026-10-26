@@ -1,0 +1,9 @@
+{
+  "Give the side as buy/sell (or long/short)": "Indica il lato con buy/sell (oppure long/short)",
+  "Give the symbol": "Indica il simbolo",
+  "Invalid or missing API token": "Token API non valido o assente",
+  "Send a signal message (text) or at least a symbol and side": "Invia un messaggio di segnale (testo) o almeno un simbolo e un lato",
+  "Set an API token before turning ingestion on": "Imposta un token API prima di attivare l'acquisizione",
+  "Signal ingestion is turned off": "L'acquisizione dei segnali è disattivata",
+  "The token is too short (at least {n} characters)": "Il token è troppo corto (almeno {n} caratteri)"
+}

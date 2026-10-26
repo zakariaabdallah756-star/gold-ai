@@ -13,12 +13,31 @@ const AUTO_STATUS = { executed: "good", blocked: "bad", error: "bad", skipped: "
 
 export async function render(root) {
   let status = await api.get("/api/telegram/status");
+  let ingest = await api.get("/api/ingest/status");
   let signals = (await api.get("/api/telegram/signals")).items;
   let busy = false;
 
   async function reload() {
-    [status, signals] = await Promise.all([api.get("/api/telegram/status"), api.get("/api/telegram/signals").then((r) => r.items)]);
+    [status, ingest, signals] = await Promise.all([
+      api.get("/api/telegram/status"),
+      api.get("/api/ingest/status"),
+      api.get("/api/telegram/signals").then((r) => r.items),
+    ]);
     draw();
+  }
+
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Plain http on the LAN has no clipboard API: fall back to a temporary selection.
+      const area = h("textarea", { value: text, readonly: true, style: { position: "fixed", opacity: "0" } });
+      document.body.append(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+    toast(t("Copied"), "success", 1800);
   }
 
   async function pollNow(button) {
@@ -106,6 +125,64 @@ export async function render(root) {
     if (!status.enabled) return h("span", { class: "badge" }, icon("pause"), t("Paused"));
     const when = status.last_ok_at ? fmt.datetime(status.last_ok_at) : t("not yet");
     return h("span", { class: "badge good", title: t("Last check: {when}", { when }) }, icon("wifi"), t("Listening"));
+  }
+
+  // -------------------------------------------------------------- external API card
+
+  function showToken(token) {
+    const ref = modal({
+      title: t("Your API token"),
+      body: h(
+        "div",
+        { class: "stack", style: { gap: "12px" } },
+        h("div", { class: "banner warn" }, icon("alert"), h("div", {}, t("Copy it now — it is shown only once. Anyone with this token can post signals, so keep it secret."))),
+        h("div", { class: "exec-code" }, h("code", {}, token), h("button", { type: "button", class: "btn sm", title: t("Copy"), "aria-label": t("Copy"), onclick: () => copyText(token) }, icon("copy"))),
+      ),
+      footer: [h("button", { class: "btn primary", type: "button", onclick: () => ref.close() }, t("Close"))],
+    });
+  }
+
+  function apiCard() {
+    const endpoint = `${location.origin}${ingest.endpoint}`;
+    const enable = h("input", { type: "checkbox", role: "switch", checked: ingest.enabled, disabled: !ingest.token_set });
+    enable.addEventListener("change", async () => {
+      try {
+        await api.put("/api/ingest/enabled", { enabled: enable.checked });
+        await reload();
+      } catch (error) {
+        toast(error.message, "error");
+        enable.checked = !enable.checked;
+      }
+    });
+    const generate = h("button", { class: "btn primary sm", type: "button" }, icon("key"), ingest.token_set ? t("Regenerate token") : t("Generate token"));
+    generate.addEventListener("click", async () => {
+      generate.disabled = true;
+      try {
+        const result = await api.post("/api/ingest/token/generate");
+        await reload();
+        showToken(result.token);
+      } catch (error) {
+        toast(error.message, "error");
+      } finally {
+        generate.disabled = false;
+      }
+    });
+    const remove = ingest.token_set
+      ? h("button", { class: "btn ghost sm", type: "button", onclick: async () => { await api.post("/api/ingest/token", { token: "" }); toast(t("Token removed"), "success"); reload(); } }, t("Remove"))
+      : null;
+
+    return h(
+      "div",
+      { class: "card tg-setup" },
+      h("div", { class: "card-head" }, h("div", {}, h("h2", {}, icon("link"), t("External signal API")), h("p", {}, t("Let a bridge or bot post signals to Trading OS over HTTP. Signals arrive on this page and follow the same auto-execution arming below. Protected by a secret token sent as a Bearer header."))), ingest.enabled ? h("span", { class: "badge good" }, t("On")) : h("span", { class: "badge" }, t("Off"))),
+      h("div", { class: "tg-row" }, field(t("Endpoint"), h("div", { class: "exec-code" }, h("code", {}, endpoint), h("button", { type: "button", class: "btn sm", title: t("Copy"), "aria-label": t("Copy"), onclick: () => copyText(endpoint) }, icon("copy"))), { full: true })),
+      h(
+        "div",
+        { class: "tg-row" },
+        field(t("Access token"), h("div", { class: "row" }, generate, remove, ingest.token_set ? h("span", { class: "muted small" }, t("Set (····{hint})", { hint: ingest.token_hint || "" })) : h("span", { class: "muted small" }, t("No token yet")))),
+      ),
+      h("label", { class: "row tg-check" }, enable, t("Accept incoming signals")),
+    );
   }
 
   // ------------------------------------------------------------------- auto card
@@ -202,7 +279,8 @@ export async function render(root) {
       root,
       h("div", { class: "page-head" }, h("div", {}, h("h1", {}, t("Telegram signals")), h("p", {}, t("Capture trading signals from Telegram and act on them in the Signals page")))),
       setupCard(),
-      status.token_set ? autoCard() : null,
+      apiCard(),
+      status.token_set || ingest.token_set ? autoCard() : null,
       signalsCard(),
     );
   }

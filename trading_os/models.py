@@ -132,6 +132,12 @@ class AccountSettings(TimestampMixin, Base):
     onboarding_video_url: Mapped[str] = mapped_column(String(300), default="")
     onboarding_done: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    # External signal ingestion (v1.8): POST /api/v1/signals/incoming. The token is write-only (sha256 hash,
+    # never exported); ingestion answers only while enabled and a token is set.
+    ingest_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    ingest_token_hash: Mapped[str] = mapped_column(String(64), default="")
+    ingest_token_hint: Mapped[str] = mapped_column(String(8), default="")
+
 
 class Market(TimestampMixin, Base):
     """A tradable instrument and the contract specification used for sizing."""

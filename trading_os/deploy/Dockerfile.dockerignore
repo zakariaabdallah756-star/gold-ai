@@ -1,0 +1,18 @@
+# Keep the build context (the repository root) small and the image clean.
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.git/
+.venv/
+venv/
+trading_os/data/
+trading_os/demo_data/
+trading_os_data/
+**/*.db
+**/*.session
+**/*.session-journal
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+node_modules/
+*.log

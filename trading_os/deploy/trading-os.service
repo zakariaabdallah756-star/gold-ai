@@ -1,0 +1,45 @@
+# Trading OS & Journal — systemd service unit (v1.8), for running the app 24/7 on a Linux VPS without Docker.
+#
+# Install (as root), assuming the repository is cloned at /opt/trading-os and a virtualenv at /opt/trading-os/.venv:
+#   sudo useradd --system --home /opt/trading-os --shell /usr/sbin/nologin tradingos   # once
+#   sudo chown -R tradingos:tradingos /opt/trading-os
+#   sudo cp /opt/trading-os/trading_os/deploy/trading-os.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now trading-os
+# Check it:
+#   systemctl status trading-os
+#   journalctl -u trading-os -f
+
+[Unit]
+Description=Trading OS & Journal (headless)
+Documentation=https://github.com/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tradingos
+Group=tradingos
+WorkingDirectory=/opt/trading-os
+# Edit these to taste; the launch script reads them.
+Environment=TRADING_OS_DATA_DIR=/opt/trading-os/trading_os_data
+Environment=TRADING_OS_PORT=8765
+Environment=TRADING_OS_HOST=0.0.0.0
+# Your domain name(s), comma separated; leave unset for an IP-only server.
+# Environment=TRADING_OS_ALLOWED_HOSTS=trading.example.com
+ExecStart=/opt/trading-os/trading_os/deploy/launch.sh
+Restart=always
+RestartSec=5
+# Let the app keep running if the controlling terminal goes away, and restart on any crash.
+KillSignal=SIGINT
+TimeoutStopSec=20
+
+# Hardening: the service only needs its own data directory to be writable.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/trading-os/trading_os_data
+
+[Install]
+WantedBy=multi-user.target
