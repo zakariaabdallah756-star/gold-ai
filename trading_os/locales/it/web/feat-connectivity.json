@@ -1,0 +1,15 @@
+{
+  "Connections": "Connessioni",
+  "Connections: {state}": "Connessioni: {state}",
+  "Internet": "Internet",
+  "No connection": "Nessuna connessione",
+  "Online": "Online",
+  "Offline": "Offline",
+  "Check connections": "Controlla le connessioni",
+  "Status unavailable": "Stato non disponibile",
+  "no data yet": "ancora nessun dato",
+  "ok {when}": "ok {when}",
+  "paused": "in pausa",
+  "seen {when}": "visto {when}",
+  "waiting": "in attesa"
+}

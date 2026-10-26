@@ -12,6 +12,10 @@ from trading_os.config import load_config
 def client(tmp_path):
     # Background jobs stay off: tests run them on demand with app.state.scheduler.run_now(...).
     app = create_app(dataclasses.replace(load_config(tmp_path / "data"), background_jobs=False))
+    # The connectivity probe never touches the real network in tests (fake "online"); set_probe overrides it.
+    from trading_os.services import connectivity
+
+    app.state.internet_monitor = connectivity.InternetMonitor(probe=lambda: True)
     with TestClient(app, base_url="http://localhost") as test_client:
         yield test_client
 

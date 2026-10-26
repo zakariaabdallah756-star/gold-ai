@@ -16,7 +16,7 @@ from .api import routers
 from .config import STATIC_DIR, AppConfig, load_config
 from .database import create_db_engine, init_db
 from .seed import seed_defaults
-from .services import accounts, alerts, i18n, network, notify, telegram_listener
+from .services import accounts, alerts, connectivity, i18n, network, notify, telegram_listener
 from .services.account import get_settings
 from .services.backup import BackupError
 from .services.scheduler import Scheduler
@@ -63,6 +63,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.state.scheduler = scheduler
     app.state.secrets = SecretBox(config.data_dir)  # trading account secrets (services.secrets_store)
     scheduler.secrets = app.state.secrets  # background auto-execution reaches credentials through the scheduler
+    app.state.internet_monitor = connectivity.InternetMonitor()  # cached best-effort internet reachability
 
     for router in routers:
         app.include_router(router)
