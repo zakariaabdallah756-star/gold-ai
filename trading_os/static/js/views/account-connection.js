@@ -4,7 +4,7 @@
 // orders sent. The server enforces every rule; this panel explains them.
 
 import { api } from "../api.js";
-import { clear, confirmDialog, field, h, icon, modal, select, toast } from "../dom.js";
+import { accordion, clear, confirmDialog, field, h, icon, modal, select, toast } from "../dom.js";
 import { fmt } from "../format.js";
 import { N_, t } from "../i18n.js";
 import { reloadAccounts } from "../state.js";
@@ -404,7 +404,11 @@ export function renderConnection(account, { onSaved } = {}) {
         h("span", { class: `chip ${online ? "ok" : "warn"}` }, icon(online ? "check" : "clock"), t("Last seen: {when}", { when: ago(seen, panel.last_seen_at) })),
       ),
       h("div", { class: "field" }, h("span", { class: "label" }, t("Bridge token")), tokenBox),
-      h(
+      accordion([
+        {
+          title: t("Step-by-step setup guide"),
+          open: true,
+          body: h(
         "ol",
         { class: "exec-steps small" },
         h(
@@ -422,6 +426,8 @@ export function renderConnection(account, { onSaved } = {}) {
         h("li", {}, t("Drag the EA onto one chart, paste the server address and the token in its inputs and switch Algo Trading on.")),
         h("li", {}, h("strong", {}, t("Test on a demo account first.")), " ", t("Then press Test connection here: the EA polls every few seconds.")),
       ),
+        },
+      ]),
       h("div", { class: "small muted" }, t("Poll URL (the EA sends the token in the X-Bridge-Token header):"), codeLine(`${server}/api/bridge/orders`)),
     );
   }

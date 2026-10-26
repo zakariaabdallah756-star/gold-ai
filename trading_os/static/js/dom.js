@@ -196,6 +196,84 @@ export function confirmDialog(message, { title = t("Please confirm"), confirmTex
   });
 }
 
+/**
+ * A slide-over drawer (``side``: "left" | "right" | "bottom"). ``title`` draws a header with a close button;
+ * ``body`` is the content. Returns {el, close}. Escape and a tap on the scrim close it; focus is restored.
+ */
+export function drawer({ title = "", body, side = "left", onClose, label } = {}) {
+  const previouslyFocused = document.activeElement;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    scrim.classList.remove("open");
+    panel.classList.remove("open");
+    document.removeEventListener("keydown", onKey);
+    document.documentElement.classList.remove("drawer-open");
+    setTimeout(() => scrim.remove(), 200); // after the slide-out transition
+    previouslyFocused?.focus?.();
+    onClose?.();
+  };
+  const onKey = (event) => {
+    if (event.key === "Escape") close();
+  };
+  const panel = h(
+    "div",
+    { class: `drawer drawer-${side}`, role: "dialog", "aria-modal": "true", "aria-label": label || title },
+    title ? h("div", { class: "drawer-head" }, h("h2", {}, title), h("button", { class: "btn ghost icon-only", type: "button", "aria-label": t("Close"), onclick: close }, icon("x"))) : null,
+    h("div", { class: "drawer-body" }, body),
+  );
+  const scrim = h("div", { class: "drawer-scrim", onmousedown: (event) => event.target === scrim && close() }, panel);
+  document.body.append(scrim);
+  document.addEventListener("keydown", onKey);
+  document.documentElement.classList.add("drawer-open");
+  requestAnimationFrame(() => {
+    scrim.classList.add("open");
+    panel.classList.add("open");
+    panel.querySelector("a, button, input, select, textarea")?.focus();
+  });
+  return { el: panel, close };
+}
+
+/**
+ * An accordion of collapsible sections: ``sections`` is [{title, body, open, badge}]. Only the sections' open
+ * state is managed here; the bodies are built by the caller. Returns the container element.
+ */
+export function accordion(sections, { single = false } = {}) {
+  const container = h("div", { class: "accordion" });
+  const panels = sections.filter(Boolean).map((section, index) => {
+    const body = h("div", { class: "accordion-body", role: "region", hidden: !section.open }, section.body);
+    const toggle = h(
+      "button",
+      {
+        type: "button",
+        class: "accordion-toggle",
+        "aria-expanded": String(Boolean(section.open)),
+        onclick: () => set(index, body.hidden),
+      },
+      icon("chevronRight", "icon accordion-caret"),
+      h("span", { class: "accordion-title" }, section.title),
+      section.badge != null ? h("span", { class: "accordion-badge" }, section.badge) : null,
+    );
+    return { el: h("div", { class: "accordion-item" }, toggle, body), toggle, body };
+  });
+
+  function set(index, open) {
+    panels.forEach((panel, i) => {
+      const show = i === index ? open : single ? false : !panel.body.hidden;
+      panel.body.hidden = !show;
+      panel.toggle.setAttribute("aria-expanded", String(show));
+      panel.el.classList.toggle("open", show);
+    });
+  }
+
+  panels.forEach((panel) => {
+    panel.el.classList.toggle("open", Boolean(!panel.body.hidden));
+    container.append(panel.el);
+  });
+  return container;
+}
+
 export function lightbox(src) {
   const box = h("div", { class: "lightbox", onclick: () => box.remove() }, h("img", { src, alt: t("Chart screenshot") }));
   const onKey = (event) => {

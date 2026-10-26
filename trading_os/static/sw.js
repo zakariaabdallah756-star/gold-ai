@@ -1,12 +1,80 @@
-// Trading OS service worker: shows Web Push notifications and opens the app when one is clicked.
-// It does not cache or intercept requests - the app always talks to the live local server.
+// Trading OS service worker: Web Push notifications, and an offline-capable app shell (v1.7).
+//
+// Caching is UI-only. The app shell (HTML, JS, CSS, icons) is cached so Trading OS opens offline or over a flaky
+// connection; it never caches /api/ or /uploads/ (always the live server), so trade data is never stale. Static
+// assets use stale-while-revalidate (fresh copy fetched in the background); navigations are network-first with
+// the cached shell as the offline fallback.
 
 const ICON = "/static/icons/icon-192.png";
 const BADGE = "/static/icons/badge-72.png";
 const API = "/api/notifications/webpush";
 
-self.addEventListener("install", () => self.skipWaiting());
-self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));
+const CACHE = "trading-os-shell-v1";
+const PRECACHE = ["/", "/static/js/main.js", "/static/css/app.css", "/static/manifest.webmanifest"];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    (async () => {
+      const cache = await caches.open(CACHE);
+      await cache.addAll(PRECACHE).catch(() => {}); // a missing asset must never block install
+      self.skipWaiting();
+    })(),
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    (async () => {
+      for (const name of await caches.keys()) {
+        if (name !== CACHE) await caches.delete(name); // drop older shell versions
+      }
+      await self.clients.claim();
+    })(),
+  );
+});
+
+function cacheable(url) {
+  return url.origin === self.location.origin && (url.pathname === "/" || url.pathname.startsWith("/static/"));
+}
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  if (request.method !== "GET") return;
+  const url = new URL(request.url);
+  if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/uploads/") || url.pathname === "/sw.js") return;
+
+  if (request.mode === "navigate") {
+    // Network-first so an upgraded app is served fresh; the cached shell is the offline fallback.
+    event.respondWith(
+      (async () => {
+        try {
+          const response = await fetch(request);
+          if (response.ok) (await caches.open(CACHE)).put("/", response.clone());
+          return response;
+        } catch {
+          return (await caches.match("/")) || Response.error();
+        }
+      })(),
+    );
+    return;
+  }
+
+  if (!cacheable(url)) return;
+  // Stale-while-revalidate: serve the cached asset at once, refresh it in the background.
+  event.respondWith(
+    (async () => {
+      const cache = await caches.open(CACHE);
+      const cached = await cache.match(request);
+      const network = fetch(request)
+        .then((response) => {
+          if (response.ok) cache.put(request, response.clone());
+          return response;
+        })
+        .catch(() => cached);
+      return cached || network;
+    })(),
+  );
+});
 
 function readPayload(event) {
   if (!event.data) return {};
