@@ -275,3 +275,22 @@ def test_bindings_are_in_backups(client):
     restored = client.post("/api/import", files={"file": ("b.json", json.dumps(backup), "application/json")})
     assert restored.status_code == 200, restored.text
     assert client.get(f"/api/bindings/strategy/{strat['id']}").json()["binding"]["auto_execute"] is True
+
+
+def test_the_background_scanner_job_auto_executes(client, monkeypatch):
+    # The real alert-scanner job (register_jobs closure) must call auto_execute with the scheduler's secret box.
+    from trading_os.services import alerts
+
+    acct, _strat, binding = armed_paper(client)
+    client.put("/api/alerts/scanner", json={"enabled": True, "interval_sec": 60})
+    alert_id = make_alert(client)
+    # Stand in for a real scan that found one setup for the bound strategy.
+    monkeypatch.setattr(
+        alerts,
+        "scan",
+        lambda db, settings, now, rule_ids=None: [{"status": "alert", "alert_id": alert_id, "symbol": "XAUUSD"}],
+    )
+    summary = client.app.state.scheduler.run_now("alert-scanner").last_result
+    assert summary and summary.get("auto") and summary["auto"][0]["status"] == "executed"
+    rows = executions(client)
+    assert len(rows) == 1 and rows[0].binding_id == binding["id"]

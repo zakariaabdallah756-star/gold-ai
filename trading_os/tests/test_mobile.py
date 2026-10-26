@@ -4,7 +4,6 @@ The interactive parts run in a real browser at phone width (skipped without Play
 worker is checked by serving it and asserting its caching contract, which needs no browser.
 """
 
-
 from .browser import browser_page  # noqa: F401 - pytest fixture
 
 

@@ -9,15 +9,19 @@ actually have an edge. On top of that there are a strategy incubator for
 backtests (with an AI Strategy Learner that turns your rules or a video transcript
 into a testable strategy), a prop-firm challenge tracker, a Trading Academy for
 your own YouTube lessons, an optional AI chart assistant, a strategy alert engine
-that scans the market for your setups, and push notifications to your phone.
+that scans the market for your setups, optional guarded auto-execution of a bound
+strategy's alerts on a linked account, a Telegram signal listener, and push
+notifications to your phone. It installs as a phone-friendly web app (PWA) with a
+bottom navigation and slide-over drawers.
 
 Everything runs on your machine. Data lives in one SQLite file plus a
 screenshots folder, and there are no accounts or telemetry. The only network
 calls are the optional ones you set up yourself: Vision AI and the Strategy
 Learner (Claude), the economic calendar import, market data for strategy alerts,
 your notification channels, YouTube videos you add to the Academy (played with
-YouTube's privacy-enhanced player, titles looked up when you leave them blank)
-and connected trading accounts.
+YouTube's privacy-enhanced player, titles looked up when you leave them blank),
+connected trading accounts, the Telegram signal listener (your own bot) and a
+small, best-effort reachability probe for the connectivity indicator.
 
 > **Risk warning.** Trading involves substantial risk of loss and is not
 > suitable for everyone. Content and tools are for organizational and
@@ -142,6 +146,13 @@ On first launch the guide opens by itself once the risk disclaimer has been acce
 - Edge breakdown by asset, strategy, session, emotion, direction, confluence, mistake, weekday and compliance.
 - Filters: date range, asset, strategy, session and direction.
 - **Export PDF** creates a performance report for the current filters.
+- A connectivity indicator in the top bar shows internet, the Telegram listener and each sending account at a glance.
+
+**Telegram signals.** Capture trading signals from Telegram with your own bot (Bot API only).
+- Create a bot with @BotFather, paste its token (encrypted on this computer, never exported), and add the bot to your signal channel/group or forward signals to it.
+- Each message is parsed (symbol, direction, entry, SL, TP) and listed here. One tap loads a signal into the Signals ticket.
+- It reads only what the bot is sent and **never signs in as you or bypasses a channel's content protection**: messages from a protected chat are skipped (their text is not stored) unless you turn that off.
+- Optional, off by default: auto-execute a clean signal on a chosen account (armed with the typed account name; your guardrails, the per-day cap and the checklist gate all apply).
 
 **Pre-Market.** The daily checklist covers bias, key levels, the news plan and notes. It auto-saves and tracks your streak; until every required item is ticked, new entries stay locked.
 - The **economic calendar** card lists the coming week's releases (NFP, CPI, FOMC, ...) with their impact and guardrail window.
@@ -220,6 +231,11 @@ The journal has search, filters, sorting, pagination and full CRUD.
 - **Engines.** With Claude set up (*Trading Plan → AI assistant*), the text is read by Claude with a strict output format; the source is treated as data, never as instructions. Without it, a **basic extraction** runs on this computer: it copies the matching sentences (or word windows in captions without punctuation) and never invents a value. Risk numbers stay in the strategy's rules: your plan's limits and guardrails keep applying to every trade.
 - From an Academy lesson, *Turn into a strategy* opens the Learner ready for that video's transcript.
 
+**Bind to account (automatic execution).** On a strategy in the Incubator, *Bind to account* links it to a trading account with its own risk per trade, a max-lots cap and a daily cap.
+- Automation is **off by default**. Arming it for a real account needs the typed account name (paper accounts excepted), and the account's own order sending must already be on.
+- When armed, a scanner alert whose conditions and confluences validate for that strategy is sent as an order on the bound account, sized for it. **Every order passes the same guardrails as a manual trade** (checklist, daily loss, max trades, off-session, news, cool-off, prop rules, max lots); a block sends nothing. One order per alert.
+- Orders are placed only from the alert scanner (manual *Scan now* or the background scanner). Switching the account's order sending off stops automation at once.
+
 **Prop Firm.** Track a funded-account challenge (FTMO, FundedNext presets or custom rules). It shows:
 - profit target progress
 - daily loss used vs limit
@@ -281,6 +297,8 @@ Manage it in *Trading Plan → Promotions*:
 - add announcements, partner cards or discount cards, with a live preview.
 
 Partner cards use the partner's own description and link. Partner and discount cards always show the risk disclaimer. Trading OS never suggests codes or offers: a discount card shows only what you typed. Button links can be app pages (`#/journal`) or `https://` links, which open in a new tab.
+
+**Mobile & install (PWA).** On a phone or tablet the app shows a clean bottom navigation (Dashboard, Signals, a quick-actions button, Positions, Journal) and a *Menu* button that opens a slide-over drawer with every page; dense setup guides collapse into accordions. Served over `https://` (or `localhost`) it can be installed to the home screen and opens offline from a cached app shell — live data still needs the server. See *Open it from your phone or another computer* for serving it on your LAN or a tunnel.
 
 **Backup & Export.** Trades as CSV (Excel-friendly, formula-injection safe), a full JSON backup, and a ZIP with JSON plus screenshots. You can restore from JSON or ZIP; a safety snapshot of the current data is written to `backups/` first. Backups never contain secrets: no AI API key, notification channels, Web Push keys or market data keys. These stay on the machine and are kept as they are on restore.
 
@@ -460,7 +478,7 @@ trading_os/
   seed.py         default plan (markets, sessions, strategies, checklist, mistakes, partners)
   api/            REST routers (plan, accounts, execution, checklist, risk, trades, positions, signals,
                   alerts, news, notifications, reviews, analytics, vision, backtest, academy, learner,
-                  prop, partners, promos, reports, backup, network, i18n)
+                  bindings, telegram, status, prop, partners, promos, reports, backup, network, i18n)
   services/       domain logic
     sizing.py         position sizing & R:R math           (pure)
     guardrails.py     risk rules & day state               (pure)
@@ -481,6 +499,9 @@ trading_os/
     learner.py        AI Strategy Learner: sessions, Claude requests, drafts -> incubator strategies
     learner_extract.py transcript cleaning, the strategy draft, offline rule extraction (pure)
     academy.py        Trading Academy: YouTube link parsing, lessons, progress
+    auto_execute.py   guarded auto-execution of bound strategies' alerts (the one caller of execution)
+    telegram_listener.py  Telegram bot listener: captures and parses signals (Bot API, no bypass)
+    connectivity.py   internet reachability, bridge freshness, Telegram listener state
     vision.py / ai_client.py    Claude chart analysis and Q&A
     reviews.py        post-market reviews               partners.py  partner listings
     report_pdf.py     PDF reports                        disclaimer.py risk disclaimer
@@ -518,4 +539,5 @@ Notes:
 - The server binds to `127.0.0.1` by default. `--lan` listens on every network; set a remote-access password before you do, or use it only on a network you trust (see *Open it from your phone or another computer*).
 - Requests are answered only for `localhost`, IP addresses, the computer's own name and allowed host names, which protects against DNS rebinding. Changes from other websites are refused: a write whose `Origin` or `Sec-Fetch-Site` header shows another site gets 403 (wildcard entries are never trusted as an `Origin`). Scripts that send no `Origin` header, such as the candle push, keep working.
 - A request counts as coming from this computer only when it arrives on a loopback connection, with a `localhost` host name and without proxy or tunnel headers (`X-Forwarded-*`, `Forwarded`, `CF-Connecting-IP`, `Via`, ...). `X-Forwarded-Host` / `X-Forwarded-Proto` are read only from a proxy or tunnel on this computer. The password is stored as a salted scrypt hash and is never included in backups, like the session signing key.
+- The service worker (`static/sw.js`) caches the app shell for offline use and never caches `/api/` or `/uploads/`. The connectivity indicator's internet check is a cached, best-effort TCP reachability probe to a public resolver; tests inject a fake probe so the suite never touches the network.
 - Chart.js 4.4.7 is vendored in `static/vendor/` (MIT, licence included), so the app works offline. PDF reports use ReportLab.
