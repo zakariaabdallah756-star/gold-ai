@@ -1,0 +1,92 @@
+/* Mobile shell (v1.7): bottom navigation, slide-over drawers, accordion, quick actions.
+   Desktop keeps the sidebar; the bottom bar and the drawers appear on narrow screens. */
+
+/* ----------------------------------------------------------------- drawers */
+
+.drawer-scrim {
+  position: fixed; inset: 0; z-index: 80; background: rgba(0, 0, 0, 0); display: flex;
+  transition: background 0.2s ease; -webkit-tap-highlight-color: transparent;
+}
+.drawer-scrim.open { background: rgba(0, 0, 0, 0.5); }
+.drawer {
+  background: var(--surface); border: 1px solid var(--border-strong); display: flex; flex-direction: column;
+  box-shadow: 0 0 60px rgba(0, 0, 0, 0.6); transition: transform 0.2s ease; overscroll-behavior: contain;
+}
+.drawer-left { width: min(86vw, 320px); height: 100%; border-left: 0; border-top: 0; border-bottom: 0; transform: translateX(-104%); }
+.drawer-right { width: min(86vw, 360px); height: 100%; margin-left: auto; border-right: 0; border-top: 0; border-bottom: 0; transform: translateX(104%); }
+.drawer-bottom { width: 100%; max-height: 80vh; margin-top: auto; border-radius: 16px 16px 0 0; border-bottom: 0; transform: translateY(104%); }
+.drawer-left.open, .drawer-right.open { transform: translateX(0); }
+.drawer-bottom.open { transform: translateY(0); }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 10px 10px 16px; border-bottom: 1px solid var(--border); }
+.drawer-head h2 { font-size: 15px; margin: 0; }
+.drawer-body { padding: 12px; overflow-y: auto; }
+.drawer-bottom .drawer-body { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+
+.nav-drawer-group { margin-bottom: 8px; }
+.nav-drawer a {
+  display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px;
+  color: var(--text-2); font-weight: 500;
+}
+.nav-drawer a svg { width: 18px; height: 18px; flex: none; }
+.nav-drawer a:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+.nav-drawer a.active { background: var(--accent-wash); color: var(--text); }
+.nav-drawer a.active svg { color: var(--accent); }
+
+.quick-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.quick-action {
+  display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 18px 10px; text-align: center;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-weight: 600; font-size: 13px;
+}
+.quick-action:hover { background: var(--surface-3); text-decoration: none; }
+.quick-action-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: var(--accent-wash); }
+.quick-action-icon svg { width: 20px; height: 20px; color: var(--accent); }
+
+/* --------------------------------------------------------------- accordion */
+
+.accordion { display: flex; flex-direction: column; gap: 8px; }
+.accordion-item { border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); overflow: hidden; }
+.accordion-toggle {
+  display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 14px; text-align: left;
+  background: none; border: 0; color: var(--text); font: inherit; font-weight: 600; cursor: pointer;
+}
+.accordion-toggle:hover { background: var(--surface-3); }
+.accordion-caret { width: 15px; height: 15px; color: var(--muted); transition: transform 0.15s ease; flex: none; }
+.accordion-item.open .accordion-caret { transform: rotate(90deg); }
+.accordion-title { flex: 1; min-width: 0; }
+.accordion-badge { padding: 1px 8px; border-radius: 10px; background: var(--surface-3); color: var(--muted); font-size: 11.5px; font-weight: 600; }
+.accordion-body { padding: 4px 14px 14px; }
+
+/* ------------------------------------------------------------- bottom nav */
+
+.mobile-nav { display: none; }
+
+@media (max-width: 860px) {
+  /* Replace the horizontal sidebar with a clean bottom bar. */
+  .sidebar { display: none; }
+  .mobile-nav {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 70; display: flex; align-items: stretch;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom, 0px); box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.3);
+  }
+  .mnav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    padding: 8px 2px 7px; min-height: 54px; background: none; border: 0; color: var(--muted); font: inherit; font-size: 10.5px; cursor: pointer;
+  }
+  .mnav-item svg { width: 21px; height: 21px; }
+  .mnav-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mnav-item:hover, .mnav-item.on { color: var(--text); text-decoration: none; }
+  .mnav-item.on svg { color: var(--accent); }
+  .mnav-add {
+    flex: 0 0 auto; margin: -14px 6px 0; width: 50px; min-height: 50px; align-self: center; border-radius: 50%;
+    background: var(--accent); color: #fff; box-shadow: 0 6px 18px rgba(57, 135, 229, 0.5);
+  }
+  .mnav-add svg { width: 24px; height: 24px; }
+  .mnav-add:hover { background: #2a78d6; color: #fff; }
+  .view { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .app-footer { padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .drawer-left, .drawer-right { width: min(90vw, 340px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawer, .drawer-scrim, .accordion-caret { transition: none; }
+}

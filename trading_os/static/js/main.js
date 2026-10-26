@@ -2,7 +2,7 @@
 
 import { ensureAccess } from "./access.js";
 import { api } from "./api.js";
-import { clear, field, h, icon, modal, segmented, toast, withNodes } from "./dom.js";
+import { clear, drawer, field, h, icon, modal, segmented, toast, withNodes } from "./dom.js";
 import { fmt, pnlClass, toInputDateTime } from "./format.js";
 import { mountDisclaimer } from "./disclaimer.js";
 import { N_, t, tn, useLanguage } from "./i18n.js";
@@ -24,6 +24,7 @@ import * as positions from "./views/positions.js";
 import * as prop from "./views/prop.js";
 import * as review from "./views/review.js";
 import * as signals from "./views/signals.js";
+import * as telegram from "./views/telegram.js";
 import * as timeCalendar from "./views/calendar.js";
 import * as vision from "./views/vision.js";
 
@@ -32,6 +33,7 @@ const ROUTES = [
   { path: "premarket", label: N_("Pre-Market"), icon: "checklist", view: checklist, group: N_("Trade") },
   { path: "signals", label: N_("Signals"), icon: "signal", view: signals, group: N_("Trade") },
   { path: "alerts", label: N_("Strategy Alerts"), icon: "bell", view: alerts, group: N_("Trade") },
+  { path: "telegram", label: N_("Telegram"), icon: "send", view: telegram, group: N_("Trade") },
   { path: "vision", label: N_("Vision AI"), icon: "brain", view: vision, group: N_("Trade") },
   { path: "calculator", label: N_("Risk Calculator"), icon: "calculator", view: calculator, group: N_("Trade") },
   { path: "positions", label: N_("Positions"), icon: "layers", view: positions, group: N_("Trade") },
@@ -316,6 +318,97 @@ function buildNav() {
       h("a", { href: `#/${route.path}`, dataset: { path: route.path } }, icon(route.icon), h("span", {}, t(route.label))),
     ]),
   );
+  buildMobileNav();
+}
+
+// The four primary destinations shown in the mobile bottom bar (a "Menu" button opens the rest).
+const MOBILE_PRIMARY = ["dashboard", "signals", "positions", "journal"];
+let navDrawer = null;
+
+function buildMobileNav() {
+  let bar = document.getElementById("mobile-nav");
+  if (!bar) {
+    bar = h("nav", { id: "mobile-nav", class: "mobile-nav", "aria-label": t("Primary") });
+    document.body.append(bar);
+  }
+  const primary = MOBILE_PRIMARY.map((path) => ROUTES.find((r) => r.path === path)).filter(Boolean);
+  clear(
+    bar,
+    primary.slice(0, 2).map(mobileLink),
+    h("button", { type: "button", class: "mnav-item mnav-add", "aria-label": t("Quick actions"), onclick: openQuickActions }, icon("plus")),
+    primary.slice(2).map(mobileLink),
+    h("button", { type: "button", class: "mnav-item", "aria-haspopup": "dialog", onclick: openNavDrawer }, icon("grid"), h("span", {}, t("Menu"))),
+  );
+  highlightMobileNav();
+}
+
+function mobileLink(route) {
+  return h("a", { class: "mnav-item", href: `#/${route.path}`, dataset: { path: route.path } }, icon(route.icon), h("span", {}, t(route.label)));
+}
+
+function highlightMobileNav() {
+  for (const link of document.querySelectorAll("#mobile-nav a")) {
+    const on = link.dataset.path === currentRoute.path;
+    link.classList.toggle("on", on);
+    link.toggleAttribute("aria-current", on);
+  }
+}
+
+function openNavDrawer() {
+  navDrawer?.close();
+  const groups = [];
+  ROUTES.forEach((route, index) => {
+    if (index === 0 || ROUTES[index - 1].group !== route.group) groups.push({ group: route.group, routes: [] });
+    groups[groups.length - 1].routes.push(route);
+  });
+  const body = h(
+    "div",
+    { class: "nav-drawer" },
+    groups.map((g) =>
+      h(
+        "div",
+        { class: "nav-drawer-group" },
+        h("div", { class: "nav-group" }, t(g.group)),
+        g.routes.map((route) =>
+          h(
+            "a",
+            {
+              href: `#/${route.path}`,
+              class: route.path === currentRoute.path ? "active" : "",
+              onclick: () => navDrawer?.close(),
+            },
+            icon(route.icon),
+            h("span", {}, t(route.label)),
+          ),
+        ),
+      ),
+    ),
+  );
+  navDrawer = drawer({ title: "Trading OS", body, side: "left", label: t("Menu"), onClose: () => (navDrawer = null) });
+}
+
+const QUICK_ACTIONS = [
+  { path: "signals", icon: "signal", label: N_("Paste a signal") },
+  { path: "calculator", icon: "calculator", label: N_("Risk calculator") },
+  { path: "premarket", icon: "checklist", label: N_("Pre-market checklist") },
+  { path: "vision", icon: "brain", label: N_("Analyse a chart") },
+];
+
+function openQuickActions() {
+  let ref = null;
+  const body = h(
+    "div",
+    { class: "quick-actions" },
+    QUICK_ACTIONS.map((action) =>
+      h(
+        "a",
+        { class: "quick-action", href: `#/${action.path}`, onclick: () => ref?.close() },
+        h("span", { class: "quick-action-icon" }, icon(action.icon)),
+        h("span", {}, t(action.label)),
+      ),
+    ),
+  );
+  ref = drawer({ title: t("Quick actions"), body, side: "bottom", onClose: () => {} });
 }
 
 function renderStatus(status) {
@@ -456,6 +549,7 @@ async function route() {
     link.toggleAttribute("aria-current", link.dataset.path === currentRoute.path);
   }
   document.title = `${t(currentRoute.label)} · Trading OS`;
+  highlightMobileNav();
   if (state.status) renderStatus(state.status);
 
   cleanup?.();
@@ -499,4 +593,11 @@ async function boot() {
   setInterval(() => loadStatus().catch(() => {}), 60_000);
 }
 
+function registerServiceWorker() {
+  // PWA: cache the app shell so Trading OS opens offline. Only where supported and on a secure/localhost origin.
+  if (!("serviceWorker" in navigator) || !window.isSecureContext) return;
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {}));
+}
+
+registerServiceWorker();
 boot();

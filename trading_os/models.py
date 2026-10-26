@@ -731,6 +731,10 @@ class Execution(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"), index=True)
     trade_id: Mapped[int | None] = mapped_column(ForeignKey("trades.id", ondelete="SET NULL"), nullable=True)
+    # Set when this order was sent automatically by a strategy binding (services.auto_execute).
+    binding_id: Mapped[int | None] = mapped_column(
+        ForeignKey("strategy_bindings.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     idempotency_key: Mapped[str] = mapped_column(String(64), unique=True)
     bridge: Mapped[str] = mapped_column(String(16))
     symbol: Mapped[str] = mapped_column(String(20))
@@ -812,3 +816,90 @@ class LearnerSession(TimestampMixin, Base):
     strategy_id: Mapped[int | None] = mapped_column(
         ForeignKey("strategies.id", ondelete="SET NULL"), nullable=True, index=True
     )
+
+
+class StrategyBinding(TimestampMixin, Base):
+    """Binds a strategy to a trading account so its alerts can be sent there automatically (services.auto_execute).
+
+    Automation is off until ``auto_execute`` is armed, which (for a real account) needs the typed account name,
+    and it still needs the account's own order sending switched on. Every auto order passes the full guardrails,
+    the per-binding risk and lot cap, a daily count cap and (optionally) the pre-market checklist.
+    """
+
+    __tablename__ = "strategy_bindings"
+    __table_args__ = (UniqueConstraint("strategy_id", "account_id", name="uq_binding_strategy_account"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    strategy_id: Mapped[int] = mapped_column(ForeignKey("strategies.id", ondelete="CASCADE"), index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("trading_accounts.id", ondelete="CASCADE"), index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    auto_execute: Mapped[bool] = mapped_column(Boolean, default=False)  # armed only with the typed account name
+    risk_pct: Mapped[float] = mapped_column(Float, default=1.0)  # risk per auto trade, % of the account's equity
+    max_lots_per_trade: Mapped[float | None] = mapped_column(Float, nullable=True)
+    order_type: Mapped[str] = mapped_column(String(8), default="market")  # market | limit
+    max_trades_per_day: Mapped[int] = mapped_column(Integer, default=3)  # 0 = no extra cap beyond the plan
+    require_checklist: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_auto_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)  # account-local
+    last_result: Mapped[str] = mapped_column(String(300), default="")
+
+
+class TelegramListener(Base):
+    """Settings of the Telegram signal listener (singleton row id=1). Machine-local: never in backups.
+
+    The bot token is stored encrypted with this machine's key (``services.secrets_store.SecretBox``). Only the
+    Bot API is used: the listener reads messages the bot itself receives (channels/groups it is a member of,
+    and messages forwarded or sent to it). It never signs in as a person and never defeats a chat's content
+    protection - messages from a chat with content protection on are skipped when ``skip_protected`` is set.
+    """
+
+    __tablename__ = "telegram_listener"
+
+    id: Mapped[int] = mapped_column(primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    token_enc: Mapped[str] = mapped_column(Text, default="")  # Fernet ciphertext of the bot token ("" = none)
+    token_hint: Mapped[str] = mapped_column(String(8), default="")
+    bot_username: Mapped[str] = mapped_column(String(64), default="")
+    allowed_chats: Mapped[list] = mapped_column(JSON, default=list)  # chat ids / @usernames ([] = any the bot sees)
+    skip_protected: Mapped[bool] = mapped_column(Boolean, default=True)  # respect a chat's content protection
+    last_update_id: Mapped[int] = mapped_column(Integer, default=0)  # getUpdates offset
+    last_poll_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_ok_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str] = mapped_column(String(300), default="")
+    captured: Mapped[int] = mapped_column(Integer, default=0)
+    # Optional guarded auto-execution of captured signals (off until armed, like a strategy binding).
+    auto_account_id: Mapped[int | None] = mapped_column(
+        ForeignKey("trading_accounts.id", ondelete="SET NULL"), nullable=True
+    )
+    auto_execute: Mapped[bool] = mapped_column(Boolean, default=False)
+    risk_pct: Mapped[float] = mapped_column(Float, default=1.0)
+    max_trades_per_day: Mapped[int] = mapped_column(Integer, default=3)
+    require_checklist: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class TelegramSignal(Base):
+    """A trading signal captured from Telegram by the listener. Machine-local: never in backups."""
+
+    __tablename__ = "telegram_signals"
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime, index=True)  # account-local
+    update_id: Mapped[int] = mapped_column(Integer, default=0)
+    chat_id: Mapped[str] = mapped_column(String(40), default="")
+    chat_title: Mapped[str] = mapped_column(String(160), default="")
+    message_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sender: Mapped[str] = mapped_column(String(120), default="")
+    source: Mapped[str] = mapped_column(String(12), default="channel")  # channel | group | forward | direct
+    raw_text: Mapped[str] = mapped_column(Text, default="")
+    symbol: Mapped[str] = mapped_column(String(20), default="")
+    direction: Mapped[str] = mapped_column(String(5), default="")  # long | short | ""
+    order_type: Mapped[str] = mapped_column(String(8), default="market")
+    entry_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    take_profits: Mapped[list[float]] = mapped_column(JSON, default=list)
+    parse_ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
+    status: Mapped[str] = mapped_column(String(10), default="new")  # new | sent | dismissed
+    auto_result: Mapped[str] = mapped_column(String(300), default="")
+    execution_id: Mapped[int | None] = mapped_column(ForeignKey("executions.id", ondelete="SET NULL"), nullable=True)

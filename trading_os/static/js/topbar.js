@@ -4,8 +4,9 @@
 
 import { accountMoney, colorDot, initials, kindBadge, shownAccount } from "./accounts-ui.js";
 import { api } from "./api.js";
-import { h, icon, toast } from "./dom.js";
-import { t, tn } from "./i18n.js";
+import { clear, h, icon, toast } from "./dom.js";
+import { fmt } from "./format.js";
+import { N_, t, tn } from "./i18n.js";
 import { openOnboarding } from "./onboarding.js";
 import { accounts, activeAccount, onStatus, reloadAccounts, setActiveAccount, state } from "./state.js";
 
@@ -445,6 +446,110 @@ function guideButton() {
  * Fill the top bar. ``title``, ``strip`` and ``killswitch`` are rebuilt by the caller on each status refresh;
  * ``onSwitch`` re-renders the current page after another account was chosen.
  */
+// ------------------------------------------------------------ connectivity indicator
+
+const LEVEL_LABEL = { ok: N_("Online"), warn: N_("Check connections"), down: N_("Offline") };
+const STATE_DOT = { live: "ok", idle: "warn", stale: "warn", error: "bad", off: "", down: "bad", warn: "warn", ok: "ok" };
+
+function createConnectivity() {
+  let data = null;
+  let open = false;
+  const dot = h("span", { class: "conn-dot" });
+  const panel = h("div", { class: "conn-panel", role: "dialog", "aria-label": t("Connections"), hidden: true });
+  const button = h(
+    "button",
+    {
+      type: "button",
+      class: "conn-btn",
+      "aria-haspopup": "dialog",
+      "aria-expanded": "false",
+      title: t("Connections"),
+      onclick: () => toggle(!open),
+    },
+    dot,
+    icon("wifi", "icon conn-glyph"),
+  );
+  const el = h("div", { class: "conn" }, button, panel);
+
+  function toggle(next) {
+    open = next;
+    panel.hidden = !open;
+    button.setAttribute("aria-expanded", String(open));
+    if (open) {
+      draw();
+      refresh(true);
+      document.addEventListener("pointerdown", onOutside, true);
+      document.addEventListener("keydown", onEsc, true);
+    } else {
+      document.removeEventListener("pointerdown", onOutside, true);
+      document.removeEventListener("keydown", onEsc, true);
+    }
+  }
+  function onOutside(event) {
+    if (!el.contains(event.target)) toggle(false);
+  }
+  function onEsc(event) {
+    if (event.key === "Escape") {
+      toggle(false);
+      button.focus();
+    }
+  }
+
+  async function refresh(force = false) {
+    try {
+      data = await api.get(`/api/status/connectivity${force ? "?refresh=true" : ""}`);
+    } catch {
+      data = null;
+    }
+    paint();
+    if (open) draw();
+  }
+
+  function paint() {
+    const level = data?.level || "down";
+    dot.className = `conn-dot ${STATE_DOT[level] || "bad"}`;
+    button.setAttribute("aria-label", t("Connections: {state}", { state: t(LEVEL_LABEL[level] || "Offline") }));
+    button.title = button.getAttribute("aria-label");
+  }
+
+  function line(dotClass, label, detail) {
+    return h("div", { class: "conn-line" }, h("span", { class: `conn-dot ${dotClass}` }), h("span", { class: "conn-label" }, label), detail ? h("span", { class: "conn-detail muted small" }, detail) : null);
+  }
+
+  function draw() {
+    if (!data) {
+      clear(panel, h("div", { class: "conn-head" }, t("Connections")), h("div", { class: "muted small" }, t("Status unavailable")));
+      return;
+    }
+    const net = data.internet.online;
+    const bridges = data.bridges || [];
+    clear(
+      panel,
+      h("div", { class: "conn-head" }, t("Connections")),
+      line(net ? "ok" : "bad", t("Internet"), net ? t("Online") : t("No connection")),
+      data.telegram.configured ? line(STATE_DOT[data.telegram.state] || "", t("Telegram listener"), telegramDetail(data.telegram)) : null,
+      bridges.length ? h("div", { class: "conn-sub muted small" }, t("Trading accounts")) : null,
+      ...bridges.map((b) => line(STATE_DOT[b.state] || "", b.name, bridgeDetail(b))),
+      h("button", { class: "btn ghost sm conn-refresh", type: "button", onclick: () => refresh(true) }, icon("refresh"), t("Refresh")),
+    );
+  }
+
+  function bridgeDetail(b) {
+    if (!b.sending) return t("sending off");
+    if (b.state === "error") return b.last_error || t("Error");
+    if (b.last_seen_at) return t("seen {when}", { when: fmt.datetime(b.last_seen_at) });
+    return t("no data yet");
+  }
+  function telegramDetail(tg) {
+    if (!tg.enabled) return t("paused");
+    if (tg.state === "error") return tg.last_error || t("Error");
+    return tg.last_ok_at ? t("ok {when}", { when: fmt.datetime(tg.last_ok_at) }) : t("waiting");
+  }
+
+  paint();
+  return { el, update: () => refresh(false) };
+}
+
 export function renderTopbar(bar, { title, strip, killswitch, onSwitch }) {
   onSwitched = onSwitch || (() => {});
   if (!slots.title || !bar.contains(slots.title)) {
@@ -455,12 +560,15 @@ export function renderTopbar(bar, { title, strip, killswitch, onSwitch }) {
     slots.kill = h("span");
     slots.strip = h("div");
     slots.tools = h("div", { class: "topbar-tools" }, slots.switcher.el, slots.kill);
-    slots.user = h("div", { class: "topbar-user" }, guideButton(), slots.profile.el);
+    slots.connectivity = createConnectivity();
+    slots.user = h("div", { class: "topbar-user" }, slots.connectivity.el, guideButton(), slots.profile.el);
     bar.replaceChildren(slots.title, slots.tools, slots.user, slots.strip);
     if (first) {
       // Every status refresh (the 60 s poll, a trade, an account switch) also refreshes the accounts' figures.
       onStatus(() => loadAccountsSummary().catch(() => {}));
+      onStatus(() => slots.connectivity?.update());
       loadAccountsSummary().catch(() => {});
+      slots.connectivity.update();
     }
   }
   slots.title.textContent = title;

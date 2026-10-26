@@ -71,6 +71,9 @@ const ICONS = {
   message: "M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z",
   send: "M22 2L11 13M22 2l-7 20-4-9-9-4z",
   fileText: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8",
+  pause: "M6 4h4v16H6zM14 4h4v16h-4z",
+  wifi: "M5 12.55a11 11 0 0 1 14 0M8.5 16.1a6 6 0 0 1 7 0M2 8.82a15 15 0 0 1 20 0M12 20h.01",
+  wifiOff: "M1 1l22 22M16.72 11.06A10.9 10.9 0 0 1 19 12.55M5 12.55a10.9 10.9 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22 8.82M1.42 9a15.9 15.9 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01",
 };
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -191,6 +194,84 @@ export function confirmDialog(message, { title = t("Please confirm"), confirmTex
       onClose: () => answered || resolve(false),
     });
   });
+}
+
+/**
+ * A slide-over drawer (``side``: "left" | "right" | "bottom"). ``title`` draws a header with a close button;
+ * ``body`` is the content. Returns {el, close}. Escape and a tap on the scrim close it; focus is restored.
+ */
+export function drawer({ title = "", body, side = "left", onClose, label } = {}) {
+  const previouslyFocused = document.activeElement;
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    scrim.classList.remove("open");
+    panel.classList.remove("open");
+    document.removeEventListener("keydown", onKey);
+    document.documentElement.classList.remove("drawer-open");
+    setTimeout(() => scrim.remove(), 200); // after the slide-out transition
+    previouslyFocused?.focus?.();
+    onClose?.();
+  };
+  const onKey = (event) => {
+    if (event.key === "Escape") close();
+  };
+  const panel = h(
+    "div",
+    { class: `drawer drawer-${side}`, role: "dialog", "aria-modal": "true", "aria-label": label || title },
+    title ? h("div", { class: "drawer-head" }, h("h2", {}, title), h("button", { class: "btn ghost icon-only", type: "button", "aria-label": t("Close"), onclick: close }, icon("x"))) : null,
+    h("div", { class: "drawer-body" }, body),
+  );
+  const scrim = h("div", { class: "drawer-scrim", onmousedown: (event) => event.target === scrim && close() }, panel);
+  document.body.append(scrim);
+  document.addEventListener("keydown", onKey);
+  document.documentElement.classList.add("drawer-open");
+  requestAnimationFrame(() => {
+    scrim.classList.add("open");
+    panel.classList.add("open");
+    panel.querySelector("a, button, input, select, textarea")?.focus();
+  });
+  return { el: panel, close };
+}
+
+/**
+ * An accordion of collapsible sections: ``sections`` is [{title, body, open, badge}]. Only the sections' open
+ * state is managed here; the bodies are built by the caller. Returns the container element.
+ */
+export function accordion(sections, { single = false } = {}) {
+  const container = h("div", { class: "accordion" });
+  const panels = sections.filter(Boolean).map((section, index) => {
+    const body = h("div", { class: "accordion-body", role: "region", hidden: !section.open }, section.body);
+    const toggle = h(
+      "button",
+      {
+        type: "button",
+        class: "accordion-toggle",
+        "aria-expanded": String(Boolean(section.open)),
+        onclick: () => set(index, body.hidden),
+      },
+      icon("chevronRight", "icon accordion-caret"),
+      h("span", { class: "accordion-title" }, section.title),
+      section.badge != null ? h("span", { class: "accordion-badge" }, section.badge) : null,
+    );
+    return { el: h("div", { class: "accordion-item" }, toggle, body), toggle, body };
+  });
+
+  function set(index, open) {
+    panels.forEach((panel, i) => {
+      const show = i === index ? open : single ? false : !panel.body.hidden;
+      panel.body.hidden = !show;
+      panel.toggle.setAttribute("aria-expanded", String(show));
+      panel.el.classList.toggle("open", show);
+    });
+  }
+
+  panels.forEach((panel) => {
+    panel.el.classList.toggle("open", Boolean(!panel.body.hidden));
+    container.append(panel.el);
+  });
+  return container;
 }
 
 export function lightbox(src) {

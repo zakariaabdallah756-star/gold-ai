@@ -1,0 +1,16 @@
+{
+  "Add the bot token before turning the listener on": "Aggiungi il token del bot prima di attivare il listener",
+  "Choose the account for auto-execution first": "Scegli prima il conto per l'esecuzione automatica",
+  "Could not reach Telegram ({error})": "Impossibile raggiungere Telegram ({error})",
+  "Dismissed": "Ignorato",
+  "New": "Nuovo",
+  "No bot token set.": "Nessun token del bot impostato.",
+  "Sent": "Inviato",
+  "Telegram error: {detail}": "Errore di Telegram: {detail}",
+  "Telegram rejected the bot token - check it with @BotFather": "Telegram ha rifiutato il token del bot - controllalo con @BotFather",
+  "Telegram sent an unexpected response": "Telegram ha inviato una risposta inattesa",
+  "That does not look like a bot token (it looks like 123456:ABC… from @BotFather)": "Non sembra un token del bot (ha la forma 123456:ABC… di @BotFather)",
+  "The bot token cannot be read on this computer - paste it again": "Il token del bot non può essere letto su questo computer - incollalo di nuovo",
+  "The signal is missing an entry or stop price.": "Al segnale manca il prezzo di entrata o lo stop.",
+  "Timed out waiting for Telegram": "Tempo scaduto in attesa di Telegram"
+}

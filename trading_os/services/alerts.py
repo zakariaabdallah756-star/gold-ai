@@ -41,7 +41,7 @@ from ..models import (
     TradingSession,
 )
 from ..schemas import TargetIn, TradeIn
-from . import accounts, detectors, market_data, notify, trades
+from . import accounts, auto_execute, detectors, market_data, notify, trades
 from .account import current_equity, get_settings, local_now
 from .copilot import TradeContext, strategy_violations
 from .guardrails import Violation
@@ -871,7 +871,12 @@ def register_jobs(scheduler, config) -> None:
             settings = get_settings(db)
             if not (settings.scanner_enabled or manual):
                 return job.last_result  # keep the last scan's results while the switch is off
-            return scan_summary(db, settings, local_now(settings), manual=manual)
+            summary = scan_summary(db, settings, local_now(settings), manual=manual)
+            # Auto-execute the new alerts whose strategy has an armed binding (nothing armed -> no-op).
+            auto = auto_execute.run_for_results(db, settings, getattr(scheduler, "secrets", None), summary["results"])
+            if auto:
+                summary["auto"] = auto
+            return summary
 
     job = scheduler.register(
         JOB_NAME, interval, run, description="Strategy alert scanner (closed candles only)", initial_delay=10.0

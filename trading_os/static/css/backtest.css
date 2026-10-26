@@ -19,3 +19,15 @@
   .bt-list { position: static; }
 }
 .bt-show-all { margin: 10px auto 0; display: flex; }
+
+
+/* Strategy binding (v1.7). */
+.bind-card .card-head h2 { display: inline-flex; align-items: center; gap: 8px; }
+.bind-card .card-head h2 .icon { width: 16px; height: 16px; color: var(--muted); }
+.bind-form { margin-bottom: 4px; }
+.bind-check { gap: 7px; align-items: center; font-size: 13px; color: var(--text-2); }
+.bind-actions { gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+.bind-auto { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 220px; }
+.bind-auto.on { padding: 8px 12px; border-radius: var(--radius-sm); background: var(--profit-wash); border: 1px solid rgba(38, 166, 154, 0.35); }
+.bind-auto.on .row { gap: 6px; align-items: center; font-size: 13px; color: var(--text); }
+.bind-auto.on .icon { width: 15px; height: 15px; color: var(--profit); }

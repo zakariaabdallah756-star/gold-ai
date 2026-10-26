@@ -79,6 +79,11 @@ def is_default(settings: AccountSettings, account: TradingAccount) -> bool:
     return account.id == settings.default_account_id
 
 
+def account_label(settings: AccountSettings, account: TradingAccount) -> str:
+    """The account's display name (the default account mirrors the settings account name)."""
+    return settings.account_name if is_default(settings, account) else account.name
+
+
 def sync_default_from_settings(db: Session, settings: AccountSettings) -> None:
     """Copy the settings' account name, currency and starting balance to the default account."""
     account = default_account(db, settings)
