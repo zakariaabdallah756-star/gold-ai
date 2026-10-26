@@ -266,9 +266,11 @@ def test_without_a_secret_box_nothing_is_sent(client):
 def test_bindings_are_in_backups(client):
     import json
 
+    from trading_os.services.backup import SCHEMA_VERSION
+
     _, strat, binding = armed_paper(client)
     backup = client.get("/api/export/backup.json").json()
-    assert backup["schema_version"] == 7
+    assert backup["schema_version"] == SCHEMA_VERSION
     [row] = backup["tables"]["strategy_bindings"]
     assert row["auto_execute"] is True and row["risk_pct"] == 1.0
     client.delete(f"/api/bindings/{binding['id']}")

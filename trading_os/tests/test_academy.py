@@ -262,11 +262,13 @@ def test_topics_follow_the_language(client):
 
 
 def test_the_academy_and_its_notes_are_in_backups(client):
+    from trading_os.services.backup import SCHEMA_VERSION
+
     video = add(client, title="Keep me")
     client.put(f"/api/academy/videos/{video['id']}/notes", json={"notes": "my note"})
     client.put(f"/api/academy/videos/{video['id']}/progress", json={"completed": True})
     backup = client.get("/api/export/backup.json").json()
-    assert backup["schema_version"] == 7
+    assert backup["schema_version"] == SCHEMA_VERSION
     assert backup["tables"]["academy_videos"][0]["notes"] == "my note"
     client.delete(f"/api/academy/videos/{video['id']}")
     restored = client.post("/api/import", files={"file": ("b.json", json.dumps(backup), "application/json")})

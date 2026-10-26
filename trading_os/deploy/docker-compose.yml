@@ -1,0 +1,39 @@
+# Trading OS & Journal — 24/7 headless deployment (v1.8).
+#
+# From the repository root:
+#     docker compose -f trading_os/deploy/docker-compose.yml up -d --build
+#
+# The data volume keeps your journal across restarts and image rebuilds.
+
+services:
+  trading-os:
+    build:
+      context: ../..
+      dockerfile: trading_os/deploy/Dockerfile
+    image: trading-os:latest
+    container_name: trading-os
+    restart: unless-stopped
+    ports:
+      - "8765:8765"
+    volumes:
+      - trading-os-data:/data
+    environment:
+      # Domain name(s) you reach the app by, comma separated (e.g. "trading.example.com").
+      # IP addresses and localhost are always allowed, so leave this empty for an IP-only VPS.
+      TRADING_OS_ALLOWED_HOSTS: "${TRADING_OS_ALLOWED_HOSTS:-}"
+      # Optional overrides.
+      # TRADING_OS_MAX_UPLOAD_MB: "10"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys,urllib.request; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8765/api/health', timeout=4).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    # Headless journaling is light; a modest cap keeps a shared VPS healthy.
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+volumes:
+  trading-os-data:

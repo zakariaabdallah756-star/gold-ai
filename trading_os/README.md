@@ -105,6 +105,20 @@ Allowed names, the password and sign-outs can be changed only on the computer ru
 (at `http://localhost:8765`, or at the address given with `--host`), never from a phone or through a tunnel, so a remote visitor cannot lock you
 out or widen access. The tab also shows how the current device is connected and which rule let it in.
 
+## Run it 24/7 (headless / cloud)
+
+To keep the Telegram bridge and signal auto-execution working around the clock, run Trading OS unattended on a
+Linux VPS. Ready-made assets live in [`trading_os/deploy/`](trading_os/deploy/README.md):
+
+- **Docker Compose** — `docker compose -f trading_os/deploy/docker-compose.yml up -d --build` (data on a named
+  volume, auto-restart, health-checked).
+- **systemd** — `trading-os.service` + `launch.sh` to run it directly on the host.
+
+A tiny unauthenticated probe, `GET /api/health`, returns `200` while the process and database are up (`503`
+otherwise) for Docker and uptime monitors; it is the one endpoint that stays reachable when a remote-access
+password is set. Put the app behind an HTTPS reverse proxy and set `TRADING_OS_ALLOWED_HOSTS` to your domain.
+See the [deployment guide](trading_os/deploy/README.md) for the details.
+
 ## What's inside
 
 The sidebar groups the pages into **Trade**, **Improve** and **Setup**.
@@ -153,6 +167,9 @@ On first launch the guide opens by itself once the risk disclaimer has been acce
 - Each message is parsed (symbol, direction, entry, SL, TP) and listed here. One tap loads a signal into the Signals ticket.
 - It reads only what the bot is sent and **never signs in as you or bypasses a channel's content protection**: messages from a protected chat are skipped (their text is not stored) unless you turn that off.
 - Optional, off by default: auto-execute a clean signal on a chosen account (armed with the typed account name; your guardrails, the per-day cap and the checklist gate all apply).
+
+**External signal API.** On the same page, *External signal API* lets a bridge or bot post signals over HTTP instead of a Telegram bot — `POST /api/v1/signals/incoming`, protected by a secret Bearer token you generate there (stored as a hash, never exported). The body is a raw signal message (`{"text": "..."}`) or structured fields (`{"symbol", "action", "entry", "sl", "tp", "source_channel"}`). Incoming signals land in the same list and follow the same auto-execution arming shown above.
+- The companion **`telegram_bridge.py`** (repository root) uses Telethon to read your own Telegram account's channels and posts their signals to this endpoint. It respects content protection too: messages from channels that forbid forwarding/saving are skipped. Comments and setup instructions in the file are in Italian.
 
 **Pre-Market.** The daily checklist covers bias, key levels, the news plan and notes. It auto-saves and tracks your streak; until every required item is ticked, new entries stay locked.
 - The **economic calendar** card lists the coming week's releases (NFP, CPI, FOMC, ...) with their impact and guardrail window.
@@ -478,7 +495,8 @@ trading_os/
   seed.py         default plan (markets, sessions, strategies, checklist, mistakes, partners)
   api/            REST routers (plan, accounts, execution, checklist, risk, trades, positions, signals,
                   alerts, news, notifications, reviews, analytics, vision, backtest, academy, learner,
-                  bindings, telegram, status, prop, partners, promos, reports, backup, network, i18n)
+                  bindings, telegram, ingest, status, prop, partners, promos, reports, backup, network,
+                  i18n, health)
   services/       domain logic
     sizing.py         position sizing & R:R math           (pure)
     guardrails.py     risk rules & day state               (pure)
@@ -501,6 +519,7 @@ trading_os/
     academy.py        Trading Academy: YouTube link parsing, lessons, progress
     auto_execute.py   guarded auto-execution of bound strategies' alerts (the one caller of execution)
     telegram_listener.py  Telegram bot listener: captures and parses signals (Bot API, no bypass)
+    ingest.py         external signal ingestion: Bearer token, capture + guarded auto-execution
     connectivity.py   internet reachability, bridge freshness, Telegram listener state
     vision.py / ai_client.py    Claude chart analysis and Q&A
     reviews.py        post-market reviews               partners.py  partner listings
@@ -514,6 +533,7 @@ trading_os/
     scheduler.py      background job thread
     demo.py           demo data generator
   bridges/        MetaTrader Expert Advisors (TradingOS_Bridge.mq5 / .mq4) for the EA bridge
+  deploy/         24/7 headless deployment: Dockerfile, docker-compose.yml, systemd unit, launch.sh, README
   locales/it/     Italian catalogs (server and web)
   static/         dark-themed SPA (vanilla ES modules, no build step; Chart.js vendored),
                   service worker (sw.js) and web app manifest; js/autoplay.js is the carousel timing

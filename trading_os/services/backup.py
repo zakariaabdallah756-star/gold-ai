@@ -55,9 +55,9 @@ from ..models import (
 from . import accounts, uploads
 from .i18n import tr
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 # Older backups restore fine: missing tables/columns fall back to defaults.
-SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7)
+SUPPORTED_SCHEMA_VERSIONS = (1, 2, 3, 4, 5, 6, 7, 8)
 # Secrets that stay on this machine: never exported, kept as-is on restore.
 # (Notification channels and pushed candles are not part of backups at all.)
 PRIVATE_COLUMNS = {
@@ -69,6 +69,8 @@ PRIVATE_COLUMNS = {
         "allowed_hosts",
         "remote_password_hash",
         "remote_session_secret",
+        "ingest_token_hash",
+        "ingest_token_hint",
     ),
     # How an account reaches its broker is this machine's business, and a restore must never switch live
     # order routing on: these stay as they are for accounts that come back with the same id.

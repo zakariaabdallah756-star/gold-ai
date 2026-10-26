@@ -1,0 +1,13 @@
+{
+  "Accept incoming signals": "Accetta i segnali in arrivo",
+  "Access token": "Token di accesso",
+  "Copy it now — it is shown only once. Anyone with this token can post signals, so keep it secret.": "Copialo ora — viene mostrato una sola volta. Chiunque abbia questo token può inviare segnali, quindi tienilo segreto.",
+  "Endpoint": "Endpoint",
+  "External signal API": "API segnali esterni",
+  "Generate token": "Genera token",
+  "Let a bridge or bot post signals to Trading OS over HTTP. Signals arrive on this page and follow the same auto-execution arming below. Protected by a secret token sent as a Bearer header.": "Consente a un bridge o a un bot di inviare segnali a Trading OS via HTTP. I segnali arrivano in questa pagina e seguono la stessa abilitazione dell'esecuzione automatica qui sotto. Protetto da un token segreto inviato come intestazione Bearer.",
+  "No token yet": "Nessun token ancora",
+  "Regenerate token": "Rigenera token",
+  "Set (····{hint})": "Impostato (····{hint})",
+  "Your API token": "Il tuo token API"
+}

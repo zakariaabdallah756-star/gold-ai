@@ -533,6 +533,21 @@ def test_password_gate_for_other_devices(tmp_path, monkeypatch):
         assert response.status_code == 403 and response.json()["code"] == "local_only", path
 
 
+def test_the_health_probe_answers_and_skips_the_password(tmp_path, monkeypatch):
+    from trading_os import __version__
+
+    app = make_app(tmp_path, monkeypatch)
+    local, lan = local_client(app), remote_client(app)
+    ok = local.get("/api/health")
+    assert ok.status_code == 200
+    body = ok.json()
+    assert body["status"] == "ok" and body["database"] == "ok" and body["version"] == __version__
+    # A monitor on another device can poll health without the remote-access password, but not the rest.
+    set_password(app)
+    assert lan.get("/api/health").status_code == 200
+    assert lan.get("/api/plan").json()["code"] == "login_required"
+
+
 def test_sign_out_password_change_and_sign_out_all_end_sessions(tmp_path, monkeypatch):
     app = make_app(tmp_path, monkeypatch)
     set_password(app)

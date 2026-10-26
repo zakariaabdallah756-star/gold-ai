@@ -10,7 +10,9 @@ from . import (
     bindings,
     checklist,
     execution,
+    health,
     i18n,
+    ingest,
     learner,
     network,
     news,
@@ -50,6 +52,7 @@ routers = [
     learner.router,
     bindings.router,
     telegram.router,
+    ingest.router,
     status.router,
     prop.router,
     partners.router,
@@ -58,4 +61,5 @@ routers = [
     backup.router,
     i18n.router,
     network.router,
+    health.router,
 ]

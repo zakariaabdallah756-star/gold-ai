@@ -356,11 +356,15 @@ def _telegram_sent_today(db: Session, account_id: int, today_start: datetime) ->
 
 
 def execute_signal(db: Session, settings: AccountSettings, box, listener, signal, now: datetime) -> AutoResult:
-    """Send a captured Telegram signal as an order on the listener's chosen account, with the same rails as a
-    strategy binding. Requires a parsed signal with a symbol, direction, stop and entry price."""
+    """Send a captured signal (Telegram or the ingestion API) as an order on the listener's chosen account, with
+    the same rails as a strategy binding. Requires a parsed signal with a symbol, direction, stop and entry price.
+
+    The gate is the arming (``auto_execute`` + a chosen account), not ``listener.enabled`` (the Telegram-polling
+    switch): an API-ingested signal must auto-execute even when in-app Telegram polling is off. The Telegram path
+    (``run_for_telegram``) still guards on ``enabled`` itself, so turning polling off stops Telegram auto-orders."""
     if box is None:
         return AutoResult("skipped", tr("Secrets are unavailable in this context."))
-    if not (listener.enabled and listener.auto_execute and listener.auto_account_id):
+    if not (listener.auto_execute and listener.auto_account_id):
         return AutoResult("skipped", tr(SKIP_DISABLED))
     if not (signal.parse_ok and signal.entry_price is not None and signal.stop_loss is not None):
         return _record_signal(db, signal, AutoResult("skipped", tr("The signal is missing an entry or stop price.")))

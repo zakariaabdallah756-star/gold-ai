@@ -82,7 +82,9 @@ FORWARD_HEADERS = (
     "tailscale-user-login",
 )
 # Paths served without a sign-in: the page shell and what the sign-in form needs.
-EXEMPT_PATHS = frozenset({"/", "/sw.js", "/api/access/status", "/api/access/login", "/api/access/logout", "/api/i18n"})
+EXEMPT_PATHS = frozenset(
+    {"/", "/sw.js", "/api/health", "/api/access/status", "/api/access/login", "/api/access/logout", "/api/i18n"}
+)
 EXEMPT_PREFIXES = ("/static/", "/api/i18n/")
 # Tailscale/carrier-grade NAT addresses (100.64.0.0/10) are reachable like LAN addresses.
 _SHARED_NETWORK = ipaddress.ip_network("100.64.0.0/10")
