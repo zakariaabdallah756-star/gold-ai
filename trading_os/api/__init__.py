@@ -23,6 +23,7 @@ from . import (
     reviews,
     risk,
     signals,
+    telegram,
     trades,
     vision,
 )
@@ -47,6 +48,7 @@ routers = [
     academy.router,
     learner.router,
     bindings.router,
+    telegram.router,
     prop.router,
     partners.router,
     promos.router,

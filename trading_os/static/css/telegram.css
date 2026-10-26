@@ -1,0 +1,22 @@
+/* Telegram signal listener (v1.7). Uses the tokens defined in app.css. */
+
+.tg-setup .card-head h2, .tg-auto .card-head h2, .tg-signals .card-head h2 { display: inline-flex; align-items: center; gap: 8px; }
+.tg-setup .card-head h2 .icon, .tg-auto .card-head h2 .icon, .tg-signals .card-head h2 .icon { width: 16px; height: 16px; color: var(--muted); }
+.tg-row { margin-bottom: 12px; }
+.tg-config { margin: 4px 0; }
+.tg-check { gap: 7px; align-items: center; font-size: 13px; color: var(--text-2); }
+.tg-status-row { gap: 10px; align-items: center; margin-top: 10px; }
+.tg-status-row .badge .icon { width: 12px; height: 12px; }
+
+.tg-signal-list { display: flex; flex-direction: column; gap: 10px; }
+.tg-signal { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); }
+.tg-signal.dim { opacity: 0.55; }
+.tg-signal-head { display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; }
+.tg-signal-head .row { gap: 6px; flex-wrap: wrap; }
+.tg-signal-nums { margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+.tg-signal-text { margin: 0 0 8px; padding: 8px 10px; border-radius: 6px; background: var(--bg); color: var(--text-2); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 140px; overflow-y: auto; }
+.tg-signal-actions { gap: 8px; align-items: center; }
+
+@media (max-width: 640px) {
+  .tg-signal-head { flex-direction: column; align-items: flex-start; }
+}

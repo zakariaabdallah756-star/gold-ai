@@ -337,3 +337,125 @@ def binding_out(db: Session, settings: AccountSettings, binding: StrategyBinding
         "last_auto_at": binding.last_auto_at.isoformat() if binding.last_auto_at else None,
         "last_result": binding.last_result,
     }
+
+
+# ---------------------------------------------------- Telegram signals (optional, guarded)
+
+
+def _telegram_sent_today(db: Session, account_id: int, today_start: datetime) -> int:
+    from ..models import TelegramSignal
+
+    return (
+        db.scalar(
+            select(func.count(TelegramSignal.id)).where(
+                TelegramSignal.status == "sent", TelegramSignal.received_at >= today_start
+            )
+        )
+        or 0
+    )
+
+
+def execute_signal(db: Session, settings: AccountSettings, box, listener, signal, now: datetime) -> AutoResult:
+    """Send a captured Telegram signal as an order on the listener's chosen account, with the same rails as a
+    strategy binding. Requires a parsed signal with a symbol, direction, stop and entry price."""
+    if box is None:
+        return AutoResult("skipped", tr("Secrets are unavailable in this context."))
+    if not (listener.enabled and listener.auto_execute and listener.auto_account_id):
+        return AutoResult("skipped", tr(SKIP_DISABLED))
+    if not (signal.parse_ok and signal.entry_price is not None and signal.stop_loss is not None):
+        return _record_signal(db, signal, AutoResult("skipped", tr("The signal is missing an entry or stop price.")))
+    account = db.get(TradingAccount, listener.auto_account_id)
+    if account is None or account.status != "active" or not account.execution_enabled:
+        return _record_signal(db, signal, AutoResult("skipped", tr("Order sending is off for this account.")))
+    if listener.require_checklist and not checklist.is_complete(db, now.date()):
+        return _record_signal(db, signal, AutoResult("skipped", tr("The pre-market checklist is not done.")))
+    cap = min(listener.max_trades_per_day, MAX_DAILY_CAP) if listener.max_trades_per_day else MAX_DAILY_CAP
+    today_start = datetime.combine(now.date(), datetime.min.time())
+    if _telegram_sent_today(db, account.id, today_start) >= cap:
+        return _record_signal(db, signal, AutoResult("skipped", tr("Today's auto-order limit is reached.")))
+
+    market = db.scalar(select(Market).where(Market.symbol == signal.symbol))
+    if market is None:
+        return _record_signal(
+            db, signal, AutoResult("error", tr("{symbol} is not one of your markets.", symbol=signal.symbol))
+        )
+    currency = accounts.currency_of(settings, account)
+    equity = current_equity(db, settings, (account.id,))
+    try:
+        sized = calculate_position_size(
+            market, currency, equity, listener.risk_pct, entry=signal.entry_price, stop=signal.stop_loss
+        )
+    except SizingError as exc:
+        return _record_signal(db, signal, AutoResult("error", str(exc)))
+    if sized.lots <= 0:
+        return _record_signal(
+            db,
+            signal,
+            AutoResult("error", tr("The position size came out as zero at {risk:g}% risk.", risk=listener.risk_pct)),
+        )
+    targets = list(signal.take_profits or [])
+    ticket = TradeIn(
+        status="open",
+        entry_time=now,
+        symbol=signal.symbol,
+        direction=signal.direction,
+        entry_price=signal.entry_price,
+        stop_loss=signal.stop_loss,
+        take_profit=targets[-1] if targets else None,
+        position_size=sized.lots,
+        risk_amount=None,
+        source="signal",
+        targets=[TargetIn(price=p, close_pct=c) for p, c in zip(targets, _even_splits(len(targets)), strict=True)],
+        account_id=account.id,
+    )
+    key = f"tg:{signal.id}"
+    try:
+        result = execution.submit(db, settings, box, account, ticket, key, order_type="market")
+    except trade_service.TradeBlocked as exc:
+        codes = ", ".join(sorted({v.code for v in exc.violations}))
+        return _record_signal(db, signal, AutoResult("blocked", tr("Guardrails blocked it: {codes}", codes=codes)))
+    except execution.ExecutionError as exc:
+        db.rollback()
+        return _record_signal(db, signal, AutoResult("error", str(exc)))
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        log.exception("telegram auto execution failed")
+        return _record_signal(db, signal, AutoResult("error", f"{type(exc).__name__}"))
+    row = result.execution
+    accepted = row.status in ("pending", "sent", "filled")
+    outcome = AutoResult(
+        "executed" if accepted else "error",
+        row.message or tr("Order sent"),
+        execution_id=row.id,
+        trade_id=result.trade.id if result.trade is not None else None,
+    )
+    db.commit()
+    return _record_signal(db, signal, outcome)
+
+
+def _record_signal(db: Session, signal, result: AutoResult):
+    signal.auto_result = result.message[:300]
+    if result.status == "executed":
+        signal.status = "sent"
+        signal.execution_id = result.execution_id
+    db.commit()
+    return result
+
+
+def run_for_telegram(db: Session, settings: AccountSettings, box, signals: list) -> list[dict]:
+    """Called by the Telegram listener after it captures signals: auto-execute when the listener is armed."""
+    from ..models import TelegramListener
+
+    listener = db.get(TelegramListener, 1)
+    if listener is None or not (listener.enabled and listener.auto_execute):
+        return []
+    now = local_now(settings)
+    out = []
+    for signal in signals:
+        if signal.status != "new" or not signal.parse_ok:
+            continue
+        result = execute_signal(db, settings, box, listener, signal, now)
+        out.append(
+            {"signal_id": signal.id, "symbol": signal.symbol, "status": result.status, "message": result.message}
+        )
+    return out

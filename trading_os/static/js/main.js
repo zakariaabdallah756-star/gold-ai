@@ -24,6 +24,7 @@ import * as positions from "./views/positions.js";
 import * as prop from "./views/prop.js";
 import * as review from "./views/review.js";
 import * as signals from "./views/signals.js";
+import * as telegram from "./views/telegram.js";
 import * as timeCalendar from "./views/calendar.js";
 import * as vision from "./views/vision.js";
 
@@ -32,6 +33,7 @@ const ROUTES = [
   { path: "premarket", label: N_("Pre-Market"), icon: "checklist", view: checklist, group: N_("Trade") },
   { path: "signals", label: N_("Signals"), icon: "signal", view: signals, group: N_("Trade") },
   { path: "alerts", label: N_("Strategy Alerts"), icon: "bell", view: alerts, group: N_("Trade") },
+  { path: "telegram", label: N_("Telegram"), icon: "send", view: telegram, group: N_("Trade") },
   { path: "vision", label: N_("Vision AI"), icon: "brain", view: vision, group: N_("Trade") },
   { path: "calculator", label: N_("Risk Calculator"), icon: "calculator", view: calculator, group: N_("Trade") },
   { path: "positions", label: N_("Positions"), icon: "layers", view: positions, group: N_("Trade") },
